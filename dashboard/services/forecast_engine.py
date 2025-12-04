@@ -94,7 +94,14 @@ def _get_station_cap_kw(station, max_power_hist: float) -> float:
         try:
             v_mw = float(cap_mw)
             if v_mw > 0:
-                return v_mw * 1000.0
+                cap_kw_candidate = v_mw * 1000.0
+
+                # Если значение в поле «MW» оказалось завышено на порядки относительно
+                # наблюдаемой мощности, трактуем его как кВт (частая ошибка ввода).
+                if max_power_hist > 0 and cap_kw_candidate > max_power_hist * 100:
+                    return v_mw
+
+                return cap_kw_candidate
         except Exception:
             pass
 
