@@ -64,51 +64,6 @@ NP_REGRESSORS = [
 ]
 
 
-# ======================= АНСАМБЛЬ =======================
-
-def ensemble(
-    pred_np: np.ndarray,
-    pred_xgb: np.ndarray,
-    pred_heur: np.ndarray,
-    min_value: float = 1.0,
-    low_heur_threshold: float = 0.5,
-    headroom: float = 1.5,
-) -> np.ndarray:
-    """
-    Склеивает прогнозы, подстраховываясь эвристикой в «тёмные» часы и
-    отбрасывая слишком оптимистичные модели.
-
-    - Если эвристика < ``low_heur_threshold`` (почти нет солнца), NP/XGB
-      принудительно обнуляются и итог совпадает с эвристикой.
-    - Модельный прогноз учитывается только если его модуль ≥ ``min_value``
-      и он не превышает эвристику больше чем в ``headroom`` раз.
-    - Эвристика всегда участвует в усреднении как безопасный якорь.
-    """
-
-    pred_np_arr = np.asarray(pred_np, dtype=float)
-    pred_xgb_arr = np.asarray(pred_xgb, dtype=float)
-    pred_heur_arr = np.asarray(pred_heur, dtype=float)
-
-    # В тёмное время полагаемся только на эвристику
-    low_light_mask = pred_heur_arr < low_heur_threshold
-    pred_np_arr = pred_np_arr.copy()
-    pred_xgb_arr = pred_xgb_arr.copy()
-    pred_np_arr[low_light_mask] = 0.0
-    pred_xgb_arr[low_light_mask] = 0.0
-
-    # Отбрасываем сильные всплески относительно базовой эвристики
-    upper_bound = pred_heur_arr * headroom
-    mask_np = (np.abs(pred_np_arr) >= min_value) & (pred_np_arr <= upper_bound)
-    mask_xgb = (np.abs(pred_xgb_arr) >= min_value) & (pred_xgb_arr <= upper_bound)
-
-    arr = np.vstack([pred_np_arr, pred_xgb_arr, pred_heur_arr])
-    mask = np.vstack([mask_np, mask_xgb, np.ones_like(pred_heur_arr, dtype=bool)])
-
-    denom = np.maximum(mask.sum(axis=0), 1)
-    numer = (arr * mask).sum(axis=0)
-    return numer / denom
-
-
 # ======================= УТИЛИТЫ ДЛЯ СТАНЦИИ =======================
 
 def _get_station_coords(station) -> Tuple[float, float]:
@@ -508,10 +463,7 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
         objs = []
         for idx, (ds, v_exp, v_ens) in enumerate(
-            timestamps,
-            heur_mw,
-            ensemble_mw,
-            strict=True,
+            zip(timestamps, heur_mw, ensemble_mw, strict=True),
         ):
             if timezone.is_naive(ds):
                 ds = make_aware(ds, timezone.get_default_timezone())
@@ -520,9 +472,6 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             ens_kw = float(v_ens * 1000.0)
             pred_xgb_kw = float(xgb_pred_mw[idx] * 1000.0) if xgb_pred_mw is not None else 0.0
             pred_np_kw = float(np_pred_mw[idx] * 1000.0) if np_pred_mw is not None else 0.0
-
-            np_kw = float(df_hourly["NeuralProphet_MWh_cal"].iloc[idx] * 1000.0)
-            xgb_kw = float(df_hourly["XGBoost_MWh_cal"].iloc[idx] * 1000.0)
 
             objs.append(
                 SolarForecast(
