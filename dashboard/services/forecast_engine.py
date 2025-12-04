@@ -66,35 +66,6 @@ NP_REGRESSORS = [
     "low_sun_flag",
 ]
 
-XGB_FEATURES = [
-    "Irradiation",
-    "Air_Temp",
-    "PV_Temp",
-    "hour",
-    "month",
-    "hour_sin",
-    "month_sin",
-    "sun_elev_deg",
-    "low_sun_flag",
-]
-
-NP_REGRESSORS = [
-    "Irradiation",
-    "Air_Temp",
-    "PV_Temp",
-    "hour_sin",
-    "month_sin",
-    "is_clear",
-    "y_expected_log",
-    "morning_peak_boost",
-    "evening_penalty",
-    "overdrive_flag",
-    "midday_penalty",
-    "is_morning_active",
-    "sun_elev_deg",
-    "low_sun_flag",
-]
-
 
 # ======================= УТИЛИТЫ ДЛЯ СТАНЦИИ =======================
 
@@ -633,45 +604,51 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     irr = df_hourly["Irradiation"].fillna(0)
     low = (irr < 300) | (df_hourly["low_sun_flag"] == 1)
 
-    w_np = np.zeros(n) if np_pred_mw_cal is None else np.where((h.between(6, 9)) & (irr > 60), 0.45, 0.30)
-    w_xgb = np.zeros(n) if xgb_pred_mw_cal is None else np.where(h.between(6, 9), 0.35, 0.30)
-    w_exp = 1.0 - (w_np + w_xgb)
+    # базовый фоллбек — откалиброванная эвристика, чтобы не получить UnboundLocal
+    ensemble_mw = heur_mw.copy()
 
-    bright_midday = (h.between(11, 15)) & (irr > 700)
-    w_exp = np.where(bright_midday, np.minimum(w_exp + 0.10, 0.85), w_exp)
-    if np_pred_mw_cal is not None:
-        w_np = np.where(bright_midday, np.maximum(w_np - 0.05, 0.05), w_np)
-    if xgb_pred_mw_cal is not None:
-        w_xgb = np.where(bright_midday, np.maximum(w_xgb - 0.05, 0.05), w_xgb)
+    try:
+        w_np = np.zeros(n) if np_pred_mw_cal is None else np.where((h.between(6, 9)) & (irr > 60), 0.45, 0.30)
+        w_xgb = np.zeros(n) if xgb_pred_mw_cal is None else np.where(h.between(6, 9), 0.35, 0.30)
+        w_exp = 1.0 - (w_np + w_xgb)
 
-    w_exp = np.where(low, np.minimum(w_exp + 0.20, 0.90), w_exp)
-    if np_pred_mw_cal is not None:
-        w_np = np.where(low, np.maximum(w_np - 0.10, 0.05), w_np)
-    if xgb_pred_mw_cal is not None:
-        w_xgb = np.where(low, np.maximum(w_xgb - 0.10, 0.05), w_xgb)
+        bright_midday = (h.between(11, 15)) & (irr > 700)
+        w_exp = np.where(bright_midday, np.minimum(w_exp + 0.10, 0.85), w_exp)
+        if np_pred_mw_cal is not None:
+            w_np = np.where(bright_midday, np.maximum(w_np - 0.05, 0.05), w_np)
+        if xgb_pred_mw_cal is not None:
+            w_xgb = np.where(bright_midday, np.maximum(w_xgb - 0.05, 0.05), w_xgb)
 
-    wsum = w_np + w_xgb + w_exp
-    wsum = np.where(wsum == 0, 1.0, wsum)
-    w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
+        w_exp = np.where(low, np.minimum(w_exp + 0.20, 0.90), w_exp)
+        if np_pred_mw_cal is not None:
+            w_np = np.where(low, np.maximum(w_np - 0.10, 0.05), w_np)
+        if xgb_pred_mw_cal is not None:
+            w_xgb = np.where(low, np.maximum(w_xgb - 0.10, 0.05), w_xgb)
 
-    zeros = np.zeros(n)
-    np_safe = np_pred_mw_cal if np_pred_mw_cal is not None else zeros
-    xgb_safe = xgb_pred_mw_cal if xgb_pred_mw_cal is not None else zeros
+        wsum = w_np + w_xgb + w_exp
+        wsum = np.where(wsum == 0, 1.0, wsum)
+        w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
 
-    ensemble_mw_raw = (
-        w_np * np_safe +
-        w_xgb * xgb_safe +
-        w_exp * expected_cal
-    )
+        zeros = np.zeros(n)
+        np_safe = np_pred_mw_cal if np_pred_mw_cal is not None else zeros
+        xgb_safe = xgb_pred_mw_cal if xgb_pred_mw_cal is not None else zeros
 
-    ens_limit = np.minimum.reduce(
-        [
-            cap_by_irr_future.values,
-            np.full_like(cap_by_irr_future.values, cap_mw),
-            expected_cal * ENSEMBLE_HEADROOM,
-        ]
-    )
-    ensemble_mw = np.minimum(ensemble_mw_raw, ens_limit)
+        ensemble_mw_raw = (
+            w_np * np_safe +
+            w_xgb * xgb_safe +
+            w_exp * expected_cal
+        )
+
+        ens_limit = np.minimum.reduce(
+            [
+                cap_by_irr_future.values,
+                np.full_like(cap_by_irr_future.values, cap_mw),
+                expected_cal * ENSEMBLE_HEADROOM,
+            ]
+        )
+        ensemble_mw = np.minimum(ensemble_mw_raw, ens_limit)
+    except Exception as e:
+        print(f"[FORECAST] station {station.pk}: fallback на эвристику из-за ошибки ансамбля -> {e}")
 
     # Ночной фильтр
     mask_night = (df_hourly["Irradiation"] < 20) | (df_hourly["sun_elev_deg"] < 5)
