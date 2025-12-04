@@ -605,7 +605,7 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     low = (irr < 300) | (df_hourly["low_sun_flag"] == 1)
 
     # базовый фоллбек — откалиброванная эвристика, чтобы не получить UnboundLocal
-    ensemble_mw = heur_mw.copy()
+    ensemble_mw = heur_mw.copy() if heur_mw is not None else np.zeros(n)
 
     try:
         w_np = np.zeros(n) if np_pred_mw_cal is None else np.where((h.between(6, 9)) & (irr > 60), 0.45, 0.30)
@@ -649,6 +649,9 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         ensemble_mw = np.minimum(ensemble_mw_raw, ens_limit)
     except Exception as e:
         print(f"[FORECAST] station {station.pk}: fallback на эвристику из-за ошибки ансамбля -> {e}")
+
+    if ensemble_mw is None or len(ensemble_mw) == 0:
+        ensemble_mw = heur_mw.copy() if heur_mw is not None else np.zeros(n)
 
     # Ночной фильтр
     mask_night = (df_hourly["Irradiation"] < 20) | (df_hourly["sun_elev_deg"] < 5)
