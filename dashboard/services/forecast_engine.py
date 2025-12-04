@@ -78,15 +78,38 @@ def _get_station_coords(station) -> Tuple[float, float]:
 
 
 def _get_station_cap_kw(station, max_power_hist: float) -> float:
+    """
+    Возвращаем установленную мощность станции в кВт.
+
+    - В модели Station поле называется ``capacity_mw`` (в МВт) — используем его в
+      приоритете и переводим в кВт.
+    - Если вдруг в объекте есть ``capacity_kw`` (например, из другого бэкэнда),
+      тоже учитываем.
+    - Фоллбек — максимум по истории, затем безопасный дефолт 10 МВт.
+    """
+
+    # 1) capacity_mw -> kW
+    cap_mw = getattr(station, "capacity_mw", None)
+    if cap_mw is not None:
+        try:
+            v_mw = float(cap_mw)
+            if v_mw > 0:
+                return v_mw * 1000.0
+        except Exception:
+            pass
+
+    # 2) legacy capacity_kw (если есть)
     cap_kw = getattr(station, "capacity_kw", None)
     if cap_kw is not None:
         try:
-            v = float(cap_kw)
-            if v > 0:
-                return v
+            v_kw = float(cap_kw)
+            if v_kw > 0:
+                return v_kw
         except Exception:
             pass
-    return float(max_power_hist or 0.0) or 10000.0  # запасной дефолт 10 МВт
+
+    # 3) максимум из истории или дефолт 10 МВт
+    return float(max_power_hist or 0.0) or 10000.0
 
 
 # ======================= ФИЧИ =======================
