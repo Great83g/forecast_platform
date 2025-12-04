@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Tuple
 
@@ -155,7 +156,7 @@ def _add_common_features(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
 def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     """
     Обучает:
-      - XGBoost по PR (как в forecast_8p8mw_v11_fixed.py)
+      - XGBoost по мощности на 1 МВт (per-MW)
       - NeuralProphet по residual (как в solar_1p2mw_all_in_one.py)
     История берётся из SolarRecord.
 
@@ -172,7 +173,9 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
 
     # пути для моделей (оставляем старый формат имён)
     np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+    np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
     xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
+    xgb_meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
 
     print(f"[TRAIN] station {station.pk}: MODEL_DIR = {MODEL_DIR}")
     print(f"[TRAIN] station {station.pk}: строк в истории = {n_rows}")
@@ -188,12 +191,8 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     df = _add_common_features(df, cap_mw=cap_mw)
     df = _add_sun_geometry(df, ds_col="ds", lat_deg=47.86)
 
-    # ==================== 1) XGBoost по PR ====================
+    # ==================== 1) XGBoost per-MW ====================
     try:
-        eps = 1e-6
-        budget = cap_mw * (df["Irradiation"] / 1000.0).clip(lower=eps)
-        df["PR"] = (df["y_mw"] / budget).clip(0, 1.05)
-
         X_cols = [
             "Irradiation",
             "Air_Temp",
@@ -205,20 +204,14 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "sun_elev_deg",
             "low_sun_flag",
         ]
-        df_xgb = df.dropna(subset=X_cols + ["PR"]).copy()
+        df["y_permw"] = (df["y_mw"] / cap_mw).clip(lower=0)
+
+        df_xgb = df.dropna(subset=X_cols + ["y_permw"]).copy()
 
         print(
-            f"[TRAIN] station {station.pk}: старт обучения XGB(PR), "
+            f"[TRAIN] station {station.pk}: старт обучения XGB(per-MW), "
             f"строк после dropna={len(df_xgb)}"
         )
-
-        mono_map = {"Irradiation": +1, "sun_elev_deg": +1, "low_sun_flag": -1}
-        constraints = "(" + ",".join(str(mono_map.get(c, 0)) for c in X_cols) + ")"
-
-        irr = df_xgb["Irradiation"].values
-        w = np.ones(len(df_xgb))
-        w[(irr < 300) | (df_xgb["sun_elev_deg"] < 15)] *= 1.6
-        w[(irr >= 300) & (irr <= 600)] *= 1.3
 
         xgb_model = xgb.XGBRegressor(
             n_estimators=700,
@@ -229,11 +222,21 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             reg_lambda=1.0,
             random_state=42,
             objective="reg:squarederror",
-            monotone_constraints=constraints,
         )
-        xgb_model.fit(df_xgb[X_cols], df_xgb["PR"], sample_weight=w)
+        xgb_model.fit(df_xgb[X_cols], df_xgb["y_permw"])
         xgb_model.save_model(str(xgb_path))
-        print(f"[TRAIN] station {station.pk}: XGB(PR) сохранён в {xgb_path}")
+        print(f"[TRAIN] station {station.pk}: XGB(per-MW) сохранён в {xgb_path}")
+
+        xgb_meta = {
+            "cap_mw_train": cap_mw,
+            "X_cols": X_cols,
+            "target": "y_permw",
+            "note": "XGB per-MW (predict MW per installed MW)",
+        }
+        xgb_meta_path.write_text(
+            json.dumps(xgb_meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"[TRAIN] station {station.pk}: XGB meta сохранён в {xgb_meta_path}")
     except Exception as e:
         import traceback
         print(f"[TRAIN] station {station.pk}: ОШИБКА при обучении XGB(PR) -> {e}")
@@ -297,6 +300,17 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
 
         np_save(m, str(np_path))
         print(f"[TRAIN] station {station.pk}: NP residual сохранён в {np_path}")
+
+        np_meta = {
+            "cap_mw_train": cap_mw,
+            "pr_for_expected": PR_FOR_EXPECTED,
+            "features_reg": features_reg,
+            "note": "NP trained on residual: y_mw - expected(PR=0.9)",
+        }
+        np_meta_path.write_text(
+            json.dumps(np_meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"[TRAIN] station {station.pk}: NP meta сохранён в {np_meta_path}")
     except Exception as e:
         import traceback
         print(f"[TRAIN] station {station.pk}: ОШИБКА при обучении NP -> {e}")
