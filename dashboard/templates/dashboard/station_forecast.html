@@ -3,22 +3,35 @@
 {% block content %}
 <h2>Прогноз: {{ station.name }}</h2>
 
-<form method="get" class="form-inline" style="margin-bottom: 16px;">
-  <label>С даты:
-    <input type="date" name="from" value="{{ from_date }}">
-  </label>
-  <label style="margin-left: 8px;">По дату:
-    <input type="date" name="to" value="{{ to_date }}">
-  </label>
-  <button type="submit">Фильтр</button>
+<div style="margin-bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+  <form method="get" class="form-inline" style="display: inline-flex; gap: 8px; align-items: center;">
+    <label>С даты:
+      <input type="date" name="from" value="{{ from_date }}">
+    </label>
+    <label>По дату:
+      <input type="date" name="to" value="{{ to_date }}">
+    </label>
+    <button type="submit">Фильтр</button>
+  </form>
 
   <a
     href="{% url 'dashboard-station-export-forecast' station.pk %}?from={{ from_date }}&to={{ to_date }}"
-    style="margin-left: 16px;"
+    style="margin-left: 4px;"
   >
     Скачать в Excel
   </a>
-</form>
+
+  <form
+    action="{% url 'dashboard-station-forecast-clear' station.pk %}"
+    method="post"
+    style="display: inline-flex;"
+  >
+    {% csrf_token %}
+    <button type="submit" onclick="return confirm('Очистить все прогнозы?');">
+      Очистить прогноз
+    </button>
+  </form>
+</div>
 
 <p>
   Всего записей: {{ total_count }}.

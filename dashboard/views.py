@@ -369,6 +369,26 @@ def station_forecast_list(request, pk):
 
 
 @login_required
+def station_forecast_clear(request, pk):
+    """
+    Очищает все сохранённые прогнозы станции.
+    """
+    station = get_object_or_404(Station, pk=pk)
+
+    if request.method != "POST":
+        messages.error(request, "Неверный метод запроса для очистки прогноза.")
+        return redirect("dashboard-station-forecast-list", pk=station.pk)
+
+    deleted, _ = SolarForecast.objects.filter(station=station).delete()
+
+    if deleted:
+        messages.success(request, f"Удалено записей прогноза: {deleted}.")
+    else:
+        messages.warning(request, "Нет прогнозов для удаления.")
+    return redirect("dashboard-station-forecast-list", pk=station.pk)
+
+
+@login_required
 def station_export_forecast(request, pk):
     """
     Экспорт прогноза станции в Excel.
