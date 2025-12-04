@@ -17,11 +17,16 @@ from django.utils.timezone import make_aware
 from neuralprophet import NeuralProphet
 from neuralprophet import load as np_load
 from neuralprophet import save as np_save
+from torch.serialization import add_safe_globals
 
 from solar.models import SolarRecord, SolarForecast
 
 # Папка с моделями (пока не используем, но оставляем)
 MODEL_DIR: Path = Path(settings.MODEL_DIR)
+
+# Allow NeuralProphet class to be deserialized when torch.load runs with
+# the PyTorch 2.6+ safe default (weights_only=True).
+add_safe_globals([NeuralProphet])
 
 # API-ключ Visual Crossing — в settings.py:
 # VISUAL_CROSSING_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
@@ -221,7 +226,7 @@ def fetch_weather_hours_for_station(station, days: int) -> pd.DataFrame:
     ]
     dfw = dfw[[c for c in keep if c in dfw.columns]]
 
-    dfw["ds"] = dfw["datetime"].dt.floor("H")
+    dfw["ds"] = dfw["datetime"].dt.floor("h")
     dfh = dfw.groupby("ds", as_index=False).agg(
         {
             "Irradiation": "mean",
