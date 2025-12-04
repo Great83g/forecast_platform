@@ -421,6 +421,11 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
     print(f"[FORECAST] station {station.pk}: запуск прогноза на {days} дней (ensemble)")
 
+    # Предварительная инициализация, чтобы любые ранние ошибки не приводили к
+    # UnboundLocal в финальном сохранении/логике обработки.
+    heur_mw = np.array([])
+    ensemble_mw = np.array([])
+
     # === История для мощности/калибровки ===
     hist_df = _load_history_df(station)
     if hist_df.empty:
@@ -655,8 +660,18 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     except Exception as e:
         print(f"[FORECAST] station {station.pk}: fallback на эвристику из-за ошибки ансамбля -> {e}")
 
+    if heur_mw is None or len(heur_mw) == 0:
+        heur_mw = np.zeros(n)
+
     if ensemble_mw is None or len(ensemble_mw) == 0:
         ensemble_mw = heur_mw.copy() if heur_mw is not None else np.zeros(n)
+
+    # Если размеры не совпадают (например, при частичном падении моделей),
+    # приводим всё к длине прогноза.
+    if len(heur_mw) != n:
+        heur_mw = np.resize(heur_mw, n)
+    if len(ensemble_mw) != n:
+        ensemble_mw = np.resize(ensemble_mw, n)
 
     # Ночной фильтр
     mask_night = (df_hourly["Irradiation"] < 20) | (df_hourly["sun_elev_deg"] < 5)
