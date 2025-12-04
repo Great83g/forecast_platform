@@ -1,0 +1,18 @@
+# Виртуальное окружение
+venv/
+
+# База (если не хочешь хранить в гите)
+db.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Логи
+*.log
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ station.name }} — график{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">{{ station.name }}</h3>
+
+<div class="mb-3">
+
+  <a href="{% url 'dashboard-station-list' %}" class="btn btn-sm btn-secondary">
+    ← К списку станций
+  </a>
+
+  <a href="{% url 'dashboard-station-upload' station.pk %}"
+     class="btn btn-sm btn-outline-primary">
+    История / загрузка данных
+  </a>
+
+  <a href="{% url 'dashboard-station-export' station.pk %}"
+     class="btn btn-sm btn-outline-secondary">
+    Скачать историю
+  </a>
+
+  <a href="{% url 'dashboard-station-train' station.pk %}"
+     class="btn btn-sm btn-outline-warning">
+    Обучить модель
+  </a>
+
+  <a href="{% url 'dashboard-station-forecast' station.pk %}"
+     class="btn btn-sm btn-primary">
+    Сделать прогноз
+  </a>
+
+  <!-- НОВОЕ: просмотр прогноза -->
+  <a href="{% url 'dashboard-station-forecast-list' station.pk %}"
+     class="btn btn-sm btn-success">
+    Смотреть прогноз
+  </a>
+
+  <!-- НОВОЕ: экспорт прогноза в Excel -->
+  <a href="{% url 'dashboard-station-export-forecast' station.pk %}"
+     class="btn btn-sm btn-outline-success">
+    Скачать прогноз
+  </a>
+
+</div>
+
+{% if records %}
+  <div id="power-chart" style="height: 400px;"></div>
+
+  <script>
+    const timestamps = {{ timestamps|safe }};
+    const power = {{ power|safe }};
+    const irr = {{ irr|safe }};
+    const air_temp = {{ air_temp|safe }};
+    const pv_temp = {{ pv_temp|safe }};
+
+    const tracePower = {
+      x: timestamps,
+      y: power,
+      type: "scatter",
+      name: "Power (kW)",
+      yaxis: "y1",
+      line: {width: 2}
+    };
+
+    const traceIrr = {
+      x: timestamps,
+      y: irr,
+      type: "scatter",
+      name: "Irradiation (W/m²)",
+      yaxis: "y2",
+      line: {width: 2}
+    };
+
+    const layout = {
+      title: "Мощность и радиация (последние 7 дней)",
+      xaxis: { title: "Время" },
+      yaxis: { title: "Power (kW)" },
+      yaxis2: {
+        title: "Irradiation (W/m²)",
+        overlaying: "y",
+        side: "right"
+      },
+      legend: { orientation: "h" }
+    };
+
+    Plotly.newPlot("power-chart", [tracePower, traceIrr], layout);
+  </script>
+
+{% else %}
+  <p class="text-muted">
+    Для станции пока нет исторических данных.<br>
+    Загрузите историю в разделе «История / загрузка данных».
+  </p>
+{% endif %}
+
+{% endblock %}
+

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Очистка истории — {{ station.name }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h3>Очистка истории — {{ station.name }}</h3>
+
+    <div class="alert alert-danger">
+        <strong>ВНИМАНИЕ!</strong><br>
+        Это действие <b>удалит всю историю станции без возможности восстановления.</b><br>
+        Убедитесь, что вы сделали резервную копию, если она нужна.
+    </div>
+
+    <form method="post" class="mt-3">
+        {% csrf_token %}
+        <a href="{% url 'dashboard-station-upload' station.pk %}" class="btn btn-secondary">
+            Отмена
+        </a>
+        <button type="submit" class="btn btn-danger">
+            Очистить историю полностью
+        </button>
+    </form>
+</div>
+{% endblock %}
+

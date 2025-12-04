@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Загрузка истории — {{ station.name }}{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col">
+    <h3>Загрузка истории — {{ station.name }}</h3>
+  </div>
+</div>
+
+<!-- ===== Памятка по колонкам ===== -->
+<div class="card mb-3">
+  <div class="card-body bg-light">
+    <h5 class="card-title">Требования к файлу CSV / Excel</h5>
+    <p class="mb-1">Файл должен содержать следующие колонки:</p>
+    <ul class="mb-1">
+      <li><strong>ds</strong> — дата и время в формате: <code>YYYY-MM-DD HH:MM</code></li>
+      <li><strong>Irradiation</strong> — солнечная радиация (Вт/м²)</li>
+      <li><strong>Air_Temp</strong> — температура воздуха (°C)</li>
+      <li><strong>PV_Temp</strong> — температура панелей (°C)</li>
+      <li><strong>Power_kW</strong> — фактическая мощность станции (кВт)</li>
+    </ul>
+    <p class="mb-0">
+      Пример корректной строки:
+      <code>2025-01-15 14:00, 430, -2, 18, 950</code>
+    </p>
+  </div>
+</div>
+
+<!-- ===== Загрузка файла / очистка / экспорт ===== -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+
+      <!-- Загрузка -->
+      <form method="post"
+            enctype="multipart/form-data"
+            class="d-flex align-items-center gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload">
+        {{ form.file }}
+        <button type="submit" class="btn btn-primary">Загрузить</button>
+      </form>
+
+      <!-- Кнопка экспорта с учётом фильтра -->
+      <a href="{% url 'dashboard-station-export' station.pk %}?from={{ from_date }}&to={{ to_date }}"
+         class="btn btn-success btn-sm">
+        Скачать Excel
+      </a>
+
+      <!-- Очистить историю -->
+      <form method="post" class="ms-auto">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="clear">
+        <button type="submit" class="btn btn-outline-danger btn-sm">
+          Очистить историю
+        </button>
+      </form>
+
+      <a href="{% url 'dashboard-station-detail' station.pk %}"
+         class="btn btn-outline-secondary btn-sm">
+        Назад
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Фильтр истории ===== -->
+<div class="card mb-3">
+  <div class="card-body">
+    <h6 class="mb-3">Фильтр истории</h6>
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label">От даты</label>
+        <input type="date"
+               name="from"
+               class="form-control"
+               value="{{ from_date }}">
+      </div>
+      <div class="col-auto">
+        <label class="form-label">До даты</label>
+        <input type="date"
+               name="to"
+               class="form-control"
+               value="{{ to_date }}">
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary">
+          Применить
+        </button>
+      </div>
+      <div class="col-auto">
+        <a href="."
+           class="btn btn-outline-secondary">
+          Сбросить
+        </a>
+      </div>
+      <div class="col-auto ms-auto">
+        <small class="text-muted">
+          История данных ({{ history_count }} записей из {{ total_count }})
+        </small>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== Таблица истории + удаление выбранных ===== -->
+<div class="card">
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="delete_selected">
+
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0">История данных</h6>
+        <button type="submit" class="btn btn-outline-danger btn-sm">
+          Удалить выбранные
+        </button>
+      </div>
+
+      <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 1%;">
+                <input type="checkbox" id="check-all">
+              </th>
+              <th style="width: 1%;">#</th>
+              <th>Дата</th>
+              <th>Irradiation</th>
+              <th>Air Temp</th>
+              <th>PV Temp</th>
+              <th>Power (kW)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if history %}
+              {% for row in history %}
+                <tr>
+                  <td>
+                    <input type="checkbox"
+                           name="selected"
+                           value="{{ row.id }}">
+                  </td>
+                  <td>{{ forloop.counter }}</td>
+                  <td>{{ row.timestamp }}</td>
+                  <td>{{ row.irradiation }}</td>
+                  <td>{{ row.air_temp }}</td>
+                  <td>{{ row.pv_temp }}</td>
+                  <td>{{ row.power_kw }}</td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="7" class="text-center text-muted">
+                  Нет данных по станции.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // галочка "выбрать всё"
+  const checkAll = document.getElementById("check-all");
+  if (checkAll) {
+    checkAll.addEventListener("change", function () {
+      document
+        .querySelectorAll('input[name="selected"]')
+        .forEach(cb => cb.checked = checkAll.checked);
+    });
+  }
+</script>
+
+{% endblock %}
+

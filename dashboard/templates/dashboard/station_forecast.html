@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Прогноз: {{ station.name }}</h2>
+
+<form method="get" class="form-inline" style="margin-bottom: 16px;">
+  <label>С даты:
+    <input type="date" name="from" value="{{ from_date }}">
+  </label>
+  <label style="margin-left: 8px;">По дату:
+    <input type="date" name="to" value="{{ to_date }}">
+  </label>
+  <button type="submit">Фильтр</button>
+
+  <a
+    href="{% url 'dashboard-station-export-forecast' station.pk %}?from={{ from_date }}&to={{ to_date }}"
+    style="margin-left: 16px;"
+  >
+    Скачать в Excel
+  </a>
+</form>
+
+<p>
+  Всего записей: {{ total_count }}.
+  Отфильтровано: {{ filtered_count }}.
+</p>
+
+<table border="1" cellpadding="4" cellspacing="0">
+  <thead>
+    <tr>
+      <th>Дата/время</th>
+      <th>NP</th>
+      <th>XGB</th>
+      <th>Эвристика</th>
+      <th>Итог (ансамбль)</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for f in forecasts %}
+      <tr>
+        <td>{{ f.timestamp }}</td>
+        <td>{{ f.pred_np|default_if_none:"" }}</td>
+        <td>{{ f.pred_xgb|default_if_none:"" }}</td>
+        <td>{{ f.pred_heur|default_if_none:"" }}</td>
+        <td><strong>{{ f.pred_final|default_if_none:"" }}</strong></td>
+      </tr>
+    {% empty %}
+      <tr>
+        <td colspan="5">Нет данных прогноза.</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p style="margin-top: 16px;">
+  <a href="{% url 'dashboard-station-detail' station.pk %}">← Назад к станции</a>
+</p>
+{% endblock %}
+
