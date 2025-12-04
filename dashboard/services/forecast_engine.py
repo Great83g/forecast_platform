@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Tuple
 
@@ -303,49 +304,78 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
     # === Модели ===
     np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+    np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
     xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
+    xgb_meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
 
     np_model = None
+    np_meta = {}
     if np_path.exists():
         try:
             np_model = np_load(str(np_path))
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка загрузки NP -> {e}")
+    if np_meta_path.exists():
+        try:
+            np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка чтения NP meta -> {e}")
 
     xgb_model = None
+    xgb_meta = {}
     if xgb_path.exists():
         try:
             xgb_model = xgb.XGBRegressor()
             xgb_model.load_model(str(xgb_path))
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка загрузки XGB -> {e}")
+    if xgb_meta_path.exists():
+        try:
+            xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка чтения XGB meta -> {e}")
 
     b_exp = cal_factor(hist_df["y_mw"], expected_hist)
     print(f"[FORECAST] station {station.pk}: калибровка эвристики b_exp={b_exp:.3f}")
 
-    xgb_features = [
-        "Irradiation",
-        "Air_Temp",
-        "PV_Temp",
-        "hour",
-        "month",
-        "hour_sin",
-        "month_sin",
-        "sun_elev_deg",
-        "low_sun_flag",
-    ]
+    xgb_features = xgb_meta.get(
+        "X_cols",
+        [
+            "Irradiation",
+            "Air_Temp",
+            "PV_Temp",
+            "hour",
+            "month",
+            "hour_sin",
+            "month_sin",
+            "sun_elev_deg",
+            "low_sun_flag",
+        ],
+    )
 
     b_xgb = 1.0
     if xgb_model is not None:
         try:
-            pr_hist = np.clip(xgb_model.predict(hist_df[xgb_features]), 0, PR_CEIL_PER_HR)
-            xgb_hist_mwh = pr_hist * budget_hist
+            pred_hist_permw = np.clip(xgb_model.predict(hist_df[xgb_features]), 0, None)
+            xgb_hist_mwh = pred_hist_permw * cap_mw
             b_xgb = cal_factor(hist_df["y_mw"], xgb_hist_mwh)
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB на истории -> {e}")
             b_xgb = 1.0
 
+    # калибровка NP по residual: y_expected + residual
     b_np = (b_xgb + b_exp) / 2.0
+    if np_model is not None:
+        try:
+            req_np = list(getattr(np_model, "config_regressors", {}).keys())
+            df_in_np_hist = hist_df[["ds"] + req_np].copy()
+            df_in_np_hist["y"] = np.nan
+            fc_np_hist = np_model.predict(df_in_np_hist)
+            np_hist_mwh = (expected_hist + np.clip(fc_np_hist["yhat1"], 0, None)).clip(lower=0)
+            b_np = cal_factor(hist_df["y_mw"], np_hist_mwh)
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка прогноза NP на истории -> {e}")
+            b_np = (b_xgb + b_exp) / 2.0
 
     # === Погода на будущее ===
     df_hourly = fetch_weather_hours_for_station(station, days=days)
@@ -379,8 +409,10 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_in_np = df_hourly[["ds"] + req_np].copy()
             df_in_np["y"] = np.nan
             fc_np = np_model.predict(df_in_np)
-            df_hourly["NeuralProphet_MWh_raw"] = np.maximum(fc_np["yhat1"], 0)
             cap_by_irr_future = budget_future * PR_CEIL_PER_HR
+            df_hourly["NeuralProphet_MWh_raw"] = (
+                expected_future + np.clip(fc_np["yhat1"], 0, None)
+            ).clip(lower=0)
             df_hourly["NeuralProphet_MWh"] = np.minimum.reduce(
                 [
                     df_hourly["NeuralProphet_MWh_raw"].values,
@@ -396,8 +428,8 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     df_hourly["XGBoost_MWh_cal"] = 0.0
     if xgb_model is not None:
         try:
-            pr_xgb = np.clip(xgb_model.predict(df_hourly[xgb_features]), 0, PR_CEIL_PER_HR)
-            df_hourly["XGBoost_MWh_raw"] = pr_xgb * budget_future
+            pred_permw = np.clip(xgb_model.predict(df_hourly[xgb_features]), 0, None)
+            df_hourly["XGBoost_MWh_raw"] = pred_permw * cap_mw
             cap_by_irr_future = budget_future * PR_CEIL_PER_HR
             df_hourly["XGBoost_MWh"] = np.minimum.reduce(
                 [
