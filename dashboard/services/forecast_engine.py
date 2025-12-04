@@ -66,6 +66,35 @@ NP_REGRESSORS = [
     "low_sun_flag",
 ]
 
+XGB_FEATURES = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour",
+    "month",
+    "hour_sin",
+    "month_sin",
+    "sun_elev_deg",
+    "low_sun_flag",
+]
+
+NP_REGRESSORS = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour_sin",
+    "month_sin",
+    "is_clear",
+    "y_expected_log",
+    "morning_peak_boost",
+    "evening_penalty",
+    "overdrive_flag",
+    "midday_penalty",
+    "is_morning_active",
+    "sun_elev_deg",
+    "low_sun_flag",
+]
+
 
 # ======================= УТИЛИТЫ ДЛЯ СТАНЦИИ =======================
 
@@ -441,6 +470,39 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     budget_hist = cap_mw * (hist_df["Irradiation"] / 1000.0).clip(lower=eps)
     expected_hist = (cap_mw * (hist_df["Irradiation"] / 1000.0) * PR_BASE).clip(0, cap_mw * 0.95)
 
+    # === Модели ===
+    np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+    np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
+    xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
+    xgb_meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
+
+    np_model = None
+    np_meta = {}
+    if np_path.exists():
+        try:
+            np_model = np_load(str(np_path))
+        except Exception as e:  # pragma: no cover - защитный лог
+            print(f"[FORECAST] station {station.pk}: ошибка загрузки NP -> {e}")
+    if np_meta_path.exists():
+        try:
+            np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка чтения NP meta -> {e}")
+
+    xgb_model = None
+    xgb_meta = {}
+    if xgb_path.exists():
+        try:
+            xgb_model = xgb.XGBRegressor()
+            xgb_model.load_model(str(xgb_path))
+        except Exception as e:  # pragma: no cover - защитный лог
+            print(f"[FORECAST] station {station.pk}: ошибка загрузки XGB -> {e}")
+    if xgb_meta_path.exists():
+        try:
+            xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка чтения XGB meta -> {e}")
+
     b_exp = cal_factor(hist_df["y_mw"], expected_hist)
     print(f"[FORECAST] station {station.pk}: калибровка эвристики b_exp={b_exp:.3f}")
 
@@ -553,7 +615,7 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         [
             cap_by_irr_future.values,
             np.full_like(cap_by_irr_future.values, cap_mw),
-            (df_hourly["Expected_MWh_cal"].values * ENSEMBLE_HEADROOM),
+            (ensemble_mw * ENSEMBLE_HEADROOM),
         ]
     )
 
