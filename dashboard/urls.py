@@ -11,6 +11,7 @@ from .views import (
     run_station_forecast,     # запуск прогноза
     station_forecast_list,    # просмотр прогноза
     station_export_forecast,  # экспорт прогноза
+    station_forecast_clear,   # очистка прогноза
 )
 
 urlpatterns = [
@@ -39,6 +40,13 @@ urlpatterns = [
         "station/<int:pk>/forecast/list/",
         station_forecast_list,
         name="dashboard-station-forecast-list"
+    ),
+
+    # --- НОВОЕ: ОЧИСТКА ПРОГНОЗА ---
+    path(
+        "station/<int:pk>/forecast/clear/",
+        station_forecast_clear,
+        name="dashboard-station-forecast-clear"
     ),
 
     # --- НОВОЕ: ЭКСПОРТ ПРОГНОЗА ---
