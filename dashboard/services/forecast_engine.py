@@ -8,10 +8,12 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import requests
+import xgboost as xgb
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.timezone import make_aware
+from neuralprophet import load as np_load
 
 from solar.models import SolarRecord, SolarForecast
 
@@ -31,6 +33,35 @@ PR_BASE = 0.90          # базовый PR для expected
 PR_CEIL_PER_HR = 0.98   # потолок PR в час
 ENSEMBLE_HEADROOM = 1.20   # запас наверх к expected (1.2 = +20%)
 
+XGB_FEATURES = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour",
+    "month",
+    "hour_sin",
+    "month_sin",
+    "sun_elev_deg",
+    "low_sun_flag",
+]
+
+NP_REGRESSORS = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour_sin",
+    "month_sin",
+    "is_clear",
+    "y_expected_log",
+    "morning_peak_boost",
+    "evening_penalty",
+    "overdrive_flag",
+    "midday_penalty",
+    "is_morning_active",
+    "sun_elev_deg",
+    "low_sun_flag",
+]
+
 
 # ======================= УТИЛИТЫ ДЛЯ СТАНЦИИ =======================
 
@@ -46,15 +77,38 @@ def _get_station_coords(station) -> Tuple[float, float]:
 
 
 def _get_station_cap_kw(station, max_power_hist: float) -> float:
+    """
+    Возвращаем установленную мощность станции в кВт.
+
+    - В модели Station поле называется ``capacity_mw`` (в МВт) — используем его в
+      приоритете и переводим в кВт.
+    - Если вдруг в объекте есть ``capacity_kw`` (например, из другого бэкэнда),
+      тоже учитываем.
+    - Фоллбек — максимум по истории, затем безопасный дефолт 10 МВт.
+    """
+
+    # 1) capacity_mw -> kW
+    cap_mw = getattr(station, "capacity_mw", None)
+    if cap_mw is not None:
+        try:
+            v_mw = float(cap_mw)
+            if v_mw > 0:
+                return v_mw * 1000.0
+        except Exception:
+            pass
+
+    # 2) legacy capacity_kw (если есть)
     cap_kw = getattr(station, "capacity_kw", None)
     if cap_kw is not None:
         try:
-            v = float(cap_kw)
-            if v > 0:
-                return v
+            v_kw = float(cap_kw)
+            if v_kw > 0:
+                return v_kw
         except Exception:
             pass
-    return float(max_power_hist or 0.0) or 10000.0  # запасной дефолт 10 МВт
+
+    # 3) максимум из истории или дефолт 10 МВт
+    return float(max_power_hist or 0.0) or 10000.0
 
 
 # ======================= ФИЧИ =======================
@@ -84,6 +138,12 @@ def _add_common_features(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
     df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
 
     df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > 0)).astype(int)
+    df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 39)).astype(int)
+    df["evening_penalty"] = ((df["hour"] == 19) & (df["Irradiation"] > 39)).astype(int)
+    df["overdrive_flag"] = ((df["Irradiation"] > 950) & (df["Air_Temp"] > 30)).astype(int)
+    df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
+    df["is_morning_active"] = ((df["hour"] == 6) & (df["Irradiation"] > 49)).astype(int)
+
     df["PV_Temp"] = df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000.0 * 20.0
 
     # expected (MW)
@@ -219,17 +279,16 @@ def _load_history_df(station) -> pd.DataFrame:
 
 def run_forecast_for_station(station, days: int = 3) -> int:
     """
-    Упрощённый, но стабильный вариант:
+    Объединённый прогноз для станции:
       - VC-погода → expected (эвристика) в MW
       - калибровка по истории станции
-      - клипы по физике
+      - XGB по PR (если модель сохранена)
+      - NeuralProphet по residual (если модель сохранена)
+      - медианный ансамбль с клипами по физике
       - запись в SolarForecast в кВт
-
-    NP и XGB сейчас НЕ используются (pred_np=0, pred_xgb=0),
-    итоговый прогноз = калиброванная эвристика.
     """
 
-    print(f"[FORECAST] station {station.pk}: запуск прогноза на {days} дней (HEUR-ONLY)")
+    print(f"[FORECAST] station {station.pk}: запуск прогноза на {days} дней (ensemble)")
 
     # === История для мощности/калибровки ===
     hist_df = _load_history_df(station)
@@ -275,21 +334,73 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
     # калиброванная эвристика
     df_hourly["Expected_MWh_cal"] = (expected_future * b_exp).clip(lower=0.0)
+    heur_mw = df_hourly["Expected_MWh_cal"].values
 
-    # клип по физике
+    # === XGB(PR) ===
+    xgb_pred_mw = None
+    xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
+    if xgb_path.exists():
+        try:
+            xgb_model = xgb.XGBRegressor()
+            xgb_model.load_model(str(xgb_path))
+            df_xgb = df_hourly[XGB_FEATURES].copy()
+            pred_pr = xgb_model.predict(df_xgb)
+            pred_pr = np.clip(pred_pr, 0.0, 1.05)
+            xgb_pred_mw = pred_pr * budget_future.values
+            print(
+                f"[FORECAST] station {station.pk}: XGB(PR) загружен ({xgb_path.name}), "
+                f"строк={len(df_xgb)}"
+            )
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
+
+    # === NeuralProphet residual ===
+    np_pred_mw = None
+    np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+    if np_path.exists():
+        try:
+            np_model = np_load(str(np_path))
+            df_np = df_hourly[["ds"] + NP_REGRESSORS].copy()
+            df_np["y"] = 0.0
+            np_forecast = np_model.predict(df_np)
+            residual_pred = np_forecast["yhat1"].to_numpy()
+            np_pred_mw = (expected_future.values + residual_pred).clip(lower=0.0)
+            print(
+                f"[FORECAST] station {station.pk}: NP residual загружен ({np_path.name}), "
+                f"строк={len(df_np)}"
+            )
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка прогноза NP -> {e}")
+
+    # === Итоговый ансамбль ===
+    preds_stack = [heur_mw]
+    if xgb_pred_mw is not None:
+        preds_stack.append(xgb_pred_mw)
+    if np_pred_mw is not None:
+        preds_stack.append(np_pred_mw)
+
+    stacked = np.vstack(preds_stack)
+    ensemble_mw = np.nanmedian(stacked, axis=0)
+
     cap_by_irr_future = budget_future * PR_CEIL_PER_HR
     lim_after = np.minimum.reduce(
         [
             cap_by_irr_future.values,
             np.full_like(cap_by_irr_future.values, cap_mw),
-            (df_hourly["Expected_MWh_cal"].values * ENSEMBLE_HEADROOM),
+            (ensemble_mw * ENSEMBLE_HEADROOM),
         ]
     )
-    df_hourly["Ensemble_MWh"] = np.minimum(df_hourly["Expected_MWh_cal"].values, lim_after)
+
+    ensemble_mw = np.minimum(ensemble_mw, lim_after)
 
     # Ночной фильтр
     mask_night = (df_hourly["Irradiation"] < 20) | (df_hourly["sun_elev_deg"] < 5)
-    df_hourly.loc[mask_night, ["Expected_MWh_cal", "Ensemble_MWh"]] = 0.0
+    heur_mw = np.where(mask_night, 0.0, heur_mw)
+    ensemble_mw = np.where(mask_night, 0.0, ensemble_mw)
+    if xgb_pred_mw is not None:
+        xgb_pred_mw = np.where(mask_night, 0.0, xgb_pred_mw)
+    if np_pred_mw is not None:
+        np_pred_mw = np.where(mask_night, 0.0, np_pred_mw)
 
     # === Сохранение в SolarForecast (MW -> кВт) ===
     timestamps = pd.to_datetime(df_hourly["ds"]).tolist()
@@ -301,26 +412,25 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         ).delete()
 
         objs = []
-        for ds, v_exp, v_ens in zip(
-            timestamps,
-            df_hourly["Expected_MWh_cal"].values,
-            df_hourly["Ensemble_MWh"].values,
-            strict=True,
+        for idx, (ds, v_exp, v_ens) in enumerate(
+            zip(timestamps, heur_mw, ensemble_mw, strict=True),
         ):
             if timezone.is_naive(ds):
                 ds = make_aware(ds, timezone.get_default_timezone())
 
             exp_kw = float(v_exp * 1000.0)
             ens_kw = float(v_ens * 1000.0)
+            pred_xgb_kw = float(xgb_pred_mw[idx] * 1000.0) if xgb_pred_mw is not None else 0.0
+            pred_np_kw = float(np_pred_mw[idx] * 1000.0) if np_pred_mw is not None else 0.0
 
             objs.append(
                 SolarForecast(
                     station=station,
                     timestamp=ds,
-                    pred_np=0.0,          # временно не используем
-                    pred_xgb=0.0,         # временно не используем
+                    pred_np=pred_np_kw,
+                    pred_xgb=pred_xgb_kw,
                     pred_heur=exp_kw,     # эвристика (кВт)
-                    pred_final=ens_kw,    # итог = эвристика после клипов
+                    pred_final=ens_kw,    # итог = медианный ансамбль после клипов
                 )
             )
 
