@@ -263,7 +263,23 @@ def _ensure_1d(pred_like, length: int, name: str) -> np.ndarray:
     предотвращает «inhomogeneous shape» при последующих арифметических операциях.
     """
 
-    arr = np.asarray(pred_like, dtype=float).reshape(-1)
+    try:
+        arr = np.asarray(pred_like, dtype=float).reshape(-1)
+    except Exception:
+        # Попробуем вытащить скаляры из последовательностей, например [[x], [y]]
+        obj = np.asarray(pred_like, dtype=object).reshape(-1)
+        flat_values = []
+        for idx, val in enumerate(obj):
+            val_arr = np.asarray(val, dtype=float).reshape(-1)
+            if val_arr.size == 0:
+                raise ValueError(f"{name}: пустое значение в позиции {idx}")
+            if val_arr.size != 1:
+                raise ValueError(
+                    f"{name}: элемент {idx} имеет размер {val_arr.size}, ожидался скаляр"
+                )
+            flat_values.append(float(val_arr[0]))
+        arr = np.asarray(flat_values, dtype=float)
+
     if arr.shape[0] != length:
         raise ValueError(
             f"{name}: длина {arr.shape[0]} не совпадает с ожидаемой {length}"
@@ -556,9 +572,11 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_hourly["NeuralProphet_MWh_raw"] = np_raw
             df_hourly["NeuralProphet_MWh_cal"] = (np_capped * b_np).clip(lower=0.0)
 
-    # === XGB(PR) ===
-    xgb_pred_mw = None
-    if xgb_path.exists():
+    # XGB прогноз (PR -> MW)
+    df_hourly["XGBoost_MWh_raw"] = 0.0
+    df_hourly["XGBoost_MWh"] = 0.0
+    df_hourly["XGBoost_MWh_cal"] = 0.0
+    if xgb_model is not None:
         try:
             pred_permw = _ensure_1d(xgb_model.predict(df_hourly[xgb_features]), len(df_hourly), "XGB")
             pred_permw = np.clip(pred_permw, 0, None)
