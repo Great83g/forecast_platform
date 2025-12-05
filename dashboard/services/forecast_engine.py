@@ -9,17 +9,24 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import requests
+import xgboost as xgb
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.timezone import make_aware
+from neuralprophet import NeuralProphet
 from neuralprophet import load as np_load
-import xgboost as xgb
+from neuralprophet import save as np_save
+from torch.serialization import add_safe_globals
 
 from solar.models import SolarRecord, SolarForecast
 
 # Папка с моделями (пока не используем, но оставляем)
 MODEL_DIR: Path = Path(settings.MODEL_DIR)
+
+# Allow NeuralProphet class to be deserialized when torch.load runs with
+# the PyTorch 2.6+ safe default (weights_only=True).
+add_safe_globals([NeuralProphet])
 
 # API-ключ Visual Crossing — в settings.py:
 # VISUAL_CROSSING_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
@@ -33,51 +40,36 @@ DAY_END_H = 20
 PR_BASE = 0.90          # базовый PR для expected
 PR_CEIL_PER_HR = 0.98   # потолок PR в час
 ENSEMBLE_HEADROOM = 1.20   # запас наверх к expected (1.2 = +20%)
+TRAIN_IF_MISSING = True
 
+XGB_FEATURES = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour",
+    "month",
+    "hour_sin",
+    "month_sin",
+    "sun_elev_deg",
+    "low_sun_flag",
+]
 
-# ======================= АНСАМБЛЬ =======================
-
-def ensemble(
-    pred_np: np.ndarray,
-    pred_xgb: np.ndarray,
-    pred_heur: np.ndarray,
-    min_value: float = 1.0,
-    low_heur_threshold: float = 0.5,
-    headroom: float = 1.5,
-) -> np.ndarray:
-    """
-    Склеивает прогнозы, подстраховываясь эвристикой в «тёмные» часы и
-    отбрасывая слишком оптимистичные модели.
-
-    - Если эвристика < ``low_heur_threshold`` (почти нет солнца), NP/XGB
-      принудительно обнуляются и итог совпадает с эвристикой.
-    - Модельный прогноз учитывается только если его модуль ≥ ``min_value``
-      и он не превышает эвристику больше чем в ``headroom`` раз.
-    - Эвристика всегда участвует в усреднении как безопасный якорь.
-    """
-
-    pred_np_arr = np.asarray(pred_np, dtype=float)
-    pred_xgb_arr = np.asarray(pred_xgb, dtype=float)
-    pred_heur_arr = np.asarray(pred_heur, dtype=float)
-
-    # В тёмное время полагаемся только на эвристику
-    low_light_mask = pred_heur_arr < low_heur_threshold
-    pred_np_arr = pred_np_arr.copy()
-    pred_xgb_arr = pred_xgb_arr.copy()
-    pred_np_arr[low_light_mask] = 0.0
-    pred_xgb_arr[low_light_mask] = 0.0
-
-    # Отбрасываем сильные всплески относительно базовой эвристики
-    upper_bound = pred_heur_arr * headroom
-    mask_np = (np.abs(pred_np_arr) >= min_value) & (pred_np_arr <= upper_bound)
-    mask_xgb = (np.abs(pred_xgb_arr) >= min_value) & (pred_xgb_arr <= upper_bound)
-
-    arr = np.vstack([pred_np_arr, pred_xgb_arr, pred_heur_arr])
-    mask = np.vstack([mask_np, mask_xgb, np.ones_like(pred_heur_arr, dtype=bool)])
-
-    denom = np.maximum(mask.sum(axis=0), 1)
-    numer = (arr * mask).sum(axis=0)
-    return numer / denom
+NP_REGRESSORS = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour_sin",
+    "month_sin",
+    "is_clear",
+    "y_expected_log",
+    "morning_peak_boost",
+    "evening_penalty",
+    "overdrive_flag",
+    "midday_penalty",
+    "is_morning_active",
+    "sun_elev_deg",
+    "low_sun_flag",
+]
 
 
 # ======================= УТИЛИТЫ ДЛЯ СТАНЦИИ =======================
@@ -94,15 +86,45 @@ def _get_station_coords(station) -> Tuple[float, float]:
 
 
 def _get_station_cap_kw(station, max_power_hist: float) -> float:
+    """
+    Возвращаем установленную мощность станции в кВт.
+
+    - В модели Station поле называется ``capacity_mw`` (в МВт) — используем его в
+      приоритете и переводим в кВт.
+    - Если вдруг в объекте есть ``capacity_kw`` (например, из другого бэкэнда),
+      тоже учитываем.
+    - Фоллбек — максимум по истории, затем безопасный дефолт 10 МВт.
+    """
+
+    # 1) capacity_mw -> kW
+    cap_mw = getattr(station, "capacity_mw", None)
+    if cap_mw is not None:
+        try:
+            v_mw = float(cap_mw)
+            if v_mw > 0:
+                cap_kw_candidate = v_mw * 1000.0
+
+                # Если значение в поле «MW» оказалось завышено на порядки относительно
+                # наблюдаемой мощности, трактуем его как кВт (частая ошибка ввода).
+                if max_power_hist > 0 and cap_kw_candidate > max_power_hist * 100:
+                    return v_mw
+
+                return cap_kw_candidate
+        except Exception:
+            pass
+
+    # 2) legacy capacity_kw (если есть)
     cap_kw = getattr(station, "capacity_kw", None)
     if cap_kw is not None:
         try:
-            v = float(cap_kw)
-            if v > 0:
-                return v
+            v_kw = float(cap_kw)
+            if v_kw > 0:
+                return v_kw
         except Exception:
             pass
-    return float(max_power_hist or 0.0) or 10000.0  # запасной дефолт 10 МВт
+
+    # 3) максимум из истории или дефолт 10 МВт
+    return float(max_power_hist or 0.0) or 10000.0
 
 
 # ======================= ФИЧИ =======================
@@ -137,6 +159,7 @@ def _add_common_features(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
     df["overdrive_flag"] = ((df["Irradiation"] > 950) & (df["Air_Temp"] > 30)).astype(int)
     df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
     df["is_morning_active"] = ((df["hour"] == 6) & (df["Irradiation"] > 49)).astype(int)
+
     df["PV_Temp"] = df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000.0 * 20.0
 
     # expected (MW)
@@ -203,7 +226,7 @@ def fetch_weather_hours_for_station(station, days: int) -> pd.DataFrame:
     ]
     dfw = dfw[[c for c in keep if c in dfw.columns]]
 
-    dfw["ds"] = dfw["datetime"].dt.floor("H")
+    dfw["ds"] = dfw["datetime"].dt.floor("h")
     dfh = dfw.groupby("ds", as_index=False).agg(
         {
             "Irradiation": "mean",
@@ -312,16 +335,140 @@ def _load_history_df(station) -> pd.DataFrame:
     return df
 
 
+# ======================= ТРЕНИРОВКА МОДЕЛЕЙ =======================
+
+def _train_np_residual(station, hist_df: pd.DataFrame, cap_mw: float) -> None:
+    hist_df = hist_df.copy()
+    hist_df["y_mw"] = hist_df["Power_KW"] / 1000.0
+    hist_df = hist_df[hist_df["y_mw"] >= 0].copy()
+    hist_df = _add_common_features(hist_df, cap_mw=cap_mw)
+    hist_df = _add_sun_geometry(hist_df, ds_col="ds", lat_deg=47.86)
+
+    hist_df["y_residual"] = hist_df["y_mw"] - hist_df["y_expected"]
+
+    hist_df["dup_weight"] = 1
+    hist_df.loc[hist_df["is_morning_active"] == 1, "dup_weight"] = 8
+    df_dup = hist_df.loc[hist_df.index.repeat(hist_df["dup_weight"])].copy()
+    df_dup["dup_index"] = df_dup.groupby("ds").cumcount()
+    df_dup["ds"] = df_dup["ds"] + pd.to_timedelta(df_dup["dup_index"], unit="m")
+    df_train = df_dup.drop(columns=["dup_index", "dup_weight"]).copy()
+
+    cols = ["ds", "y_residual"] + NP_REGRESSORS
+    df_train = df_train[cols].dropna().rename(columns={"y_residual": "y"})
+
+    model = NeuralProphet(
+        yearly_seasonality=False,
+        weekly_seasonality=False,
+        daily_seasonality=True,
+        seasonality_mode="additive",
+        learning_rate=0.2,
+        epochs=400,
+        batch_size=64,
+        loss_func="MSE",
+        n_lags=0,
+        n_forecasts=1,
+    )
+    for col in NP_REGRESSORS:
+        model.add_future_regressor(col, normalize="minmax")
+
+    model.fit(df_train, freq="h")
+
+    path_model = MODEL_DIR / f"np_model_{station.pk}.np"
+    path_meta = MODEL_DIR / f"np_model_{station.pk}.meta.json"
+    np_save(model, str(path_model))
+    path_meta.write_text(
+        json.dumps(
+            {
+                "cap_mw_train": cap_mw,
+                "pr_base": PR_BASE,
+                "features_reg": NP_REGRESSORS,
+                "note": "NeuralProphet residual: y_mw - expected(cap_mw)",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _train_xgb_permw(station, hist_df: pd.DataFrame, cap_mw: float) -> None:
+    hist_df = hist_df.copy()
+    hist_df["y_mw"] = hist_df["Power_KW"] / 1000.0
+    hist_df = hist_df[hist_df["y_mw"] >= 0].copy()
+
+    hist_df = _add_common_features(hist_df, cap_mw=cap_mw)
+    hist_df = _add_sun_geometry(hist_df, ds_col="ds", lat_deg=47.86)
+
+    df_train = hist_df.dropna(subset=XGB_FEATURES + ["y_mw"]).copy()
+    y_permw = df_train["y_mw"] / cap_mw
+
+    model = xgb.XGBRegressor(
+        n_estimators=500,
+        max_depth=5,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        random_state=42,
+    )
+    model.fit(df_train[XGB_FEATURES], y_permw)
+
+    path_model = MODEL_DIR / f"xgb_model_{station.pk}.json"
+    path_meta = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
+
+    model.save_model(str(path_model))
+    path_meta.write_text(
+        json.dumps(
+            {
+                "cap_mw_train": cap_mw,
+                "X_cols": XGB_FEATURES,
+                "note": "XGB trained on y_per_mw",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _ensure_models(station, hist_df: pd.DataFrame, cap_mw: float) -> None:
+    if not TRAIN_IF_MISSING:
+        return
+
+    if hist_df.empty:
+        return
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+    np_meta = MODEL_DIR / f"np_model_{station.pk}.meta.json"
+    xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
+    xgb_meta = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
+
+    if not np_path.exists() or not np_meta.exists():
+        _train_np_residual(station, hist_df, cap_mw)
+
+    if not xgb_path.exists() or not xgb_meta.exists():
+        _train_xgb_permw(station, hist_df, cap_mw)
+
+
 # ======================= ОСНОВНОЙ ЗАПУСК ПРОГНОЗА (ЭВРИСТИКА) =======================
 
 def run_forecast_for_station(station, days: int = 3) -> int:
     """
-    VC-погода → фичи → NeuralProphet(y) + XGB(PR) → калибровка → ансамбль.
-    Логика адаптирована из «forecast_8p8mw_v11_fixed.py» с жёсткой
-    фильтрацией ночи (Irr<20 или солнце<5° -> 0).
+    Объединённый прогноз для станции:
+      - VC-погода → expected (эвристика) в MW
+      - автоматическая тренировка XGB per-MW и NeuralProphet residual при отсутствии моделей
+      - калибровка моделей и эвристики по истории станции
+      - динамический ансамбль NP/XGB/expected с клипами по физике и ночным фильтром
+      - запись в SolarForecast в кВт
     """
 
-    print(f"[FORECAST] station {station.pk}: запуск прогноза на {days} дней (NP+XGB+HEUR)")
+    print(f"[FORECAST] station {station.pk}: запуск прогноза на {days} дней (ensemble)")
+
+    # Предварительная инициализация, чтобы любые ранние ошибки не приводили к
+    # UnboundLocal в финальном сохранении/логике обработки.
+    heur_mw = np.array([])
+    ensemble_mw = np.array([])
 
     # === История для мощности/калибровки ===
     hist_df = _load_history_df(station)
@@ -336,6 +483,8 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     cap_kw = _get_station_cap_kw(station, max_power_hist)
     cap_mw = cap_kw / 1000.0
     print(f"[FORECAST] station {station.pk}: cap_kw≈{cap_kw:.1f}, cap_mw≈{cap_mw:.3f}")
+
+    _ensure_models(station, hist_df, cap_mw)
 
     # История в MW + фичи
     hist_df["y_mw"] = hist_df["Power_KW"] / 1000.0
@@ -382,30 +531,8 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     b_exp = cal_factor(hist_df["y_mw"], expected_hist)
     print(f"[FORECAST] station {station.pk}: калибровка эвристики b_exp={b_exp:.3f}")
 
-    xgb_features = xgb_meta.get(
-        "X_cols",
-        [
-            "Irradiation",
-            "Air_Temp",
-            "PV_Temp",
-            "hour",
-            "month",
-            "hour_sin",
-            "month_sin",
-            "sun_elev_deg",
-            "low_sun_flag",
-        ],
-    )
-
     b_xgb = 1.0
-    if xgb_model is not None:
-        try:
-            pred_hist_permw = np.clip(xgb_model.predict(hist_df[xgb_features]), 0, None)
-            xgb_hist_mwh = pred_hist_permw * cap_mw
-            b_xgb = cal_factor(hist_df["y_mw"], xgb_hist_mwh)
-        except Exception as e:  # pragma: no cover - защитный лог
-            print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB на истории -> {e}")
-            b_xgb = 1.0
+    b_np = b_exp
 
     # калибровка NP усреднением с эвристикой
     b_np = (b_xgb + b_exp) / 2.0
@@ -431,6 +558,7 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     # калиброванная эвристика
     df_hourly["Expected_MWh"] = expected_future
     df_hourly["Expected_MWh_cal"] = (expected_future * b_exp).clip(lower=0.0)
+    heur_mw = df_hourly["Expected_MWh_cal"].values
 
     # NP прогноз
     df_hourly["NeuralProphet_MWh_raw"] = 0.0
@@ -474,7 +602,63 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
 
-    # Ансамбль по правилам из примера
+    # === NeuralProphet residual ===
+    np_pred_mw = None
+    np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+    np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
+    if np_path.exists():
+        try:
+            np_model = np_load(str(np_path))
+            meta_np = {}
+            if np_meta_path.exists():
+                meta_np = json.loads(np_meta_path.read_text(encoding="utf-8"))
+            cap_train_np = float(meta_np.get("cap_mw_train", cap_mw) or cap_mw)
+            features_reg = meta_np.get("features_reg", NP_REGRESSORS)
+
+            expected_train_future = (
+                cap_train_np * (df_hourly["Irradiation"] / 1000.0) * PR_BASE
+            ).clip(0, cap_train_np * 0.95)
+
+            df_np = df_hourly.copy()
+            df_np["y_expected_log"] = np.log1p(expected_train_future * 0.95)
+
+            df_np_in = df_np[["ds"] + features_reg].copy()
+            df_np_in["y"] = 0.0
+
+            np_forecast = np_model.predict(df_np_in)
+            residual_pred = np_forecast["yhat1"].to_numpy()
+
+            cap_ratio_np = cap_mw / cap_train_np if cap_train_np > 0 else 1.0
+            np_pred_mw = (expected_future.values + residual_pred * cap_ratio_np).clip(lower=0.0)
+            np_pred_mw = np.minimum(np_pred_mw, np.minimum(cap_by_irr_future.values, np.full_like(cap_by_irr_future.values, cap_mw)))
+            print(
+                f"[FORECAST] station {station.pk}: NP residual загружен ({np_path.name}), строк={len(df_np_in)}"
+            )
+        except Exception as e:
+            print(f"[FORECAST] station {station.pk}: ошибка прогноза NP -> {e}")
+
+    # === Калибровка и клипы ===
+    np_pred_mw_cal = None
+    xgb_pred_mw_cal = None
+
+    lim_after = np.minimum.reduce(
+        [
+            cap_by_irr_future.values,
+            np.full_like(cap_by_irr_future.values, cap_mw),
+            (ensemble_mw * ENSEMBLE_HEADROOM),
+        ]
+    )
+
+    if np_pred_mw is not None:
+        np_pred_mw_cal = np.minimum(np_pred_mw * b_np, lim_after)
+
+    if xgb_pred_mw is not None:
+        xgb_pred_mw_cal = np.minimum(xgb_pred_mw * b_xgb, lim_after)
+
+    expected_cal = np.minimum(df_hourly["Expected_MWh_cal"].values, lim_after)
+
+    # === Динамический ансамбль ===
+    n = len(df_hourly)
     h = df_hourly["ds"].dt.hour
     irr = df_hourly["Irradiation"].fillna(0)
     low = (irr < 300) | (df_hourly["low_sun_flag"] == 1)
@@ -531,30 +715,28 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
         objs = []
         for idx, (ds, v_exp, v_ens) in enumerate(
-            zip(
-                timestamps,
-                df_hourly["Expected_MWh_cal"].values,
-                df_hourly["Ensemble_MWh"].values,
-                strict=True,
-            )
+            zip(timestamps, heur_mw, ensemble_mw, strict=True),
         ):
             if timezone.is_naive(ds):
                 ds = make_aware(ds, timezone.get_default_timezone())
 
             exp_kw = float(v_exp * 1000.0)
             ens_kw = float(v_ens * 1000.0)
-
-            np_kw = float(df_hourly["NeuralProphet_MWh_cal"].iloc[idx] * 1000.0)
-            xgb_kw = float(df_hourly["XGBoost_MWh_cal"].iloc[idx] * 1000.0)
+            pred_xgb_kw = (
+                float(xgb_pred_mw_cal[idx] * 1000.0) if xgb_pred_mw_cal is not None else 0.0
+            )
+            pred_np_kw = (
+                float(np_pred_mw_cal[idx] * 1000.0) if np_pred_mw_cal is not None else 0.0
+            )
 
             objs.append(
                 SolarForecast(
                     station=station,
                     timestamp=ds,
-                    pred_np=np_kw,
-                    pred_xgb=xgb_kw,
-                    pred_heur=exp_kw,
-                    pred_final=ens_kw,
+                    pred_np=pred_np_kw,
+                    pred_xgb=pred_xgb_kw,
+                    pred_heur=exp_kw,     # эвристика (кВт)
+                    pred_final=ens_kw,    # итог = динамический ансамбль после клипов
                 )
             )
 
