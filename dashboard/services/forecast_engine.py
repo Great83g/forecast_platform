@@ -531,13 +531,14 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_hourly["NeuralProphet_MWh_raw"] = (
                 expected_future + np.clip(fc_np["yhat1"], 0, None)
             ).clip(lower=0)
-            df_hourly["NeuralProphet_MWh"] = np.minimum.reduce(
-                [
-                    df_hourly["NeuralProphet_MWh_raw"].values,
-                    cap_by_irr_future.values,
-                    np.full_like(cap_by_irr_future.values, cap_mw),
-                ]
+            np_cap_df = pd.DataFrame(
+                {
+                    "np_raw": df_hourly["NeuralProphet_MWh_raw"].to_numpy(dtype=float),
+                    "cap_by_irr": cap_by_irr_future.to_numpy(dtype=float),
+                    "cap_phys": np.full(len(df_hourly), cap_mw, dtype=float),
+                }
             )
+            df_hourly["NeuralProphet_MWh"] = np_cap_df.min(axis=1).to_numpy()
             df_hourly["NeuralProphet_MWh_cal"] = (df_hourly["NeuralProphet_MWh"] * b_np).clip(lower=0.0)
 
     # === XGB(PR) ===
@@ -546,14 +547,16 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         try:
             pred_permw = np.clip(xgb_model.predict(df_hourly[xgb_features]), 0, None)
             df_hourly["XGBoost_MWh_raw"] = pred_permw * cap_mw
-            df_hourly["XGBoost_MWh"] = np.minimum.reduce(
-                [
-                    df_hourly["XGBoost_MWh_raw"].values,
-                    cap_by_irr_future.values,
-                    np.full_like(cap_by_irr_future.values, cap_mw),
-                ]
+            xgb_cap_df = pd.DataFrame(
+                {
+                    "xgb_raw": df_hourly["XGBoost_MWh_raw"].to_numpy(dtype=float),
+                    "cap_by_irr": cap_by_irr_future.to_numpy(dtype=float),
+                    "cap_phys": np.full(len(df_hourly), cap_mw, dtype=float),
+                }
             )
-        except Exception as e:
+            df_hourly["XGBoost_MWh"] = xgb_cap_df.min(axis=1).to_numpy()
+            df_hourly["XGBoost_MWh_cal"] = (df_hourly["XGBoost_MWh"] * b_xgb).clip(lower=0.0)
+        except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
 
     # === NeuralProphet residual ===
