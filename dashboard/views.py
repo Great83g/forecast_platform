@@ -1,14 +1,17 @@
 # dashboard/views.py
 
 from io import BytesIO
+from datetime import datetime
 
 import pandas as pd
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.utils.dateformat import format
 from django.utils.text import slugify
+from openpyxl import Workbook
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -391,72 +394,68 @@ def station_forecast_clear(request, pk):
 @login_required
 def station_export_forecast(request, pk):
     """
-    Экспорт прогноза станции в Excel.
-    Учитывает фильтр ?from=YYYY-MM-DD&to=YYYY-MM-DD.
+    Выгрузка прогноза станции в Excel.
+    ВРЕМЯ конвертируем в локальный часовой пояс (settings.TIME_ZONE)
+    и отбрасываем часы вне диапазона 06:00–20:00.
     """
+
     station = get_object_or_404(Station, pk=pk)
 
-    from_date = request.GET.get("from") or ""
-    to_date = request.GET.get("to") or ""
+    qs = SolarForecast.objects.filter(
+        station=station,
+    ).order_by("timestamp")
 
-    qs = SolarForecast.objects.filter(station=station).order_by("timestamp")
-    if from_date:
-        qs = qs.filter(timestamp__date__gte=from_date)
-    if to_date:
-        qs = qs.filter(timestamp__date__lte=to_date)
+    # Фильтры по датам из формы (если есть)
+    date_from = request.GET.get("date_from")  # формат mm/dd/yyyy
+    date_to = request.GET.get("date_to")      # формат mm/dd/yyyy
 
-    rows = list(
-        qs.values(
-            "timestamp",
-            "pred_np",
-            "pred_xgb",
-            "pred_heur",
-            "pred_final",
-        )
-    )
+    if date_from:
+        dt_from = datetime.strptime(date_from, "%m/%d/%Y").date()
+        qs = qs.filter(timestamp__date__gte=dt_from)
 
-    if not rows:
-        messages.warning(request, "Нет данных прогноза для экспорта.")
-        return redirect("dashboard-station-forecast-list", pk=station.pk)
+    if date_to:
+        dt_to = datetime.strptime(date_to, "%m/%d/%Y").date()
+        qs = qs.filter(timestamp__date__lte=dt_to)
 
-    df = pd.DataFrame(rows)
-    df.rename(
-        columns={
-            "timestamp": "ds",
-            "pred_np": "Pred_NP",
-            "pred_xgb": "Pred_XGB",
-            "pred_heur": "Pred_Heur",
-            "pred_final": "Pred_Final",
-        },
-        inplace=True,
-    )
+    # === Готовим Excel ===
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Forecast"
 
-    df["ds"] = pd.to_datetime(df["ds"])
-    try:
-        df["ds"] = df["ds"].dt.tz_localize(None)
-    except TypeError:
-        pass
+    # Шапка
+    ws.append(["ds", "Pred_NP", "Pred_XGB", "Pred_Heur", "Pred_Final"])
 
-    df = df.fillna(0.0)
-    for col in ["Pred_NP", "Pred_XGB", "Pred_Heur", "Pred_Final"]:
-        df[col] = df[col].astype(float).round(6)
+    local_tz = timezone.get_default_timezone()
 
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="Forecast", index=False)
-    output.seek(0)
+    for rec in qs.iterator():
+        # Переводим время из UTC -> локальное, убираем tzinfo, чтобы Excel
+        # видел обычный наивный datetime в местном времени
+        ts_local = timezone.localtime(rec.timestamp, local_tz).replace(tzinfo=None)
 
-    base_name = slugify(station.name or f"station-{station.pk}")
-    if from_date or to_date:
-        suffix = f"_{from_date or ''}_{to_date or ''}".replace("--", "-")
-    else:
-        suffix = ""
-    filename = f"{base_name}_forecast{suffix}.xlsx"
+        # Оставляем только дневные часы (06–20), как на сайте
+        if ts_local.hour < 6 or ts_local.hour > 20:
+            continue
 
+        ws.append([
+            ts_local,
+            float(rec.pred_np or 0.0),
+            float(rec.pred_xgb or 0.0),
+            float(rec.pred_heur or 0.0),
+            float(rec.pred_final or 0.0),
+        ])
+
+    # Сохраняем книгу в память
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    # Отдаём файл пользователю
+    filename = f"forecast_station_{station.pk}.xlsx"
     response = HttpResponse(
-        output.getvalue(),
+        buffer.getvalue(),
         content_type=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
         ),
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
