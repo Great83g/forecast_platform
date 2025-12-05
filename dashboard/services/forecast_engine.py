@@ -255,6 +255,22 @@ def cal_factor(y_true: pd.Series, y_pred_like: pd.Series, lo=0.6, hi=1.0) -> flo
     return float(np.clip(s_true / s_pred, lo, hi))
 
 
+def _ensure_1d(pred_like, length: int, name: str) -> np.ndarray:
+    """Convert predictions to a flat float array and validate length.
+
+    NeuralProphet и XGBoost иногда возвращают объекты с индексами, не совпадающими
+    с текущим DataFrame. Явное приведение к numpy-формату фиксированной длины
+    предотвращает «inhomogeneous shape» при последующих арифметических операциях.
+    """
+
+    arr = np.asarray(pred_like, dtype=float).reshape(-1)
+    if arr.shape[0] != length:
+        raise ValueError(
+            f"{name}: длина {arr.shape[0]} не совпадает с ожидаемой {length}"
+        )
+    return arr
+
+
 def _load_history_df(station) -> pd.DataFrame:
     qs = SolarRecord.objects.filter(station=station).order_by("timestamp")
     if not qs.exists():
@@ -504,6 +520,7 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
     df_hourly = _add_common_features(df_hourly, cap_mw=cap_mw)
     df_hourly = _add_sun_geometry(df_hourly, ds_col="ds", lat_deg=47.86)
+    df_hourly = df_hourly.reset_index(drop=True)
 
     # expected по будущему (MW)
     budget_future = cap_mw * (df_hourly["Irradiation"] / 1000.0).clip(lower=eps)
@@ -528,34 +545,30 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_in_np = df_hourly[["ds"] + req_np].copy()
             df_in_np["y"] = np.nan
             fc_np = np_model.predict(df_in_np)
-            df_hourly["NeuralProphet_MWh_raw"] = (
-                expected_future + np.clip(fc_np["yhat1"], 0, None)
-            ).clip(lower=0)
-            np_cap_df = pd.DataFrame(
-                {
-                    "np_raw": df_hourly["NeuralProphet_MWh_raw"].to_numpy(dtype=float),
-                    "cap_by_irr": cap_by_irr_future.to_numpy(dtype=float),
-                    "cap_phys": np.full(len(df_hourly), cap_mw, dtype=float),
-                }
+            np_yhat = _ensure_1d(fc_np["yhat1"], len(df_hourly), "NP yhat1")
+            np_raw = (expected_future.to_numpy(dtype=float) + np.clip(np_yhat, 0, None)).clip(
+                lower=0
             )
-            df_hourly["NeuralProphet_MWh"] = np_cap_df.min(axis=1).to_numpy()
-            df_hourly["NeuralProphet_MWh_cal"] = (df_hourly["NeuralProphet_MWh"] * b_np).clip(lower=0.0)
+            cap_by_irr_arr = _ensure_1d(cap_by_irr_future, len(df_hourly), "cap_by_irr")
+            phys_cap_arr = np.full(len(df_hourly), cap_mw, dtype=float)
+            np_capped = np.minimum(np_raw, np.minimum(cap_by_irr_arr, phys_cap_arr))
+            df_hourly["NeuralProphet_MWh"] = np_capped
+            df_hourly["NeuralProphet_MWh_raw"] = np_raw
+            df_hourly["NeuralProphet_MWh_cal"] = (np_capped * b_np).clip(lower=0.0)
 
     # === XGB(PR) ===
     xgb_pred_mw = None
     if xgb_path.exists():
         try:
-            pred_permw = np.clip(xgb_model.predict(df_hourly[xgb_features]), 0, None)
-            df_hourly["XGBoost_MWh_raw"] = pred_permw * cap_mw
-            xgb_cap_df = pd.DataFrame(
-                {
-                    "xgb_raw": df_hourly["XGBoost_MWh_raw"].to_numpy(dtype=float),
-                    "cap_by_irr": cap_by_irr_future.to_numpy(dtype=float),
-                    "cap_phys": np.full(len(df_hourly), cap_mw, dtype=float),
-                }
-            )
-            df_hourly["XGBoost_MWh"] = xgb_cap_df.min(axis=1).to_numpy()
-            df_hourly["XGBoost_MWh_cal"] = (df_hourly["XGBoost_MWh"] * b_xgb).clip(lower=0.0)
+            pred_permw = _ensure_1d(xgb_model.predict(df_hourly[xgb_features]), len(df_hourly), "XGB")
+            pred_permw = np.clip(pred_permw, 0, None)
+            xgb_raw = pred_permw * cap_mw
+            cap_by_irr_arr = _ensure_1d(cap_by_irr_future, len(df_hourly), "cap_by_irr")
+            phys_cap_arr = np.full(len(df_hourly), cap_mw, dtype=float)
+            xgb_capped = np.minimum(xgb_raw, np.minimum(cap_by_irr_arr, phys_cap_arr))
+            df_hourly["XGBoost_MWh"] = xgb_capped
+            df_hourly["XGBoost_MWh_raw"] = xgb_raw
+            df_hourly["XGBoost_MWh_cal"] = (xgb_capped * b_xgb).clip(lower=0.0)
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
 
