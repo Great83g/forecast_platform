@@ -275,9 +275,16 @@ def _ensure_1d(pred_like, length: int, name: str) -> np.ndarray:
         try:
             val_arr = np.asarray(val, dtype=float).reshape(-1)
         except Exception as e:
-            raise ValueError(
-                f"{name}: не удалось преобразовать элемент {idx} типа {type(val).__name__} -> float ({e})"
-            )
+            # «setting an array element with a sequence» — пробуем раскрыть как
+            # объектный массив и взять первый скалярный элемент, пригодный к float.
+            try:
+                obj_arr = np.array(val, dtype=object).ravel()
+                first_scalar = next(float(x) for x in obj_arr if np.ndim(x) == 0)
+                val_arr = np.asarray([first_scalar], dtype=float)
+            except Exception:
+                raise ValueError(
+                    f"{name}: не удалось преобразовать элемент {idx} типа {type(val).__name__} -> float ({e})"
+                )
 
         if val_arr.size == 0:
             raise ValueError(f"{name}: пустое значение в позиции {idx}")
