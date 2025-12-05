@@ -490,26 +490,8 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     b_xgb = 1.0
     b_np = b_exp
 
-    # Калибровка XGB по истории
-    xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
-    xgb_meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
-    if xgb_path.exists():
-        try:
-            xgb_model = xgb.XGBRegressor()
-            xgb_model.load_model(str(xgb_path))
-            xgb_cols = XGB_FEATURES
-            if xgb_meta_path.exists():
-                meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
-                xgb_cols = meta.get("X_cols", XGB_FEATURES)
-            pred_pr_hist = np.clip(xgb_model.predict(hist_df[xgb_cols]), 0.0, 1.05)
-            xgb_hist_mw = pred_pr_hist * budget_hist.values
-            b_xgb = cal_factor(hist_df["y_mw"], xgb_hist_mw)
-            b_np = (b_xgb + b_exp) / 2.0
-            print(
-                f"[FORECAST] station {station.pk}: калибровка XGB b_xgb={b_xgb:.3f}, b_np={b_np:.3f}"
-            )
-        except Exception as e:
-            print(f"[FORECAST] station {station.pk}: ошибка калибровки XGB -> {e}")
+    # калибровка NP усреднением с эвристикой
+    b_np = (b_xgb + b_exp) / 2.0
 
     # === Погода на будущее ===
     df_hourly = fetch_weather_hours_for_station(station, days=days)
@@ -526,29 +508,50 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     # expected по будущему (MW)
     budget_future = cap_mw * (df_hourly["Irradiation"] / 1000.0).clip(lower=eps)
     expected_future = (cap_mw * (df_hourly["Irradiation"] / 1000.0) * PR_BASE).clip(0, cap_mw * 0.95)
+    cap_by_irr_future = budget_future * PR_CEIL_PER_HR
 
     # калиброванная эвристика
+    df_hourly["Expected_MWh"] = expected_future
     df_hourly["Expected_MWh_cal"] = (expected_future * b_exp).clip(lower=0.0)
     heur_mw = df_hourly["Expected_MWh_cal"].values
 
-    cap_by_irr_future = budget_future * PR_CEIL_PER_HR
+    # NP прогноз
+    df_hourly["NeuralProphet_MWh_raw"] = 0.0
+    df_hourly["NeuralProphet_MWh"] = 0.0
+    df_hourly["NeuralProphet_MWh_cal"] = 0.0
+    if np_model is not None:
+        req_np = list(getattr(np_model, "config_regressors", {}).keys())
+        missing = [r for r in req_np if r not in df_hourly.columns]
+        if missing:
+            print(f"[FORECAST] station {station.pk}: NP пропущены регрессоры {missing}")
+        else:
+            df_in_np = df_hourly[["ds"] + req_np].copy()
+            df_in_np["y"] = np.nan
+            fc_np = np_model.predict(df_in_np)
+            df_hourly["NeuralProphet_MWh_raw"] = (
+                expected_future + np.clip(fc_np["yhat1"], 0, None)
+            ).clip(lower=0)
+            df_hourly["NeuralProphet_MWh"] = np.minimum.reduce(
+                [
+                    df_hourly["NeuralProphet_MWh_raw"].values,
+                    cap_by_irr_future.values,
+                    np.full_like(cap_by_irr_future.values, cap_mw),
+                ]
+            )
+            df_hourly["NeuralProphet_MWh_cal"] = (df_hourly["NeuralProphet_MWh"] * b_np).clip(lower=0.0)
 
     # === XGB(PR) ===
     xgb_pred_mw = None
     if xgb_path.exists():
         try:
-            xgb_model = xgb.XGBRegressor()
-            xgb_model.load_model(str(xgb_path))
-            xgb_cols = XGB_FEATURES
-            if xgb_meta_path.exists():
-                meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
-                xgb_cols = meta.get("X_cols", XGB_FEATURES)
-            df_xgb = df_hourly[xgb_cols].copy()
-            pred_pr = np.clip(xgb_model.predict(df_xgb), 0.0, 1.05)
-            xgb_pred_mw = pred_pr * budget_future.values
-            xgb_pred_mw = np.minimum(xgb_pred_mw, np.minimum(cap_by_irr_future.values, np.full_like(cap_by_irr_future.values, cap_mw)))
-            print(
-                f"[FORECAST] station {station.pk}: XGB(PR) загружен ({xgb_path.name}), строк={len(df_xgb)}"
+            pred_permw = np.clip(xgb_model.predict(df_hourly[xgb_features]), 0, None)
+            df_hourly["XGBoost_MWh_raw"] = pred_permw * cap_mw
+            df_hourly["XGBoost_MWh"] = np.minimum.reduce(
+                [
+                    df_hourly["XGBoost_MWh_raw"].values,
+                    cap_by_irr_future.values,
+                    np.full_like(cap_by_irr_future.values, cap_mw),
+                ]
             )
         except Exception as e:
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
@@ -614,73 +617,46 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     irr = df_hourly["Irradiation"].fillna(0)
     low = (irr < 300) | (df_hourly["low_sun_flag"] == 1)
 
-    # базовый фоллбек — откалиброванная эвристика, чтобы не получить UnboundLocal
-    ensemble_mw = heur_mw.copy() if heur_mw is not None else np.zeros(n)
+    w_np = np.where((h.between(6, 9)) & (irr > 60), 0.45, 0.30)
+    w_xgb = np.where(h.between(6, 9), 0.35, 0.30)
+    w_exp = 1.0 - (w_np + w_xgb)
 
-    try:
-        w_np = np.zeros(n) if np_pred_mw_cal is None else np.where((h.between(6, 9)) & (irr > 60), 0.45, 0.30)
-        w_xgb = np.zeros(n) if xgb_pred_mw_cal is None else np.where(h.between(6, 9), 0.35, 0.30)
-        w_exp = 1.0 - (w_np + w_xgb)
+    bright_midday = (h.between(11, 15)) & (irr > 700)
+    w_exp = np.where(bright_midday, np.minimum(w_exp + 0.10, 0.85), w_exp)
+    w_np = np.where(bright_midday, np.maximum(w_np - 0.05, 0.05), w_np)
+    w_xgb = np.where(bright_midday, np.maximum(w_xgb - 0.05, 0.05), w_xgb)
 
-        bright_midday = (h.between(11, 15)) & (irr > 700)
-        w_exp = np.where(bright_midday, np.minimum(w_exp + 0.10, 0.85), w_exp)
-        if np_pred_mw_cal is not None:
-            w_np = np.where(bright_midday, np.maximum(w_np - 0.05, 0.05), w_np)
-        if xgb_pred_mw_cal is not None:
-            w_xgb = np.where(bright_midday, np.maximum(w_xgb - 0.05, 0.05), w_xgb)
+    w_exp = np.where(low, np.minimum(w_exp + 0.20, 0.90), w_exp)
+    w_np = np.where(low, np.maximum(w_np - 0.10, 0.05), w_np)
+    w_xgb = np.where(low, np.maximum(w_xgb - 0.10, 0.05), w_xgb)
 
-        w_exp = np.where(low, np.minimum(w_exp + 0.20, 0.90), w_exp)
-        if np_pred_mw_cal is not None:
-            w_np = np.where(low, np.maximum(w_np - 0.10, 0.05), w_np)
-        if xgb_pred_mw_cal is not None:
-            w_xgb = np.where(low, np.maximum(w_xgb - 0.10, 0.05), w_xgb)
+    w_np = w_np.astype(float)
+    w_xgb = w_xgb.astype(float)
+    w_exp = w_exp.astype(float)
 
-        wsum = w_np + w_xgb + w_exp
-        wsum = np.where(wsum == 0, 1.0, wsum)
-        w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
+    wsum = w_np + w_xgb + w_exp
+    w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
 
-        zeros = np.zeros(n)
-        np_safe = np_pred_mw_cal if np_pred_mw_cal is not None else zeros
-        xgb_safe = xgb_pred_mw_cal if xgb_pred_mw_cal is not None else zeros
-
-        ensemble_mw_raw = (
-            w_np * np_safe +
-            w_xgb * xgb_safe +
-            w_exp * expected_cal
-        )
-
-        ens_limit = np.minimum.reduce(
-            [
-                cap_by_irr_future.values,
-                np.full_like(cap_by_irr_future.values, cap_mw),
-                expected_cal * ENSEMBLE_HEADROOM,
-            ]
-        )
-        ensemble_mw = np.minimum(ensemble_mw_raw, ens_limit)
-    except Exception as e:
-        print(f"[FORECAST] station {station.pk}: fallback на эвристику из-за ошибки ансамбля -> {e}")
-
-    if heur_mw is None or len(heur_mw) == 0:
-        heur_mw = np.zeros(n)
-
-    if ensemble_mw is None or len(ensemble_mw) == 0:
-        ensemble_mw = heur_mw.copy() if heur_mw is not None else np.zeros(n)
-
-    # Если размеры не совпадают (например, при частичном падении моделей),
-    # приводим всё к длине прогноза.
-    if len(heur_mw) != n:
-        heur_mw = np.resize(heur_mw, n)
-    if len(ensemble_mw) != n:
-        ensemble_mw = np.resize(ensemble_mw, n)
+    df_hourly["Ensemble_MWh"] = (
+        w_np * df_hourly["NeuralProphet_MWh_cal"]
+        + w_xgb * df_hourly["XGBoost_MWh_cal"]
+        + w_exp * df_hourly["Expected_MWh_cal"]
+    )
 
     # Ночной фильтр
     mask_night = (df_hourly["Irradiation"] < 20) | (df_hourly["sun_elev_deg"] < 5)
-    heur_mw = np.where(mask_night, 0.0, heur_mw)
-    ensemble_mw = np.where(mask_night, 0.0, ensemble_mw)
-    if xgb_pred_mw_cal is not None:
-        xgb_pred_mw_cal = np.where(mask_night, 0.0, xgb_pred_mw_cal)
-    if np_pred_mw_cal is not None:
-        np_pred_mw_cal = np.where(mask_night, 0.0, np_pred_mw_cal)
+    cols_zero = [
+        "Expected_MWh",
+        "Expected_MWh_cal",
+        "NeuralProphet_MWh_raw",
+        "NeuralProphet_MWh",
+        "NeuralProphet_MWh_cal",
+        "XGBoost_MWh_raw",
+        "XGBoost_MWh",
+        "XGBoost_MWh_cal",
+        "Ensemble_MWh",
+    ]
+    df_hourly.loc[mask_night, cols_zero] = 0.0
 
     # === Сохранение в SolarForecast (MW -> кВт) ===
     timestamps = pd.to_datetime(df_hourly["ds"]).tolist()
