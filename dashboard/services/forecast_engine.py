@@ -232,6 +232,38 @@ def cal_factor(y_true: pd.Series, y_pred_like: pd.Series, lo=0.6, hi=1.0) -> flo
     return float(np.clip(s_true / s_pred, lo, hi))
 
 
+def _ensure_1d(pred_like, length: int, name: str) -> np.ndarray:
+    """Convert predictions to a flat float array and validate length.
+
+    NeuralProphet и XGBoost иногда возвращают объекты с индексами, не совпадающими
+    с текущим DataFrame. Явное приведение к numpy-формату фиксированной длины
+    предотвращает «inhomogeneous shape» при последующих арифметических операциях.
+    """
+
+    try:
+        arr = np.asarray(pred_like, dtype=float).reshape(-1)
+    except Exception:
+        # Попробуем вытащить скаляры из последовательностей, например [[x], [y]]
+        obj = np.asarray(pred_like, dtype=object).reshape(-1)
+        flat_values = []
+        for idx, val in enumerate(obj):
+            val_arr = np.asarray(val, dtype=float).reshape(-1)
+            if val_arr.size == 0:
+                raise ValueError(f"{name}: пустое значение в позиции {idx}")
+            if val_arr.size != 1:
+                raise ValueError(
+                    f"{name}: элемент {idx} имеет размер {val_arr.size}, ожидался скаляр"
+                )
+            flat_values.append(float(val_arr[0]))
+        arr = np.asarray(flat_values, dtype=float)
+
+    if arr.shape[0] != length:
+        raise ValueError(
+            f"{name}: длина {arr.shape[0]} не совпадает с ожидаемой {length}"
+        )
+    return arr
+
+
 def _load_history_df(station) -> pd.DataFrame:
     qs = SolarRecord.objects.filter(station=station).order_by("timestamp")
     if not qs.exists():
@@ -363,19 +395,8 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB на истории -> {e}")
             b_xgb = 1.0
 
-    # калибровка NP по residual: y_expected + residual
+    # калибровка NP усреднением с эвристикой
     b_np = (b_xgb + b_exp) / 2.0
-    if np_model is not None:
-        try:
-            req_np = list(getattr(np_model, "config_regressors", {}).keys())
-            df_in_np_hist = hist_df[["ds"] + req_np].copy()
-            df_in_np_hist["y"] = np.nan
-            fc_np_hist = np_model.predict(df_in_np_hist)
-            np_hist_mwh = (expected_hist + np.clip(fc_np_hist["yhat1"], 0, None)).clip(lower=0)
-            b_np = cal_factor(hist_df["y_mw"], np_hist_mwh)
-        except Exception as e:
-            print(f"[FORECAST] station {station.pk}: ошибка прогноза NP на истории -> {e}")
-            b_np = (b_xgb + b_exp) / 2.0
 
     # === Погода на будущее ===
     df_hourly = fetch_weather_hours_for_station(station, days=days)
@@ -388,12 +409,15 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
     df_hourly = _add_common_features(df_hourly, cap_mw=cap_mw)
     df_hourly = _add_sun_geometry(df_hourly, ds_col="ds", lat_deg=47.86)
+    df_hourly = df_hourly.reset_index(drop=True)
 
     # expected по будущему (MW)
     budget_future = cap_mw * (df_hourly["Irradiation"] / 1000.0).clip(lower=eps)
     expected_future = (cap_mw * (df_hourly["Irradiation"] / 1000.0) * PR_BASE).clip(0, cap_mw * 0.95)
+    cap_by_irr_future = budget_future * PR_CEIL_PER_HR
 
     # калиброванная эвристика
+    df_hourly["Expected_MWh"] = expected_future
     df_hourly["Expected_MWh_cal"] = (expected_future * b_exp).clip(lower=0.0)
 
     # NP прогноз
@@ -409,18 +433,16 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_in_np = df_hourly[["ds"] + req_np].copy()
             df_in_np["y"] = np.nan
             fc_np = np_model.predict(df_in_np)
-            cap_by_irr_future = budget_future * PR_CEIL_PER_HR
-            df_hourly["NeuralProphet_MWh_raw"] = (
-                expected_future + np.clip(fc_np["yhat1"], 0, None)
-            ).clip(lower=0)
-            df_hourly["NeuralProphet_MWh"] = np.minimum.reduce(
-                [
-                    df_hourly["NeuralProphet_MWh_raw"].values,
-                    cap_by_irr_future.values,
-                    np.full_like(cap_by_irr_future.values, cap_mw),
-                ]
+            np_yhat = _ensure_1d(fc_np["yhat1"], len(df_hourly), "NP yhat1")
+            np_raw = (expected_future.to_numpy(dtype=float) + np.clip(np_yhat, 0, None)).clip(
+                lower=0
             )
-            df_hourly["NeuralProphet_MWh_cal"] = (df_hourly["NeuralProphet_MWh"] * b_np).clip(lower=0.0)
+            cap_by_irr_arr = _ensure_1d(cap_by_irr_future, len(df_hourly), "cap_by_irr")
+            phys_cap_arr = np.full(len(df_hourly), cap_mw, dtype=float)
+            np_capped = np.minimum(np_raw, np.minimum(cap_by_irr_arr, phys_cap_arr))
+            df_hourly["NeuralProphet_MWh"] = np_capped
+            df_hourly["NeuralProphet_MWh_raw"] = np_raw
+            df_hourly["NeuralProphet_MWh_cal"] = (np_capped * b_np).clip(lower=0.0)
 
     # XGB прогноз (PR -> MW)
     df_hourly["XGBoost_MWh_raw"] = 0.0
@@ -428,17 +450,15 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     df_hourly["XGBoost_MWh_cal"] = 0.0
     if xgb_model is not None:
         try:
-            pred_permw = np.clip(xgb_model.predict(df_hourly[xgb_features]), 0, None)
-            df_hourly["XGBoost_MWh_raw"] = pred_permw * cap_mw
-            cap_by_irr_future = budget_future * PR_CEIL_PER_HR
-            df_hourly["XGBoost_MWh"] = np.minimum.reduce(
-                [
-                    df_hourly["XGBoost_MWh_raw"].values,
-                    cap_by_irr_future.values,
-                    np.full_like(cap_by_irr_future.values, cap_mw),
-                ]
-            )
-            df_hourly["XGBoost_MWh_cal"] = (df_hourly["XGBoost_MWh"] * b_xgb).clip(lower=0.0)
+            pred_permw = _ensure_1d(xgb_model.predict(df_hourly[xgb_features]), len(df_hourly), "XGB")
+            pred_permw = np.clip(pred_permw, 0, None)
+            xgb_raw = pred_permw * cap_mw
+            cap_by_irr_arr = _ensure_1d(cap_by_irr_future, len(df_hourly), "cap_by_irr")
+            phys_cap_arr = np.full(len(df_hourly), cap_mw, dtype=float)
+            xgb_capped = np.minimum(xgb_raw, np.minimum(cap_by_irr_arr, phys_cap_arr))
+            df_hourly["XGBoost_MWh"] = xgb_capped
+            df_hourly["XGBoost_MWh_raw"] = xgb_raw
+            df_hourly["XGBoost_MWh_cal"] = (xgb_capped * b_xgb).clip(lower=0.0)
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
 
@@ -464,27 +484,8 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     w_xgb = w_xgb.astype(float)
     w_exp = w_exp.astype(float)
 
-    heur_arr = df_hourly["Expected_MWh_cal"].values
-    np_arr = df_hourly["NeuralProphet_MWh_cal"].values
-    xgb_arr = df_hourly["XGBoost_MWh_cal"].values
-
-    # отбрасываем шумовые или чрезмерно оптимистичные точки моделей
-    low_heur_mask = heur_arr < 0.3
-    w_np = np.where(low_heur_mask, 0.0, w_np)
-    w_xgb = np.where(low_heur_mask, 0.0, w_xgb)
-
-    w_np = np.where(np_arr < 0.1, 0.0, w_np)
-    w_xgb = np.where(xgb_arr < 0.1, 0.0, w_xgb)
-
-    over_np = np_arr > heur_arr * ENSEMBLE_HEADROOM
-    over_xgb = xgb_arr > heur_arr * ENSEMBLE_HEADROOM
-    w_np = np.where(over_np, 0.0, w_np)
-    w_xgb = np.where(over_xgb, 0.0, w_xgb)
-
     wsum = w_np + w_xgb + w_exp
-    w_np = np.divide(w_np, wsum, out=np.zeros_like(w_np), where=wsum > 0)
-    w_xgb = np.divide(w_xgb, wsum, out=np.zeros_like(w_xgb), where=wsum > 0)
-    w_exp = np.divide(w_exp, wsum, out=np.ones_like(w_exp), where=wsum > 0)
+    w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
 
     df_hourly["Ensemble_MWh"] = (
         w_np * df_hourly["NeuralProphet_MWh_cal"]
@@ -492,18 +493,10 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         + w_exp * df_hourly["Expected_MWh_cal"]
     )
 
-    # если эвристика совсем мала, оставляем её как единственную опору
-    low_heur_mask = df_hourly["Expected_MWh_cal"] < 0.5
-    df_hourly.loc[low_heur_mask, "Ensemble_MWh"] = df_hourly.loc[low_heur_mask, "Expected_MWh_cal"]
-
-    # финальное ограничение «головой» от эвристики
-    df_hourly["Ensemble_MWh"] = np.minimum(
-        df_hourly["Ensemble_MWh"], df_hourly["Expected_MWh_cal"] * ENSEMBLE_HEADROOM
-    )
-
     # Ночной фильтр
     mask_night = (df_hourly["Irradiation"] < 20) | (df_hourly["sun_elev_deg"] < 5)
     cols_zero = [
+        "Expected_MWh",
         "Expected_MWh_cal",
         "NeuralProphet_MWh_raw",
         "NeuralProphet_MWh",
