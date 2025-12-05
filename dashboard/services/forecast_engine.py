@@ -263,13 +263,22 @@ def _ensure_1d(pred_like, length: int, name: str) -> np.ndarray:
     предотвращает «inhomogeneous shape» при последующих арифметических операциях.
     """
 
-    obj = np.asarray(pred_like, dtype=object).reshape(-1)
+    try:
+        series = pd.Series(pred_like)
+    except Exception:
+        # Если объект не приводится напрямую к Series, пробуем раскрыть его как
+        # итерируемый список.
+        series = pd.Series(list(pred_like))
 
-    # Раскрываем любые последовательности в скаляры: берём первый элемент,
-    # но ругаемся, если элемент пустой.
     flat_values = []
-    for idx, val in enumerate(obj):
-        val_arr = np.asarray(val, dtype=float).reshape(-1)
+    for idx, val in series.items():
+        try:
+            val_arr = np.asarray(val, dtype=float).reshape(-1)
+        except Exception as e:
+            raise ValueError(
+                f"{name}: не удалось преобразовать элемент {idx} типа {type(val).__name__} -> float ({e})"
+            )
+
         if val_arr.size == 0:
             raise ValueError(f"{name}: пустое значение в позиции {idx}")
         flat_values.append(float(val_arr[0]))
