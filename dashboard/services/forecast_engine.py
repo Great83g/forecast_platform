@@ -263,22 +263,18 @@ def _ensure_1d(pred_like, length: int, name: str) -> np.ndarray:
     предотвращает «inhomogeneous shape» при последующих арифметических операциях.
     """
 
-    try:
-        arr = np.asarray(pred_like, dtype=float).reshape(-1)
-    except Exception:
-        # Попробуем вытащить скаляры из последовательностей, например [[x], [y]]
-        obj = np.asarray(pred_like, dtype=object).reshape(-1)
-        flat_values = []
-        for idx, val in enumerate(obj):
-            val_arr = np.asarray(val, dtype=float).reshape(-1)
-            if val_arr.size == 0:
-                raise ValueError(f"{name}: пустое значение в позиции {idx}")
-            if val_arr.size != 1:
-                raise ValueError(
-                    f"{name}: элемент {idx} имеет размер {val_arr.size}, ожидался скаляр"
-                )
-            flat_values.append(float(val_arr[0]))
-        arr = np.asarray(flat_values, dtype=float)
+    obj = np.asarray(pred_like, dtype=object).reshape(-1)
+
+    # Раскрываем любые последовательности в скаляры: берём первый элемент,
+    # но ругаемся, если элемент пустой.
+    flat_values = []
+    for idx, val in enumerate(obj):
+        val_arr = np.asarray(val, dtype=float).reshape(-1)
+        if val_arr.size == 0:
+            raise ValueError(f"{name}: пустое значение в позиции {idx}")
+        flat_values.append(float(val_arr[0]))
+
+    arr = np.asarray(flat_values, dtype=float)
 
     if arr.shape[0] != length:
         raise ValueError(
