@@ -24,6 +24,14 @@ from solar.models import SolarRecord, SolarForecast
 # Папка с моделями (пока не используем, но оставляем)
 MODEL_DIR: Path = Path(settings.MODEL_DIR)
 
+# Файлы базовых моделей, обученных оффлайн (как в локальном скрипте forecast_8p8mw_kw_pg.py).
+# Используются как фоллбек, если для станции нет персональных моделей.
+# Названия приведены к тем, что реально лежат в models_cache на сервере.
+NP_MODEL_FILE = MODEL_DIR / "np_model_1.np"
+NP_META_FILE = MODEL_DIR / "np_model_1.meta.json"  # может отсутствовать
+XGB_MODEL_FILE = MODEL_DIR / "xgb_model_1.json"
+XGB_META_FILE = MODEL_DIR / "xgb_model_1.meta.json"  # может отсутствовать
+
 # Allow NeuralProphet class to be deserialized when torch.load runs with
 # the PyTorch 2.6+ safe default (weights_only=True).
 add_safe_globals([NeuralProphet])
@@ -345,7 +353,7 @@ def _train_np_direct(station, hist_df: pd.DataFrame, cap_mw: float) -> None:
     hist_df = _add_sun_geometry(hist_df, ds_col="ds", lat_deg=47.86)
 
     cols = ["ds", "y_mw"] + NP_REGRESSORS
-    df_train = df_train[cols].dropna().rename(columns={"y_mw": "y"})
+    df_train = hist_df[cols].dropna().rename(columns={"y_mw": "y"})
 
     model = NeuralProphet(
         yearly_seasonality=False,
@@ -505,6 +513,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         except Exception as e:
             print(f"[FORECAST] station {station.pk}: ошибка чтения NP meta -> {e}")
 
+    # fallback к оффлайн-модели из models_cache, если персональная отсутствует
+    if np_model is None and NP_MODEL_FILE.exists():
+        np_model = np_load(str(NP_MODEL_FILE))
+        print(f"[FORECAST] station {station.pk}: использую базовую NP-модель {NP_MODEL_FILE.name}")
+    if not np_meta and NP_META_FILE.exists():
+        np_meta = json.loads(NP_META_FILE.read_text(encoding="utf-8"))
+
     xgb_model = None
     xgb_meta = {}
     if xgb_path.exists():
@@ -518,6 +533,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
         except Exception as e:
             print(f"[FORECAST] station {station.pk}: ошибка чтения XGB meta -> {e}")
+
+    if xgb_model is None and XGB_MODEL_FILE.exists():
+        xgb_model = xgb.XGBRegressor()
+        xgb_model.load_model(str(XGB_MODEL_FILE))
+        print(f"[FORECAST] station {station.pk}: использую базовую XGB-модель {XGB_MODEL_FILE.name}")
+    if not xgb_meta and XGB_META_FILE.exists():
+        xgb_meta = json.loads(XGB_META_FILE.read_text(encoding="utf-8"))
 
     b_exp = cal_factor(hist_df["y_mw"], expected_hist)
     print(f"[FORECAST] station {station.pk}: калибровка эвристики b_exp={b_exp:.3f}")
