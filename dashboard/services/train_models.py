@@ -157,7 +157,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     """
     Обучает:
       - XGBoost по мощности на 1 МВт (per-MW)
-      - NeuralProphet по residual (как в solar_1p2mw_all_in_one.py)
+      - NeuralProphet напрямую по мощности в МВт
     История берётся из SolarRecord.
 
     Возвращает:
@@ -244,11 +244,11 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         xgb_path = None
         X_cols = []
 
-    # ==================== 2) NeuralProphet residual ====================
+    # ==================== 2) NeuralProphet по y_mw ====================
     try:
         df_np = df.copy()
-        # целевая: residual в MW
-        df_np["y_residual"] = df_np["y_mw"] - df_np["y_expected"]
+        # целевая: прямая мощность в MW
+        df_np["y_target"] = df_np["y_mw"]
 
         # балансировка утра
         df_np["dup_weight"] = 1
@@ -276,10 +276,10 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "low_sun_flag",
         ]
 
-        df_train = df_b[["ds", "y_residual"] + features_reg].dropna().copy()
-        df_train.rename(columns={"y_residual": "y"}, inplace=True)
+        df_train = df_b[["ds", "y_target"] + features_reg].dropna().copy()
+        df_train.rename(columns={"y_target": "y"}, inplace=True)
 
-        print(f"[TRAIN] station {station.pk}: старт обучения NeuralProphet(residual), строк={len(df_train)}")
+        print(f"[TRAIN] station {station.pk}: старт обучения NeuralProphet(y), строк={len(df_train)}")
 
         m = NeuralProphet(
             yearly_seasonality=False,
@@ -299,13 +299,14 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         m.fit(df_train, freq="H")
 
         np_save(m, str(np_path))
-        print(f"[TRAIN] station {station.pk}: NP residual сохранён в {np_path}")
+        print(f"[TRAIN] station {station.pk}: NP(y) сохранён в {np_path}")
 
         np_meta = {
             "cap_mw_train": cap_mw,
             "pr_for_expected": PR_FOR_EXPECTED,
             "features_reg": features_reg,
-            "note": "NP trained on residual: y_mw - expected(PR=0.9)",
+            "target": "y (MW) = Power_KW/1000",
+            "note": "NP trained on direct y from SolarRecord history",
         }
         np_meta_path.write_text(
             json.dumps(np_meta, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -313,7 +314,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         print(f"[TRAIN] station {station.pk}: NP meta сохранён в {np_meta_path}")
     except Exception as e:
         import traceback
-        print(f"[TRAIN] station {station.pk}: ОШИБКА при обучении NP -> {e}")
+        print(f"[TRAIN] station {station.pk}: ОШИБКА при обучении NP(y) -> {e}")
         traceback.print_exc()
         np_path = None
 
