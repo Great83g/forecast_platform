@@ -565,6 +565,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     b_np = b_exp
     if np_model is not None:
         req_np_hist = list(getattr(np_model, "config_regressors", {}).keys())
+        if not req_np_hist:
+            req_np_hist = np_meta.get("features_reg", NP_REGRESSORS)
+            print(
+                f"[FORECAST] station {station.pk}: в NP нет config_regressors, "
+                f"беру регрессоры из meta/дефолта: {req_np_hist}"
+            )
+
         hist_for_np = hist_df.dropna(subset=req_np_hist + ["y_mw"]).copy()
         if not hist_for_np.empty:
             try:
@@ -611,6 +618,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     df_hourly["NeuralProphet_MWh_cal"] = 0.0
     if np_model is not None:
         req_np = list(getattr(np_model, "config_regressors", {}).keys())
+        if not req_np:
+            req_np = np_meta.get("features_reg", NP_REGRESSORS)
+            print(
+                f"[FORECAST] station {station.pk}: в NP нет config_regressors, "
+                f"беру регрессоры из meta/дефолта: {req_np}"
+            )
+
         missing = [r for r in req_np if r not in df_hourly.columns]
         if missing:
             print(f"[FORECAST] station {station.pk}: NP пропущены регрессоры {missing}")
