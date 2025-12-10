@@ -15,8 +15,10 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.timezone import make_aware
 from neuralprophet import NeuralProphet
+from neuralprophet import df_utils
 from neuralprophet import load as np_load
 from neuralprophet import save as np_save
+from neuralprophet.configure import Normalization
 from torch.serialization import add_safe_globals
 
 from solar.models import SolarRecord, SolarForecast
@@ -32,9 +34,9 @@ NP_META_FILE = MODEL_DIR / "np_model_1.meta.json"  # может отсутств
 XGB_MODEL_FILE = MODEL_DIR / "xgb_model_1.json"
 XGB_META_FILE = MODEL_DIR / "xgb_model_1.meta.json"  # может отсутствовать
 
-# Allow NeuralProphet class to be deserialized when torch.load runs with
+# Allow NeuralProphet artifacts to be deserialized when torch.load runs with
 # the PyTorch 2.6+ safe default (weights_only=True).
-add_safe_globals([NeuralProphet])
+add_safe_globals([NeuralProphet, Normalization, df_utils.ShiftScale])
 
 # API-ключ Visual Crossing — в settings.py:
 # VISUAL_CROSSING_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
