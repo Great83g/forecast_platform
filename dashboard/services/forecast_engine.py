@@ -15,8 +15,10 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.timezone import make_aware
 from neuralprophet import NeuralProphet
+from neuralprophet import df_utils
 from neuralprophet import load as np_load
 from neuralprophet import save as np_save
+from neuralprophet.configure import Normalization
 from torch.serialization import add_safe_globals
 
 from solar.models import SolarRecord, SolarForecast
@@ -32,9 +34,9 @@ NP_META_FILE = MODEL_DIR / "np_model_1.meta.json"  # может отсутств
 XGB_MODEL_FILE = MODEL_DIR / "xgb_model_1.json"
 XGB_META_FILE = MODEL_DIR / "xgb_model_1.meta.json"  # может отсутствовать
 
-# Allow NeuralProphet class to be deserialized when torch.load runs with
+# Allow NeuralProphet artifacts to be deserialized when torch.load runs with
 # the PyTorch 2.6+ safe default (weights_only=True).
-add_safe_globals([NeuralProphet])
+add_safe_globals([NeuralProphet, Normalization, df_utils.ShiftScale])
 
 # API-ключ Visual Crossing — в settings.py:
 # VISUAL_CROSSING_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
@@ -563,6 +565,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     b_np = b_exp
     if np_model is not None:
         req_np_hist = list(getattr(np_model, "config_regressors", {}).keys())
+        if not req_np_hist:
+            req_np_hist = np_meta.get("features_reg", NP_REGRESSORS)
+            print(
+                f"[FORECAST] station {station.pk}: в NP нет config_regressors, "
+                f"беру регрессоры из meta/дефолта: {req_np_hist}"
+            )
+
         hist_for_np = hist_df.dropna(subset=req_np_hist + ["y_mw"]).copy()
         if not hist_for_np.empty:
             try:
@@ -609,6 +618,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     df_hourly["NeuralProphet_MWh_cal"] = 0.0
     if np_model is not None:
         req_np = list(getattr(np_model, "config_regressors", {}).keys())
+        if not req_np:
+            req_np = np_meta.get("features_reg", NP_REGRESSORS)
+            print(
+                f"[FORECAST] station {station.pk}: в NP нет config_regressors, "
+                f"беру регрессоры из meta/дефолта: {req_np}"
+            )
+
         missing = [r for r in req_np if r not in df_hourly.columns]
         if missing:
             print(f"[FORECAST] station {station.pk}: NP пропущены регрессоры {missing}")
