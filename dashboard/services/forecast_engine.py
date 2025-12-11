@@ -729,6 +729,16 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         w_xgb = np.zeros_like(w_xgb)
 
     wsum = w_np + w_xgb + w_exp
+
+    # Если в весах появились нули/NaN (например, из-за пропусков Irradiation),
+    # отдаём всё эвристике, чтобы не получить NaN в ансамбле.
+    bad_w = (wsum <= 1e-9) | ~np.isfinite(wsum)
+    if np.any(bad_w):
+        w_np[bad_w] = 0.0
+        w_xgb[bad_w] = 0.0
+        w_exp[bad_w] = 1.0
+        wsum = w_np + w_xgb + w_exp
+
     w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
 
     df_hourly["Ensemble_MWh"] = (
