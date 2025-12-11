@@ -667,7 +667,10 @@ def run_forecast_for_station(station, days: int = 3) -> int:
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
 
-    np_pred_mw = df_hourly["NeuralProphet_MWh"].to_numpy() if df_hourly["NeuralProphet_MWh"].any() else None
+    # Используем факт наличия модели, а не ненулевых значений прогноза:
+    # при полном затмении/ночных часах колонка может быть вся из нулей, но
+    # это всё равно валидный вывод NP, который нужно сохранить в SolarForecast.
+    np_pred_mw = df_hourly["NeuralProphet_MWh"].to_numpy() if np_model is not None else None
     xgb_pred_mw = df_hourly["XGBoost_MWh"].to_numpy() if xgb_model is not None else None
 
     # === Калибровка и клипы ===
