@@ -616,6 +616,7 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     df_hourly["NeuralProphet_MWh_raw"] = 0.0
     df_hourly["NeuralProphet_MWh"] = 0.0
     df_hourly["NeuralProphet_MWh_cal"] = 0.0
+    np_predicted = False
     if np_model is not None:
         req_np = list(getattr(np_model, "config_regressors", {}).keys())
         if not req_np:
@@ -640,11 +641,13 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_hourly["NeuralProphet_MWh"] = np_capped
             df_hourly["NeuralProphet_MWh_raw"] = np_raw
             df_hourly["NeuralProphet_MWh_cal"] = (np_capped * b_np).clip(lower=0.0)
+            np_predicted = True
 
     # XGB прогноз (PR -> MW)
     df_hourly["XGBoost_MWh_raw"] = 0.0
     df_hourly["XGBoost_MWh"] = 0.0
     df_hourly["XGBoost_MWh_cal"] = 0.0
+    xgb_predicted = False
     if xgb_model is not None:
         try:
             missing_future = [c for c in xgb_features if c not in df_hourly.columns]
@@ -664,11 +667,15 @@ def run_forecast_for_station(station, days: int = 3) -> int:
             df_hourly["XGBoost_MWh"] = xgb_capped
             df_hourly["XGBoost_MWh_raw"] = xgb_raw
             df_hourly["XGBoost_MWh_cal"] = (xgb_capped * b_xgb).clip(lower=0.0)
+            xgb_predicted = True
         except Exception as e:  # pragma: no cover - защитный лог
             print(f"[FORECAST] station {station.pk}: ошибка прогноза XGB -> {e}")
 
-    np_pred_mw = df_hourly["NeuralProphet_MWh"].to_numpy() if df_hourly["NeuralProphet_MWh"].any() else None
-    xgb_pred_mw = df_hourly["XGBoost_MWh"].to_numpy() if xgb_model is not None else None
+    # Смотрим на факт успешного прогона, а не на ненулевые значения прогноза:
+    # при полном затмении/ночных часах колонка может быть вся из нулей, но
+    # это всё равно валидный вывод NP, который нужно сохранить в SolarForecast.
+    np_pred_mw = df_hourly["NeuralProphet_MWh"].to_numpy() if np_predicted else None
+    xgb_pred_mw = df_hourly["XGBoost_MWh"].to_numpy() if xgb_predicted else None
 
     # === Калибровка и клипы ===
     np_pred_mw_cal = None
@@ -712,6 +719,14 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     w_np = w_np.astype(float)
     w_xgb = w_xgb.astype(float)
     w_exp = w_exp.astype(float)
+
+    if np_pred_mw_cal is None:
+        w_exp = w_exp + w_np
+        w_np = np.zeros_like(w_np)
+
+    if xgb_pred_mw_cal is None:
+        w_exp = w_exp + w_xgb
+        w_xgb = np.zeros_like(w_xgb)
 
     wsum = w_np + w_xgb + w_exp
     w_np, w_xgb, w_exp = w_np / wsum, w_xgb / wsum, w_exp / wsum
