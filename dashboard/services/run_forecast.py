@@ -17,14 +17,11 @@ from dashboard.services.forecast_engine import (
     run_forecast_for_station as _run_forecast_for_station,
 )
 
-if TYPE_CHECKING:
-    from dashboard.services import train_models as _train_models_module
-
 try:
-    from dashboard.services import train_models as _train_models_module
+    from dashboard.services.train_models import train_models_for_station as _train_models_for_station
     _train_models_import_error: Exception | None = None
 except Exception as exc:  # pragma: no cover - fallback for missing deps at import time
-    _train_models_module: ModuleType | None = None
+    _train_models_for_station = None
     _train_models_import_error = exc
 
 
@@ -92,12 +89,12 @@ def train_models_for_station(station):
     модуля при импорте.
     """
 
-    if _train_models_module is None:
+    if _train_models_for_station is None:
         raise ImportError(
             "train_models_for_station недоступна: ошибка при импорте train_models"
         ) from _train_models_import_error
 
-    return _train_models_module.train_models_for_station(station)
+    return _train_models_for_station(station)
 
 
 __all__ = [
