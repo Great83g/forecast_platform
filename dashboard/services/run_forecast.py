@@ -1,6 +1,9 @@
 # dashboard/services/run_forecast.py
 
 from __future__ import annotations
+from types import ModuleType
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
