@@ -13,7 +13,7 @@ from dashboard.services.forecast_engine import (
     ensemble,
     run_forecast_for_station as _run_forecast_for_station,
 )
-from dashboard.services.train_models import train_models_for_station
+from dashboard.services.train_models import train_models_for_station as _train_models_for_station
 
 
 def run_forecast(station) -> int:
@@ -70,3 +70,14 @@ def run_forecast(station) -> int:
 # Проксируем на новую реализацию из forecast_engine.
 def run_forecast_for_station(station, days: int = 3) -> int:
     return _run_forecast_for_station(station, days=days)
+
+
+# Сохраняем имя функции обучения моделей для старых импортов.
+train_models_for_station = _train_models_for_station
+
+
+__all__ = [
+    "run_forecast",
+    "run_forecast_for_station",
+    "train_models_for_station",
+]
