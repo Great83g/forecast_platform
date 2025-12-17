@@ -1,6 +1,9 @@
 # dashboard/services/run_forecast.py
 
 from __future__ import annotations
+from types import ModuleType
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
@@ -13,7 +16,16 @@ from dashboard.services.forecast_engine import (
     ensemble,
     run_forecast_for_station as _run_forecast_for_station,
 )
-from dashboard.services.train_models import train_models_for_station as _train_models_for_station
+
+if TYPE_CHECKING:
+    from dashboard.services import train_models as _train_models_module
+
+try:
+    from dashboard.services import train_models as _train_models_module
+    _train_models_import_error: Exception | None = None
+except Exception as exc:  # pragma: no cover - fallback for missing deps at import time
+    _train_models_module: ModuleType | None = None
+    _train_models_import_error = exc
 
 
 def run_forecast(station) -> int:
@@ -72,8 +84,20 @@ def run_forecast_for_station(station, days: int = 3) -> int:
     return _run_forecast_for_station(station, days=days)
 
 
-# Сохраняем имя функции обучения моделей для старых импортов.
-train_models_for_station = _train_models_for_station
+def train_models_for_station(station):
+    """Прокси к ``train_models.train_models_for_station`` с дружелюбной ошибкой.
+
+    Если импорт ``train_models`` не удался из-за отсутствующих зависимостей,
+    возвращаем осмысленный ImportError при первом вызове вместо падения всего
+    модуля при импорте.
+    """
+
+    if _train_models_module is None:
+        raise ImportError(
+            "train_models_for_station недоступна: ошибка при импорте train_models"
+        ) from _train_models_import_error
+
+    return _train_models_module.train_models_for_station(station)
 
 
 __all__ = [
