@@ -16,22 +16,6 @@ urlpatterns = [
     # Веб-дашборд
     path("dashboard/", include("dashboard.urls")),
 
-    # Страница логина
-    path(
-        "login/",
-        auth_views.LoginView.as_view(
-            template_name="accounts/login.html",
-        ),
-        name="login",
-    ),
-
-    # Выход из системы
-    path(
-        "logout/",
-        auth_views.LogoutView.as_view(),
-        name="logout",
-    ),
-
     # Корень сайта → список станций дашборда
     path(
         "",
@@ -41,5 +25,19 @@ urlpatterns = [
         ),
         name="root",
     ),
+] + [
+    # Страница логина
+    path(
+        "login/",
+        auth_views.LoginView.as_view(
+            template_name="accounts/login.html",
+        ),
+        name="login",
+    ),
+    # Выход из системы
+    path(
+        "logout/",
+        auth_views.LogoutView.as_view(),
+        name="logout",
+    ),
 ]
-
