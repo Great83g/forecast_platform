@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
+from django.contrib.auth import urls as auth_urls
 
 urlpatterns = [
     # Django admin
@@ -16,16 +17,9 @@ urlpatterns = [
     # Веб-дашборд
     path("dashboard/", include("dashboard.urls")),
 
-    # Корень сайта → список станций дашборда
-    path(
-        "",
-        RedirectView.as_view(
-            pattern_name="dashboard-station-list",
-            permanent=False,
-        ),
-        name="root",
-    ),
-] + [
+    # Встроенные auth-URL'ы (для полноты покрытия /login/ и /logout/)
+    path("", include(auth_urls)),
+
     # Страница логина
     path(
         "login/",
