@@ -1,98 +1,22 @@
-{% extends "base.html" %}
-{% block title %}{{ station.name }} — график{% endblock %}
-
+{% extends "dashboard/base.html" %}
 {% block content %}
-<h3 class="mb-3">{{ station.name }}</h3>
 
-<div class="mb-3">
+<h2 class="mb-2">{{ station.name }}</h2>
+<div class="text-muted mb-3">Оператор: {{ station.operator }}</div>
 
-  <a href="{% url 'dashboard-station-list' %}" class="btn btn-sm btn-secondary">
-    ← К списку станций
-  </a>
-
-  <a href="{% url 'dashboard-station-upload' station.pk %}"
-     class="btn btn-sm btn-outline-primary">
-    История / загрузка данных
-  </a>
-
-  <a href="{% url 'dashboard-station-export' station.pk %}"
-     class="btn btn-sm btn-outline-secondary">
-    Скачать историю
-  </a>
-
-  <a href="{% url 'dashboard-station-train' station.pk %}"
-     class="btn btn-sm btn-outline-warning">
-    Обучить модель
-  </a>
-
-  <a href="{% url 'dashboard-station-forecast' station.pk %}"
-     class="btn btn-sm btn-primary">
-    Сделать прогноз
-  </a>
-
-  <!-- НОВОЕ: просмотр прогноза -->
-  <a href="{% url 'dashboard-station-forecast-list' station.pk %}"
-     class="btn btn-sm btn-success">
-    Смотреть прогноз
-  </a>
-
-  <!-- НОВОЕ: экспорт прогноза в Excel -->
-  <a href="{% url 'dashboard-station-export-forecast' station.pk %}"
-     class="btn btn-sm btn-outline-success">
-    Скачать прогноз
-  </a>
-
+<div class="d-flex flex-wrap gap-2">
+  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-list' %}">← Назад</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' station.pk %}">Редактировать</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' station.pk %}">История / загрузка</a>
+  <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' station.pk %}">Обучить модель</a>
+  <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' station.pk %}">Смотреть прогноз</a>
 </div>
 
-{% if records %}
-  <div id="power-chart" style="height: 400px;"></div>
+<hr>
 
-  <script>
-    const timestamps = {{ timestamps|safe }};
-    const power = {{ power|safe }};
-    const irr = {{ irr|safe }};
-    const air_temp = {{ air_temp|safe }};
-    const pv_temp = {{ pv_temp|safe }};
-
-    const tracePower = {
-      x: timestamps,
-      y: power,
-      type: "scatter",
-      name: "Power (kW)",
-      yaxis: "y1",
-      line: {width: 2}
-    };
-
-    const traceIrr = {
-      x: timestamps,
-      y: irr,
-      type: "scatter",
-      name: "Irradiation (W/m²)",
-      yaxis: "y2",
-      line: {width: 2}
-    };
-
-    const layout = {
-      title: "Мощность и радиация (последние 7 дней)",
-      xaxis: { title: "Время" },
-      yaxis: { title: "Power (kW)" },
-      yaxis2: {
-        title: "Irradiation (W/m²)",
-        overlaying: "y",
-        side: "right"
-      },
-      legend: { orientation: "h" }
-    };
-
-    Plotly.newPlot("power-chart", [tracePower, traceIrr], layout);
-  </script>
-
-{% else %}
-  <p class="text-muted">
-    Для станции пока нет исторических данных.<br>
-    Загрузите историю в разделе «История / загрузка данных».
-  </p>
-{% endif %}
+<div class="alert alert-secondary">
+  Тут позже вернём графики (plotly) и статус моделей. Сейчас задача — восстановить работоспособность URL/кнопок/страниц.
+</div>
 
 {% endblock %}
 

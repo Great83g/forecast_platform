@@ -1,72 +1,78 @@
-{% extends "base.html" %}
-
+{% extends "dashboard/base.html" %}
 {% block content %}
-<h2>Прогноз: {{ station.name }}</h2>
 
-<div style="margin-bottom: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-  <form method="get" class="form-inline" style="display: inline-flex; gap: 8px; align-items: center;">
-    <label>С даты:
-      <input type="date" name="from" value="{{ from_date }}">
-    </label>
-    <label>По дату:
-      <input type="date" name="to" value="{{ to_date }}">
-    </label>
-    <button type="submit">Фильтр</button>
-  </form>
+<h2 class="mb-2">Прогноз: {{ station.name }}</h2>
 
-  <a
-    href="{% url 'dashboard-station-export-forecast' station.pk %}?from={{ from_date }}&to={{ to_date }}"
-    style="margin-left: 4px;"
-  >
-    Скачать в Excel
-  </a>
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
 
-  <form
-    action="{% url 'dashboard-station-forecast-clear' station.pk %}"
-    method="post"
-    style="display: inline-flex;"
-  >
-    {% csrf_token %}
-    <button type="submit" onclick="return confirm('Очистить все прогнозы?');">
-      Очистить прогноз
-    </button>
-  </form>
+  <form method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}" class="ms-auto d-flex align-items-center gap-2">
+  <select name="days" class="form-select form-select-sm" style="width: auto">
+    {% for d in days_options %}
+      <option value="{{ d }}" {% if d == days_selected %}selected{% endif %}>{{ d }} дн.</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-primary btn-sm" type="submit">Сделать прогноз</button>
+</form>
 </div>
 
-<p>
-  Всего записей: {{ total_count }}.
-  Отфильтровано: {{ filtered_count }}.
-</p>
+<form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+  <div>
+    <label class="form-label mb-0 small">С даты</label>
+    <input type="date" name="from" value="{{ from_date }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <label class="form-label mb-0 small">По дату</label>
+    <input type="date" name="to" value="{{ to_date }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
+  </div>
 
-<table border="1" cellpadding="4" cellspacing="0">
-  <thead>
-    <tr>
-      <th>Дата/время</th>
-      <th>NP</th>
-      <th>XGB</th>
-      <th>Эвристика</th>
-      <th>Итог (ансамбль)</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for f in forecasts %}
-      <tr>
-        <td>{{ f.timestamp }}</td>
-        <td>{{ f.pred_np|default_if_none:"" }}</td>
-        <td>{{ f.pred_xgb|default_if_none:"" }}</td>
-        <td>{{ f.pred_heur|default_if_none:"" }}</td>
-        <td><strong>{{ f.pred_final|default_if_none:"" }}</strong></td>
-      </tr>
-    {% empty %}
-      <tr>
-        <td colspan="5">Нет данных прогноза.</td>
-      </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <div class="ms-auto d-flex gap-2">
+    <a class="btn btn-sm btn-success"
+       href="{% url 'dashboard:station-forecast-export' station.pk %}?from={{ from_date }}&to={{ to_date }}">
+      Скачать в Excel
+    </a>
+    <a class="btn btn-sm btn-outline-danger"
+       onclick="return confirm('Очистить прогноз?');"
+       href="{% url 'dashboard:station-forecast-clear' station.pk %}">
+      Очистить прогноз
+    </a>
+  </div>
+</form>
 
-<p style="margin-top: 16px;">
-  <a href="{% url 'dashboard-station-detail' station.pk %}">← Назад к станции</a>
-</p>
+<div class="text-muted small mb-2">
+  Всего записей: <b>{{ total_count }}</b>. Отфильтровано: <b>{{ filtered_count }}</b>.
+</div>
+
+<div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
+  <table class="table table-sm table-striped mb-0">
+    <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+      <tr>
+        <th>Дата/время</th>
+        <th>NP</th>
+        <th>XGB</th>
+        <th>Эвристика</th>
+        <th>Итог (ансамбль)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.timestamp }}</td>
+          <td>{{ r.np_mw }}</td>
+          <td>{{ r.xgb_mw }}</td>
+          <td>{{ r.heuristic_mw }}</td>
+          <td><b>{{ r.ensemble_mw }}</b></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-4">Нет прогноза</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 {% endblock %}
 

@@ -1,47 +1,18 @@
-# backend/urls.py
-
 from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
-from django.contrib.auth import views as auth_views
-from django.contrib.auth import urls as auth_urls
+
 
 urlpatterns = [
-    # Django admin
     path("admin/", admin.site.urls),
 
-    # API (JWT и т.п.)
-    path("api/auth/", include("accounts.urls")),   # логин/регистрация по API
-    path("api/", include("stations.urls")),        # станции, orgs и т.д.
+    # auth (login/logout/password_reset...)
+    path("accounts/", include("django.contrib.auth.urls")),
 
-    # Веб-дашборд
-    path("dashboard/", include("dashboard.urls")),
+    # dashboard app (с namespace="dashboard")
+    path("dashboard/", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
 
-    # Страница логина (первее include(auth_urls), чтобы шаблон был наш)
-    path(
-        "login/",
-        auth_views.LoginView.as_view(
-            template_name="accounts/login.html",
-        ),
-        name="login",
-    ),
-    # Выход из системы
-    path(
-        "logout/",
-        auth_views.LogoutView.as_view(),
-        name="logout",
-    ),
-
-    # Остальные встроенные auth-URL'ы (password_reset и т.п.)
-    path("", include(auth_urls)),
-
-    # Корень сайта → список станций дашборда
-    path(
-        "",
-        RedirectView.as_view(
-            pattern_name="dashboard-station-list",
-            permanent=False,
-        ),
-        name="root",
-    ),
+    # корень сайта -> /dashboard/
+    path("", RedirectView.as_view(pattern_name="dashboard:station-list", permanent=False)),
 ]
+

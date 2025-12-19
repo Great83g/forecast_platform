@@ -1,463 +1,325 @@
-# dashboard/views.py
+from __future__ import annotations
 
-from io import BytesIO
 from datetime import datetime
+from io import BytesIO
 
 import pandas as pd
+
 from django.contrib import messages
+
+
+def _pick_model_field(Model, candidates):
+    fields = {f.name for f in Model._meta.get_fields()}
+    for c in candidates:
+        if c in fields:
+            return c
+    raise RuntimeError(f"No matching field in {Model.__name__}; candidates={candidates}; fields={sorted(fields)}")
+
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.utils.dateformat import format
-from django.utils.text import slugify
-from openpyxl import Workbook
 
-from stations.models import Station
-from solar.models import SolarRecord, SolarForecast
-from .forms import StationForm, UploadHistoryForm
-from .services.train_models import train_models_for_station
-from .services.forecast_engine import run_forecast_for_station
+from django.apps import apps
+
+from .services.run_forecast import run_forecast_for_station, train_models_for_station
 
 
-# ========= ОБУЧЕНИЕ МОДЕЛЕЙ =========
-
-@login_required
-def station_train_models(request, pk):
-    """
-    Кнопка на станции: обучить/переобучить модели по истории.
-    """
-    station = get_object_or_404(Station, pk=pk)
-
-    try:
-        n_rows, np_path, xgb_path = train_models_for_station(station)
-        if n_rows == 0:
-            messages.warning(
-                request,
-                "Нет исторических данных по станции — обучать нечего.",
-            )
-        else:
-            np_name = np_path.name if np_path is not None else "не создан"
-            xgb_name = xgb_path.name if xgb_path is not None else "не создан"
-
-            messages.success(
-                request,
-                f"Модели обучены по {n_rows} строкам истории. "
-                f"NP: {np_name}, XGB: {xgb_name}."
-            )
-    except Exception as e:
-        messages.error(request, f"Ошибка при обучении моделей: {e}")
-
-    return redirect("dashboard-station-detail", pk=station.pk)
+def _get_model(app_label: str, candidates: list[str]):
+    for name in candidates:
+        try:
+            m = apps.get_model(app_label, name)
+            if m:
+                return m
+        except Exception:
+            continue
+    return None
 
 
-# ========= СПИСОК / СОЗДАНИЕ / ДЕТАЛКА =========
+def StationModel():
+    m = _get_model("solar", ["SolarStation", "Station", "PVStation"]) or _get_model("stations", ["Station"])
+    if not m:
+        raise RuntimeError("Не нашёл модель станции. Проверь solar/stations models.py.")
+    return m
+
+
+def RecordModel():
+    m = _get_model("solar", ["SolarRecord", "Record"]) or _get_model("stations", ["SolarRecord", "Record"])
+    if not m:
+        raise RuntimeError("Не нашёл модель истории (SolarRecord).")
+    return m
+
+
+def ForecastModel():
+    m = _get_model("solar", ["SolarForecast", "Forecast"]) or _get_model("stations", ["SolarForecast", "Forecast"])
+    if not m:
+        raise RuntimeError("Не нашёл модель прогноза (SolarForecast).")
+    return m
+
 
 @login_required
 def station_list(request):
-    """Список всех станций."""
-    stations = Station.objects.select_related("org").all()
-    return render(request, "dashboard/station_list.html", {
-        "stations": stations,
-    })
+    Station = StationModel()
+    stations = Station.objects.all().order_by("id")
+    return render(request, "dashboard/station_list.html", {"stations": stations})
 
 
 @login_required
 def station_create(request):
-    """Создание новой станции через форму."""
+    Station = StationModel()
     if request.method == "POST":
-        form = StationForm(request.POST)
-        if form.is_valid():
-            station = form.save()
+        name = request.POST.get("name", "").strip()
+        operator = request.POST.get("operator", "").strip()
+        if not name:
+            messages.error(request, "Имя станции обязательно.")
+        else:
+            st = Station.objects.create(name=name, operator=operator)
             messages.success(request, "Станция создана.")
-            return redirect("dashboard-station-detail", pk=station.pk)
-    else:
-        form = StationForm()
-
-    return render(request, "dashboard/station_create.html", {
-        "form": form,
-    })
+            return redirect("dashboard:station-detail", pk=st.pk)
+    return render(request, "dashboard/station_create.html")
 
 
 @login_required
-def station_detail(request, pk):
-    """Деталка станции + последние 7 дней для графика."""
-    station = get_object_or_404(Station, pk=pk)
+def station_edit(request, pk: int):
+    Station = StationModel()
+    st = get_object_or_404(Station, pk=pk)
 
-    # последние 7 дней (168 часов)
-    records_qs = (
-        SolarRecord.objects
-        .filter(station=station)
-        .order_by("-timestamp")[:168]
-    )
-    # приводим в хронологический порядок
-    records = list(records_qs)[::-1]
+    if request.method == "POST":
+        st.name = request.POST.get("name", st.name).strip()
+        st.operator = request.POST.get("operator", getattr(st, "operator", "")).strip()
+        # опционально
+        for f in ["capacity_kw", "capacity_mw", "lat", "lon"]:
+            if hasattr(st, f) and f in request.POST:
+                val = request.POST.get(f, "").strip()
+                if val != "":
+                    try:
+                        setattr(st, f, float(val))
+                    except Exception:
+                        pass
+        st.save()
+        messages.success(request, "Станция обновлена.")
+        return redirect("dashboard:station-detail", pk=st.pk)
 
-    timestamps = [format(r.timestamp, "Y-m-d H:i:s") for r in records]
-    power = [r.power_kw for r in records]
-    irr = [r.irradiation for r in records]
-    air_temp = [r.air_temp for r in records]
-    pv_temp = [r.pv_temp for r in records]
+    return render(request, "dashboard/station_edit.html", {"station": st})
 
-    return render(request, "dashboard/station_detail.html", {
-        "station": station,
-        "records": records,
-        "timestamps": timestamps,
-        "power": power,
-        "irr": irr,
-        "air_temp": air_temp,
-        "pv_temp": pv_temp,
-    })
-
-
-# ========= ИСТОРИЯ: ЗАГРУЗКА / ОЧИСТКА / УДАЛЕНИЕ =========
 
 @login_required
-def station_upload_history(request, pk):
-    """
-    Страница истории станции:
-    - загрузка CSV/Excel
-    - очистка всей истории
-    - удаление выбранных записей
-    - фильтр по датам (GET ?from=YYYY-MM-DD&to=YYYY-MM-DD)
-    """
-    station = get_object_or_404(Station, pk=pk)
+def station_detail(request, pk: int):
+    Station = StationModel()
+    st = get_object_or_404(Station, pk=pk)
+    return render(request, "dashboard/station_detail.html", {"station": st})
 
-    # ---------- ФИЛЬТР ДАТ ----------
-    from_date = request.GET.get("from") or ""
-    to_date = request.GET.get("to") or ""
 
-    base_qs = SolarRecord.objects.filter(station=station)
-    total_count = base_qs.count()
+@login_required
+def station_upload(request, pk: int):
+    Station = StationModel()
+    Record = RecordModel()
+    st = get_object_or_404(Station, pk=pk)
 
-    history_qs = base_qs.order_by("timestamp")
+    # фильтр дат
+    from_date = request.GET.get("from", "")
+    to_date = request.GET.get("to", "")
+
+    qs = Record.objects.filter(station=st).order_by("-timestamp")
     if from_date:
-        history_qs = history_qs.filter(timestamp__date__gte=from_date)
+        qs = qs.filter(timestamp__date__gte=from_date)
     if to_date:
-        history_qs = history_qs.filter(timestamp__date__lte=to_date)
+        qs = qs.filter(timestamp__date__lte=to_date)
 
-    history = history_qs
-    history_count = history.count()
-
-    # ---------- POST-действия ----------
     if request.method == "POST":
         action = request.POST.get("action", "")
 
-        # === ЗАГРУЗКА ФАЙЛА ===
+        if action == "clear":
+            Record.objects.filter(station=st).delete()
+            messages.success(request, "История очищена.")
+            return redirect("dashboard:station-upload", pk=pk)
+
         if action == "upload":
-            form = UploadHistoryForm(request.POST, request.FILES)
-            if form.is_valid():
-                file = form.cleaned_data["file"]
-                filename = file.name.lower()
+            f = request.FILES.get("file")
+            if not f:
+                messages.error(request, "Файл не выбран.")
+                return redirect("dashboard:station-upload", pk=pk)
 
-                # 1) читаем CSV / Excel
-                try:
-                    if filename.endswith(".csv"):
-                        df = pd.read_csv(file)
-                    elif filename.endswith((".xlsx", ".xls")):
-                        df = pd.read_excel(file)
-                    else:
-                        messages.error(request, "Поддерживаются только файлы .csv или .xlsx")
-                        return redirect("dashboard-station-upload", pk=station.pk)
-                except Exception as e:
-                    messages.error(request, f"Ошибка чтения файла: {e}")
-                    return redirect("dashboard-station-upload", pk=station.pk)
-
-                # 2) проверяем колонки
-                required_cols = ["ds", "Irradiation", "Air_Temp", "PV_Temp", "Power_kW"]
-                missing = [c for c in required_cols if c not in df.columns]
-                if missing:
-                    messages.error(request, f"Отсутствуют колонки: {missing}")
-                    return redirect("dashboard-station-upload", pk=station.pk)
-
-                # 3) парсим даты
-                try:
-                    df["ds"] = pd.to_datetime(df["ds"])
-                except Exception as e:
-                    messages.error(request, f"Не удалось распарсить колонку 'ds' как дату: {e}")
-                    return redirect("dashboard-station-upload", pk=station.pk)
-
-                # 4) пишем в базу (update_or_create -> дублей не будет)
-                total_rows = 0
-                created_rows = 0
-
-                for _, row in df.iterrows():
-                    total_rows += 1
-                    _, created_flag = SolarRecord.objects.update_or_create(
-                        station=station,
-                        timestamp=row["ds"],
-                        defaults={
-                            "irradiation": row["Irradiation"],
-                            "air_temp": row["Air_Temp"],
-                            "pv_temp": row["PV_Temp"],
-                            "power_kw": row["Power_kW"],
-                        },
-                    )
-                    if created_flag:
-                        created_rows += 1
-
-                messages.success(
-                    request,
-                    f"Обработано строк: {total_rows}. Новых записей: {created_rows}."
-                )
-                return redirect("dashboard-station-upload", pk=station.pk)
+            # CSV/XLSX
+            if f.name.lower().endswith(".csv"):
+                df = pd.read_csv(f)
             else:
-                messages.error(request, "Форма загрузки заполнена некорректно.")
-                return redirect("dashboard-station-upload", pk=station.pk)
+                df = pd.read_excel(f)
 
-        # === ОЧИСТКА ВСЕЙ ИСТОРИИ ===
-        elif action == "clear":
-            deleted, _ = base_qs.delete()
-            messages.success(request, f"История очищена, удалено записей: {deleted}.")
-            return redirect("dashboard-station-upload", pk=station.pk)
+            # ожидаемые колонки
+            # ds, Irradiation, Air_Temp, PV_Temp, Power_KW
+            colmap = {c.lower(): c for c in df.columns}
+            def pick(name): return colmap.get(name.lower())
 
-        # === УДАЛЕНИЕ ВЫБРАННЫХ ===
-        elif action == "delete_selected":
-            selected_ids = request.POST.getlist("selected")
-            if not selected_ids:
-                messages.warning(request, "Не выбраны записи для удаления.")
-                return redirect("dashboard-station-upload", pk=station.pk)
+            ds_col = pick("ds")
+            irr_col = pick("Irradiation")
+            air_col = pick("Air_Temp")
+            pv_col = pick("PV_Temp")
+            pwr_col = pick("Power_KW")
 
-            deleted, _ = base_qs.filter(id__in=selected_ids).delete()
-            messages.success(request, f"Удалено записей: {deleted}.")
-            return redirect("dashboard-station-upload", pk=station.pk)
+            if not ds_col or not irr_col or not air_col or not pv_col or not pwr_col:
+                messages.error(request, "Не вижу нужные колонки: ds, Irradiation, Air_Temp, PV_Temp, Power_KW")
+                return redirect("dashboard:station-upload", pk=pk)
 
-    else:
-        form = UploadHistoryForm()
+            df = df[[ds_col, irr_col, air_col, pv_col, pwr_col]].copy()
+            df.columns = ["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]
+            df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+            df = df.dropna(subset=["ds"])
 
-    return render(request, "dashboard/station_upload.html", {
-        "station": station,
-        "form": form,
-        "history": history,
-        "history_count": history_count,
-        "total_count": total_count,
+            objs = []
+            for r in df.itertuples(index=False):
+                objs.append(
+                    Record(
+                        station=st,
+                        timestamp=timezone.make_aware(r.ds) if timezone.is_naive(r.ds) else r.ds,
+                        irradiation=float(r.irradiation or 0),
+                        air_temp=float(r.air_temp or 0),
+                        pv_temp=float(r.pv_temp or 0),
+                        power_kw=float(r.power_kw or 0),
+                    )
+                )
+            Record.objects.bulk_create(objs)
+            messages.success(request, f"Загружено записей: {len(objs)}")
+            return redirect("dashboard:station-upload", pk=pk)
+
+    ctx = {
+        "station": st,
+        "history": qs[:2000],  # чтобы страницу не убивать
+        "total_count": Record.objects.filter(station=st).count(),
+        "history_count": qs.count(),
         "from_date": from_date,
         "to_date": to_date,
-    })
+        "days_options": list(range(1, 8)),
+        "days_selected": int(request.GET.get("days", 3)) if str(request.GET.get("days", "")).isdigit() else 3,
+    }
+    return render(request, "dashboard/station_upload.html", ctx)
 
-
-# ========= ЭКСПОРТ ИСТОРИИ =========
 
 @login_required
-def station_export_history(request, pk):
-    """
-    Экспорт истории станции в Excel.
-    Учитывает фильтр ?from=YYYY-MM-DD&to=YYYY-MM-DD.
-    """
-    station = get_object_or_404(Station, pk=pk)
+def station_export_history(request, pk: int):
+    Station = StationModel()
+    Record = RecordModel()
+    st = get_object_or_404(Station, pk=pk)
 
-    from_date = request.GET.get("from") or ""
-    to_date = request.GET.get("to") or ""
+    from_date = request.GET.get("from", "")
+    to_date = request.GET.get("to", "")
 
-    qs = SolarRecord.objects.filter(station=station).order_by("timestamp")
+    qs = Record.objects.filter(station=st).order_by("timestamp")
     if from_date:
         qs = qs.filter(timestamp__date__gte=from_date)
     if to_date:
         qs = qs.filter(timestamp__date__lte=to_date)
 
-    rows = list(
-        qs.values(
-            "timestamp",
-            "irradiation",
-            "air_temp",
-            "pv_temp",
-            "power_kw",
-        )
-    )
-
-    if not rows:
-        messages.warning(request, "Нет данных для экспорта.")
-        return redirect("dashboard-station-upload", pk=station.pk)
-
-    # --- формируем DataFrame ---
+    rows = list(qs.values("timestamp", "irradiation", "air_temp", "pv_temp", "power_kw"))
     df = pd.DataFrame(rows)
+    if not df.empty:
+        df.rename(columns={ts_field: "ds"}, inplace=True)
 
-    df.rename(
-        columns={
-            "timestamp": "ds",
-            "irradiation": "Irradiation",
-            "air_temp": "Air_Temp",
-            "pv_temp": "PV_Temp",
-            "power_kw": "Power_kW",
-        },
-        inplace=True,
-    )
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="history")
 
-    df["ds"] = pd.to_datetime(df["ds"])
-    try:
-        df["ds"] = df["ds"].dt.tz_localize(None)
-    except TypeError:
-        pass
+    resp = HttpResponse(bio.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = f'attachment; filename="history_station_{pk}.xlsx"'
+    return resp
 
-    df = df.fillna(0)
 
-    for col in ["Irradiation", "Air_Temp", "PV_Temp", "Power_KW"]:
-        df[col] = df[col].astype(float).round(6)
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="History", index=False)
-    output.seek(0)
-
-    base_name = slugify(station.name or f"station-{station.pk}")
-    if from_date or to_date:
-        suffix = f"_{from_date or ''}_{to_date or ''}".replace("--", "-")
+@login_required
+def station_train(request, pk: int):
+    st = get_object_or_404(StationModel(), pk=pk)
+    res = train_models_for_station(st.pk)
+    if res.get("ok"):
+        messages.success(request, "Обучение выполнено (пока заглушка, но кнопка рабочая).")
     else:
-        suffix = ""
-    filename = f"{base_name}_history{suffix}.xlsx"
+        messages.error(request, "Ошибка обучения.")
+    return redirect("dashboard:station-detail", pk=pk)
 
-    response = HttpResponse(
-        output.getvalue(),
-        content_type=(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        ),
-    )
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
-
-
-# ========= НОВАЯ ВЬЮХА ДЛЯ КНОПКИ «СДЕЛАТЬ ПРОГНОЗ» =========
 
 @login_required
-def run_station_forecast(request, pk):
-    """
-    Запускает прогноз для станции (история -> модели) и сохраняет в SolarForecast.
-    """
-    station = get_object_or_404(Station, pk=pk)
+def station_forecast_list(request, pk: int):
+    Station = StationModel()
+    Forecast = ForecastModel()
+    st = get_object_or_404(Station, pk=pk)
 
-    try:
-        rows = run_forecast_for_station(station, days=3)
-        messages.success(
-            request,
-            f"Прогноз обновлён, в базе сохранено записей: {rows}."
-        )
-    except Exception as e:
-        messages.error(request, f"Ошибка при запуске прогноза: {e}")
+    from_date = request.GET.get("from", "")
+    to_date = request.GET.get("to", "")
 
-    return redirect("dashboard-station-detail", pk=station.pk)
+    ts_field = _pick_model_field(Forecast, ["timestamp", "dt", "datetime", "date_time", "ds"])
 
-
-# ========= ПРОСМОТР + ЭКСПОРТ ПРОГНОЗА =========
-
-@login_required
-def station_forecast_list(request, pk):
-    """
-    Просмотр прогноза SolarForecast с фильтром по датам.
-    """
-    station = get_object_or_404(Station, pk=pk)
-
-    from_date = request.GET.get("from") or ""
-    to_date = request.GET.get("to") or ""
-
-    base_qs = SolarForecast.objects.filter(station=station).order_by("timestamp")
-    total_count = base_qs.count()
-
-    qs = base_qs
+    qs = Forecast.objects.filter(station=st).order_by(ts_field)
     if from_date:
-        qs = qs.filter(timestamp__date__gte=from_date)
+        qs = qs.filter(**{f"{ts_field}__date__gte": from_date})
     if to_date:
-        qs = qs.filter(timestamp__date__lte=to_date)
+        qs = qs.filter(**{f"{ts_field}__date__lte": to_date})
 
-    forecasts = qs
-    filtered_count = forecasts.count()
-
-    return render(request, "dashboard/station_forecast.html", {
-        "station": station,
-        "forecasts": forecasts,
-        "total_count": total_count,
-        "filtered_count": filtered_count,
+    ctx = {
+        "station": st,
+        "rows": qs[:5000],
+        "total_count": Forecast.objects.filter(station=st).count(),
+        "filtered_count": qs.count(),
         "from_date": from_date,
         "to_date": to_date,
-    })
+        "days_options": list(range(1, 8)),
+        "days_selected": int(request.GET.get("days", 3)) if str(request.GET.get("days", "")).isdigit() else 3,
+    }
+    return render(request, "dashboard/station_forecast.html", ctx)
 
 
 @login_required
-def station_forecast_clear(request, pk):
-    """
-    Очищает все сохранённые прогнозы станции.
-    """
-    station = get_object_or_404(Station, pk=pk)
+def station_forecast_run(request, pk: int):
+    st = get_object_or_404(StationModel(), pk=pk)
 
-    if request.method != "POST":
-        messages.error(request, "Неверный метод запроса для очистки прогноза.")
-        return redirect("dashboard-station-forecast-list", pk=station.pk)
+    # days can be passed as ?days=1..7
+    try:
+        days = int(request.GET.get("days", 3))
+    except (TypeError, ValueError):
+        days = 3
+    days = max(1, min(7, days))
 
-    deleted, _ = SolarForecast.objects.filter(station=station).delete()
-
-    if deleted:
-        messages.success(request, f"Удалено записей прогноза: {deleted}.")
-    else:
-        messages.warning(request, "Нет прогнозов для удаления.")
-    return redirect("dashboard-station-forecast-list", pk=station.pk)
+    # IMPORTANT: call service with keyword arg to avoid positional mismatch
+    run_forecast_for_station(st.pk, days=days)
+    messages.success(request, f"Прогноз построен на {days} дн.")
+    return redirect("dashboard:station-forecast-list", pk=pk)
 
 
 @login_required
-def station_export_forecast(request, pk):
-    """
-    Выгрузка прогноза станции в Excel.
-    ВРЕМЯ конвертируем в локальный часовой пояс (settings.TIME_ZONE)
-    и отбрасываем часы вне диапазона 06:00–20:00.
-    """
+def station_forecast_export(request, pk: int):
+    Station = StationModel()
+    Forecast = ForecastModel()
+    st = get_object_or_404(Station, pk=pk)
 
-    station = get_object_or_404(Station, pk=pk)
+    from_date = request.GET.get("from", "")
+    to_date = request.GET.get("to", "")
 
-    qs = SolarForecast.objects.filter(
-        station=station,
-    ).order_by("timestamp")
+    ts_field = _pick_model_field(Forecast, ["timestamp", "dt", "datetime", "date_time", "ds"])
 
-    # Фильтры по датам из формы (если есть)
-    date_from = request.GET.get("date_from")  # формат mm/dd/yyyy
-    date_to = request.GET.get("date_to")      # формат mm/dd/yyyy
+    qs = Forecast.objects.filter(station=st).order_by(ts_field)
+    if from_date:
+        qs = qs.filter(**{f"{ts_field}__date__gte": from_date})
+    if to_date:
+        qs = qs.filter(**{f"{ts_field}__date__lte": to_date})
 
-    if date_from:
-        dt_from = datetime.strptime(date_from, "%m/%d/%Y").date()
-        qs = qs.filter(timestamp__date__gte=dt_from)
+    fields = [ts_field, "np_mw", "xgb_mw", "heuristic_mw", "ensemble_mw"]
+    rows = list(qs.values(*fields))
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df.rename(columns={ts_field: "ds"}, inplace=True)
 
-    if date_to:
-        dt_to = datetime.strptime(date_to, "%m/%d/%Y").date()
-        qs = qs.filter(timestamp__date__lte=dt_to)
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="forecast")
 
-    # === Готовим Excel ===
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Forecast"
+    resp = HttpResponse(bio.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{pk}.xlsx"'
+    return resp
 
-    # Шапка
-    ws.append(["ds", "Pred_NP", "Pred_XGB", "Pred_Heur", "Pred_Final"])
 
-    local_tz = timezone.get_default_timezone()
-
-    for rec in qs.iterator():
-        # Переводим время из UTC -> локальное, убираем tzinfo, чтобы Excel
-        # видел обычный наивный datetime в местном времени
-        ts_local = timezone.localtime(rec.timestamp, local_tz).replace(tzinfo=None)
-
-        # Оставляем только дневные часы (06–20), как на сайте
-        if ts_local.hour < 6 or ts_local.hour > 20:
-            continue
-
-        ws.append([
-            ts_local,
-            float(rec.pred_np or 0.0),
-            float(rec.pred_xgb or 0.0),
-            float(rec.pred_heur or 0.0),
-            float(rec.pred_final or 0.0),
-        ])
-
-    # Сохраняем книгу в память
-    buffer = BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-
-    # Отдаём файл пользователю
-    filename = f"forecast_station_{station.pk}.xlsx"
-    response = HttpResponse(
-        buffer.getvalue(),
-        content_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
-    )
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
+@login_required
+def station_forecast_clear(request, pk: int):
+    Station = StationModel()
+    Forecast = ForecastModel()
+    st = get_object_or_404(Station, pk=pk)
+    Forecast.objects.filter(station=st).delete()
+    messages.success(request, "Прогноз очищен.")
+    return redirect("dashboard:station-forecast-list", pk=pk)
 

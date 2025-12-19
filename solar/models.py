@@ -47,6 +47,14 @@ class SolarForecast(models.Model):
     - pred_xgb: прогноз XGBoost
     - pred_heur: простая эвристика
     - pred_final: итоговый ансамбль (то, что показываем на графике)
+
+    Дополнительно сохраняем прогноз погоды из Visual Crossing:
+    - irradiation_fc: прогноз солнечной радиации (Вт/м²)
+    - air_temp_fc: прогноз температуры воздуха (°C)
+    - wind_speed_fc: прогноз скорости ветра (м/с или км/ч — как в VC)
+    - cloudcover_fc: прогноз облачности (%)
+    - humidity_fc: прогноз влажности (%)
+    - precip_fc: прогноз осадков (мм)
     """
     station = models.ForeignKey(
         Station,
@@ -55,10 +63,19 @@ class SolarForecast(models.Model):
     )
     timestamp = models.DateTimeField()
 
+    # прогноз генерации (кВт)
     pred_np = models.FloatField()
     pred_xgb = models.FloatField()
     pred_heur = models.FloatField()
     pred_final = models.FloatField()
+
+    # --- НОВОЕ: прогноз погоды из Visual Crossing ---
+    irradiation_fc = models.FloatField(null=True, blank=True)
+    air_temp_fc = models.FloatField(null=True, blank=True)
+    wind_speed_fc = models.FloatField(null=True, blank=True)
+    cloudcover_fc = models.FloatField(null=True, blank=True)
+    humidity_fc = models.FloatField(null=True, blank=True)
+    precip_fc = models.FloatField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

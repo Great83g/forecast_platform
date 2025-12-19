@@ -1,59 +1,26 @@
-# dashboard/urls.py
-
 from django.urls import path
-from .views import (
-    station_list,
-    station_detail,
-    station_create,
-    station_upload_history,
-    station_export_history,
-    station_train_models,
-    run_station_forecast,     # запуск прогноза
-    station_forecast_list,    # просмотр прогноза
-    station_export_forecast,  # экспорт прогноза
-    station_forecast_clear,   # очистка прогноза
-)
+from . import views
+
+app_name = "dashboard"
 
 urlpatterns = [
+    path("", views.station_list, name="station-list"),
 
-    # --- СПИСОК СТАНЦИЙ ---
-    path("", station_list, name="dashboard-station-list"),
+    path("station/create/", views.station_create, name="station-create"),
+    path("station/<int:pk>/edit/", views.station_edit, name="station-edit"),
+    path("station/<int:pk>/", views.station_detail, name="station-detail"),
 
-    # --- СОЗДАНИЕ СТАНЦИИ ---
-    path("station/add/", station_create, name="dashboard-station-create"),
+    # История + загрузка + экспорт
+    path("station/<int:pk>/upload/", views.station_upload, name="station-upload"),
+    path("station/<int:pk>/export-history/", views.station_export_history, name="station-export-history"),
 
-    # --- ДЕТАЛЬНАЯ СТРАНИЦА ---
-    path("station/<int:pk>/", station_detail, name="dashboard-station-detail"),
+    # Обучение и прогноз
+    path("station/<int:pk>/train/", views.station_train, name="station-train"),
+    path("station/<int:pk>/train-models/", views.station_train, name="station-train-models"),
 
-    # --- ИСТОРИЯ ---
-    path("station/<int:pk>/upload/", station_upload_history, name="dashboard-station-upload"),
-    path("station/<int:pk>/export/", station_export_history, name="dashboard-station-export"),
-
-    # --- ОБУЧЕНИЕ МОДЕЛЕЙ ---
-    path("station/<int:pk>/train/", station_train_models, name="dashboard-station-train"),
-
-    # --- ПРОГНОЗ ---
-    path("station/<int:pk>/forecast/", run_station_forecast, name="dashboard-station-forecast"),
-
-    # --- НОВОЕ: ПРОСМОТР ПРОГНОЗА ---
-    path(
-        "station/<int:pk>/forecast/list/",
-        station_forecast_list,
-        name="dashboard-station-forecast-list"
-    ),
-
-    # --- НОВОЕ: ОЧИСТКА ПРОГНОЗА ---
-    path(
-        "station/<int:pk>/forecast/clear/",
-        station_forecast_clear,
-        name="dashboard-station-forecast-clear"
-    ),
-
-    # --- НОВОЕ: ЭКСПОРТ ПРОГНОЗА ---
-    path(
-        "station/<int:pk>/forecast/export/",
-        station_export_forecast,
-        name="dashboard-station-export-forecast"
-    ),
+    path("station/<int:pk>/forecast/list/", views.station_forecast_list, name="station-forecast-list"),
+    path("station/<int:pk>/forecast/run/", views.station_forecast_run, name="station-forecast-run"),
+    path("station/<int:pk>/forecast/export/", views.station_forecast_export, name="station-forecast-export"),
+    path("station/<int:pk>/forecast/clear/", views.station_forecast_clear, name="station-forecast-clear"),
 ]
 
