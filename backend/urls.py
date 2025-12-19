@@ -17,10 +17,7 @@ urlpatterns = [
     # Веб-дашборд
     path("dashboard/", include("dashboard.urls")),
 
-    # Встроенные auth-URL'ы (для полноты покрытия /login/ и /logout/)
-    path("", include(auth_urls)),
-
-    # Страница логина
+    # Страница логина (первее include(auth_urls), чтобы шаблон был наш)
     path(
         "login/",
         auth_views.LoginView.as_view(
@@ -33,5 +30,18 @@ urlpatterns = [
         "logout/",
         auth_views.LogoutView.as_view(),
         name="logout",
+    ),
+
+    # Остальные встроенные auth-URL'ы (password_reset и т.п.)
+    path("", include(auth_urls)),
+
+    # Корень сайта → список станций дашборда
+    path(
+        "",
+        RedirectView.as_view(
+            pattern_name="dashboard-station-list",
+            permanent=False,
+        ),
+        name="root",
     ),
 ]
