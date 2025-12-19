@@ -628,20 +628,24 @@ def run_forecast_for_station(station, days: int = 3) -> int:
 
         missing = [r for r in req_np if r not in df_hourly.columns]
         if missing:
-            print(f"[FORECAST] station {station.pk}: NP пропущены регрессоры {missing}")
-        else:
-            df_in_np = df_hourly[["ds"] + req_np].copy()
-            df_in_np["y"] = np.nan
-            fc_np = np_model.predict(df_in_np)
-            np_yhat = _ensure_1d(fc_np["yhat1"], len(df_hourly), "NP yhat1")
-            np_raw = np.clip(np_yhat, 0, None)
-            cap_by_irr_arr = _ensure_1d(cap_by_irr_future, len(df_hourly), "cap_by_irr")
-            phys_cap_arr = np.full(len(df_hourly), cap_mw, dtype=float)
-            np_capped = np.minimum(np_raw, np.minimum(cap_by_irr_arr, phys_cap_arr))
-            df_hourly["NeuralProphet_MWh"] = np_capped
-            df_hourly["NeuralProphet_MWh_raw"] = np_raw
-            df_hourly["NeuralProphet_MWh_cal"] = (np_capped * b_np).clip(lower=0.0)
-            np_predicted = True
+            print(
+                f"[FORECAST] station {station.pk}: NP пропущены регрессоры {missing}, заполню 0"
+            )
+            for col in missing:
+                df_hourly[col] = 0.0
+
+        df_in_np = df_hourly[["ds"] + req_np].copy()
+        df_in_np["y"] = np.nan
+        fc_np = np_model.predict(df_in_np)
+        np_yhat = _ensure_1d(fc_np["yhat1"], len(df_hourly), "NP yhat1")
+        np_raw = np.clip(np_yhat, 0, None)
+        cap_by_irr_arr = _ensure_1d(cap_by_irr_future, len(df_hourly), "cap_by_irr")
+        phys_cap_arr = np.full(len(df_hourly), cap_mw, dtype=float)
+        np_capped = np.minimum(np_raw, np.minimum(cap_by_irr_arr, phys_cap_arr))
+        df_hourly["NeuralProphet_MWh"] = np_capped
+        df_hourly["NeuralProphet_MWh_raw"] = np_raw
+        df_hourly["NeuralProphet_MWh_cal"] = (np_capped * b_np).clip(lower=0.0)
+        np_predicted = True
 
     # XGB прогноз (PR -> MW)
     df_hourly["XGBoost_MWh_raw"] = 0.0
