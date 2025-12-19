@@ -25,7 +25,6 @@ urlpatterns = [
         ),
         name="login",
     ),
-
     # Выход из системы
     path(
         "logout/",
