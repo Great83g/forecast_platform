@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
+from django.contrib.auth import urls as auth_urls
 
 urlpatterns = [
     # Django admin
@@ -16,7 +17,7 @@ urlpatterns = [
     # Веб-дашборд
     path("dashboard/", include("dashboard.urls")),
 
-    # Страница логина
+    # Страница логина (первее include(auth_urls), чтобы шаблон был наш)
     path(
         "login/",
         auth_views.LoginView.as_view(
@@ -32,6 +33,9 @@ urlpatterns = [
         name="logout",
     ),
 
+    # Остальные встроенные auth-URL'ы (password_reset и т.п.)
+    path("", include(auth_urls)),
+
     # Корень сайта → список станций дашборда
     path(
         "",
@@ -42,4 +46,3 @@ urlpatterns = [
         name="root",
     ),
 ]
-

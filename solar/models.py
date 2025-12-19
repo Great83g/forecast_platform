@@ -2,6 +2,10 @@
 from django.db import models
 from stations.models import Station
 
+# Совместимость: в некоторых местах проект ожидал класс SolarStation.
+# Чтобы не падать с ImportError, экспортируем Station под этим именем.
+SolarStation = Station
+
 
 class SolarRecord(models.Model):
     """
@@ -67,4 +71,3 @@ class SolarForecast(models.Model):
 
     def __str__(self):
         return f"Forecast {self.station.name} @ {self.timestamp}"
-
