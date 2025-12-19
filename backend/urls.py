@@ -28,21 +28,10 @@ urlpatterns = [
         ),
         name="login",
     ),
-
     # Выход из системы
     path(
         "logout/",
         auth_views.LogoutView.as_view(),
         name="logout",
-    ),
-
-    # Корень сайта → список станций дашборда
-    path(
-        "",
-        RedirectView.as_view(
-            pattern_name="dashboard-station-list",
-            permanent=False,
-        ),
-        name="root",
     ),
 ]
