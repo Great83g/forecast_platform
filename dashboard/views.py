@@ -131,12 +131,15 @@ def station_upload(request, pk: int):
             messages.error(request, f"Не удалось прочитать файл: {e}")
             return redirect("dashboard:station-upload", pk=pk)
 
+        # нормализуем названия колонок: убираем пробелы и приводим к нижнему регистру
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
         # поддержим разные названия колонок
         col_ts = "timestamp" if "timestamp" in df.columns else ("ds" if "ds" in df.columns else None)
         col_y = "power_kw" if "power_kw" in df.columns else ("y" if "y" in df.columns else None)
 
         if not col_ts or not col_y:
-            messages.error(request, "Нужны колонки timestamp/ds и power_kw/y.")
+            messages.error(request, "Нужны колонки timestamp/ds и power_kw/y (регистр не важен).")
             return redirect("dashboard:station-upload", pk=pk)
 
         df[col_ts] = pd.to_datetime(df[col_ts], errors="coerce")
@@ -361,4 +364,3 @@ def station_forecast_export(request, pk: int):
     )
     resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}.xlsx"'
     return resp
-
