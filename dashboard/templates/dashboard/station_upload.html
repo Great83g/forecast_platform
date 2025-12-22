@@ -5,7 +5,7 @@
 {% block content %}
 <div class="row mb-3">
   <div class="col">
-    <h3>Загрузка истории — {{ station.name }}</h3>
+    <h3>Загрузка истории — {{ display_name|default:station.name }}</h3>
   </div>
 </div>
 
@@ -178,4 +178,3 @@
 </script>
 
 {% endblock %}
-
