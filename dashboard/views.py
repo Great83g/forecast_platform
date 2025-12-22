@@ -163,21 +163,33 @@ def station_upload_history(request, pk):
                     messages.error(request, f"Ошибка чтения файла: {e}")
                     return redirect("dashboard-station-upload", pk=station.pk)
 
-                # 2) проверяем колонки
+                # 2) нормализуем заголовки (убираем пробелы) и приводим Power_KW -> Power_kW
+                df.columns = [str(c).strip() for c in df.columns]
+                if "Power_KW" in df.columns and "Power_kW" not in df.columns:
+                    df.rename(columns={"Power_KW": "Power_kW"}, inplace=True)
+
+                # 3) проверяем колонки
                 required_cols = ["ds", "Irradiation", "Air_Temp", "PV_Temp", "Power_kW"]
                 missing = [c for c in required_cols if c not in df.columns]
                 if missing:
                     messages.error(request, f"Отсутствуют колонки: {missing}")
                     return redirect("dashboard-station-upload", pk=station.pk)
 
-                # 3) парсим даты
+                # 4) парсим даты
                 try:
-                    df["ds"] = pd.to_datetime(df["ds"])
+                    df["ds"] = pd.to_datetime(df["ds"], dayfirst=True, errors="coerce")
+                    if df["ds"].isnull().any():
+                        messages.error(
+                            request,
+                            "Некоторые значения 'ds' не распознаны как даты. "
+                            "Убедитесь, что формат даты — YYYY-MM-DD HH:MM или DD.MM.YYYY HH:MM.",
+                        )
+                        return redirect("dashboard-station-upload", pk=station.pk)
                 except Exception as e:
                     messages.error(request, f"Не удалось распарсить колонку 'ds' как дату: {e}")
                     return redirect("dashboard-station-upload", pk=station.pk)
 
-                # 4) пишем в базу (update_or_create -> дублей не будет)
+                # 5) пишем в базу (update_or_create -> дублей не будет)
                 total_rows = 0
                 created_rows = 0
 
@@ -460,4 +472,3 @@ def station_export_forecast(request, pk):
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
-
