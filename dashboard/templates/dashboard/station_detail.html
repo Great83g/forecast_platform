@@ -15,6 +15,11 @@
     История / загрузка данных
   </a>
 
+  <a href="{% url 'dashboard-station-edit' station.pk %}"
+     class="btn btn-sm btn-outline-secondary">
+    Редактировать
+  </a>
+
   <a href="{% url 'dashboard-station-export' station.pk %}"
      class="btn btn-sm btn-outline-secondary">
     Скачать историю
@@ -95,4 +100,3 @@
 {% endif %}
 
 {% endblock %}
-

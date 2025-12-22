@@ -5,6 +5,7 @@ from .views import (
     station_list,
     station_detail,
     station_create,
+    station_edit,
     station_upload_history,
     station_export_history,
     station_train_models,
@@ -21,6 +22,9 @@ urlpatterns = [
 
     # --- СОЗДАНИЕ СТАНЦИИ ---
     path("station/add/", station_create, name="dashboard-station-create"),
+
+    # --- РЕДАКТИРОВАНИЕ СТАНЦИИ ---
+    path("station/<int:pk>/edit/", station_edit, name="dashboard-station-edit"),
 
     # --- ДЕТАЛЬНАЯ СТРАНИЦА ---
     path("station/<int:pk>/", station_detail, name="dashboard-station-detail"),
@@ -56,4 +60,3 @@ urlpatterns = [
         name="dashboard-station-export-forecast"
     ),
 ]
-
