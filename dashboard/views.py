@@ -170,10 +170,36 @@ def station_upload(request, pk: int):
 
         SolarRecord.objects.bulk_create(objs, batch_size=1000)
         messages.success(request, f"История загружена: {len(objs)} строк.")
-        return redirect("dashboard:station-detail", pk=pk)
+        return redirect("dashboard:station-upload", pk=pk)
 
+    # GET + показ истории
     form = UploadHistoryForm()
-    return render(request, "dashboard/station_upload.html", {"station": st, "form": form})
+    from_s = request.GET.get("from") or ""
+    to_s = request.GET.get("to") or ""
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
+
+    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    total_count = qs.count()
+    if dt_from:
+        qs = qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        qs = qs.filter(timestamp__lte=dt_to)
+    history = list(qs)
+
+    return render(
+        request,
+        "dashboard/station_upload.html",
+        {
+            "station": st,
+            "form": form,
+            "history": history,
+            "from_date": from_s,
+            "to_date": to_s,
+            "total_count": total_count,
+            "history_count": len(history),
+        },
+    )
 
 
 @login_required
