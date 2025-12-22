@@ -80,6 +80,26 @@ def station_create(request):
 
 
 @login_required
+def station_edit(request, pk):
+    """Редактирование станции."""
+    station = get_object_or_404(Station, pk=pk)
+
+    if request.method == "POST":
+        form = StationForm(request.POST, instance=station)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Данные станции обновлены.")
+            return redirect("dashboard-station-detail", pk=station.pk)
+    else:
+        form = StationForm(instance=station)
+
+    return render(request, "dashboard/station_edit.html", {
+        "form": form,
+        "station": station,
+    })
+
+
+@login_required
 def station_detail(request, pk):
     """Деталка станции + последние 7 дней для графика."""
     station = get_object_or_404(Station, pk=pk)
@@ -460,4 +480,3 @@ def station_export_forecast(request, pk):
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
-
