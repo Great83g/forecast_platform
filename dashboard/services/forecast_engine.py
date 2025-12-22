@@ -1,230 +1,361 @@
+# dashboard/services/forecast_engine.py
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import Optional, Any, Dict, List
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-import math
-
-from django.apps import apps
+import numpy as np
+import pandas as pd
+import xgboost as xgb
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from neuralprophet import load as np_load
 
-def _pick_model_field(Model, candidates: list[str]) -> str:
-    """Return first existing field name from candidates."""
-    fields = {f.name for f in Model._meta.get_fields()}
-    for c in candidates:
-        if c in fields:
-            return c
-    raise RuntimeError(
-        f"No matching field in {Model.__name__}. "
-        f"Candidates={candidates}, fields={sorted(fields)}"
-    )
+from solar.models import SolarForecast, SolarRecord
+from stations.models import Station
+from .vc_weather import fetch_visual_crossing_hourly
 
 
-def _get_model_any(app_labels: list[str], model_names: list[str]):
-    for app_label in app_labels:
-        for name in model_names:
-            try:
-                m = apps.get_model(app_label, name)
-                if m:
-                    return m
-            except Exception:
-                continue
-    return None
+MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
 
 
-def _station_model():
-    # максимально “живучий” поиск модели станции
-    m = _get_model_any(
-        app_labels=["solar", "stations"],
-        model_names=["Station", "SolarStation", "PVStation", "SolarPlant", "StationsStation"],
-    )
-    if not m:
-        raise RuntimeError(
-            "Не нашёл модель станции. Проверь apps 'solar'/'stations' и имя модели станции."
-        )
-    return m
+XGB_EXPECTED_FEATURES = [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour",
+    "month",
+    "hour_sin",
+    "month_sin",
+    "is_daylight",
+    "is_clear",
+    "morning_peak_boost",
+    "overdrive_flag",
+    "midday_penalty",
+]
 
 
-def _forecast_model():
-    m = _get_model_any(
-        app_labels=["solar", "stations"],
-        model_names=["SolarForecast", "Forecast"],
-    )
-    if not m:
-        raise RuntimeError(
-            "Не нашёл модель прогноза (SolarForecast). Проверь app 'solar'/'stations'."
-        )
-    return m
-
-
-def _get_station_capacity_kw(station: Any) -> float:
-    cap_kw = getattr(station, "capacity_kw", None)
-    if cap_kw is not None:
-        try:
-            v = float(cap_kw)
-            if v > 0:
-                return v
-        except Exception:
-            pass
-
-    cap_mw = getattr(station, "capacity_mw", None)
-    if cap_mw is not None:
-        try:
-            v = float(cap_mw)
-            if v > 0:
-                return v * 1000.0
-        except Exception:
-            pass
-
-    # дефолт чтобы не падать
-    return 10000.0  # 10 МВт
-
-
-def _simple_heuristic_mw(irr: float, cap_kw: float) -> float:
-    irr = max(0.0, float(irr or 0.0))
-    kw = (irr / 1000.0) * cap_kw * 0.85
-    mw = kw / 1000.0
-    return max(0.0, mw)
-
-
-@dataclass
-class ForecastRow:
-    ts: datetime
-    irradiation: float
-    air_temp: float
-    wind_speed: float
-    cloudcover: float
-    humidity: float
-    precip: float
-    pred_np_kw: Optional[float]
-    pred_xgb_kw: Optional[float]
-    pred_heur_kw: float
-    pred_final_kw: float
-
-
-def train_models_for_station(station_id: int) -> Dict[str, Any]:
+def _station_capacity_mw(st: Station) -> float:
     """
-    Заглушка обучения (чтобы кнопка "Обучить модели" могла работать позже).
-    Реальное обучение NP/XGB подключим отдельным PR/патчем.
+    Пытаемся достать мощность станции.
+    Поддерживаем разные поля (потому что у тебя модели/миграции менялись).
     """
-    Station = _station_model()
-    station = Station.objects.get(pk=station_id)
-    return {"ok": True, "station": str(getattr(station, "name", station_id)), "trained": False}
+    for name in ["capacity_mw", "capacity_ac_mw"]:
+        if hasattr(st, name) and getattr(st, name):
+            return float(getattr(st, name))
+
+    for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
+        if hasattr(st, name) and getattr(st, name):
+            return float(getattr(st, name)) / 1000.0
+
+    # fallback: если нет поля — пусть будет 10MW, чтобы не было микроскопии
+    return 10.0
+
+
+def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
+    """
+    Берём “солнечные часы” из истории:
+    - ищем часы, где irradiation>50 или power_kw>0
+    - берём min/max hour
+    """
+    qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
+    if not qs.exists():
+        return (6, 20)
+
+    df = pd.DataFrame.from_records(qs.values("timestamp", "irradiation", "power_kw"))
+    if df.empty:
+        return (6, 20)
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["hour"] = df["timestamp"].dt.hour
+    mask = (df["irradiation"].fillna(0) > 50) | (df["power_kw"].fillna(0) > 0)
+    if mask.sum() < 5:
+        return (6, 20)
+
+    hmin = int(df.loc[mask, "hour"].min())
+    hmax = int(df.loc[mask, "hour"].max())
+    # немного расширим
+    return (max(0, hmin - 1), min(23, hmax + 1))
+
+
+def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
+    """
+    Делает сетку часов на days вперёд (включая сегодня/завтра, но только солнечные часы).
+    """
+    start = timezone.localtime(timezone.now()).replace(minute=0, second=0, microsecond=0)
+    end = start + pd.Timedelta(days=days)
+
+    all_hours = pd.date_range(start=start, end=end, freq="h", inclusive="left")
+    df = pd.DataFrame({"ds": all_hours})
+
+    h1, h2 = solar_hours
+    df = df[(df["ds"].dt.hour >= h1) & (df["ds"].dt.hour <= h2)].copy()
+    df["ds"] = df["ds"].dt.floor("h")
+    return df.reset_index(drop=True)
+
+
+def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
+    w = weather.copy()
+    w["ds"] = pd.to_datetime(w["ds"]).dt.floor("h")
+    base["ds"] = pd.to_datetime(base["ds"]).dt.floor("h")
+    out = base.merge(w, on="ds", how="left")
+    return out
+
+
+def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Генерим фичи под XGB ожидаемый набор.
+    """
+    out = df.copy()
+
+    # нормальные имена для XGB
+    out["Irradiation"] = pd.to_numeric(out.get("irradiation"), errors="coerce").fillna(0.0)
+    out["Air_Temp"] = pd.to_numeric(out.get("air_temp"), errors="coerce").fillna(0.0)
+
+    # PV_Temp — если нет в погоде, грубо аппроксимируем
+    # (можно позже заменить на нормальную формулу)
+    out["PV_Temp"] = out["Air_Temp"] + 0.03 * out["Irradiation"]
+
+    out["hour"] = pd.to_datetime(out["ds"]).dt.hour.astype(int)
+    out["month"] = pd.to_datetime(out["ds"]).dt.month.astype(int)
+
+    out["hour_sin"] = np.sin(2 * np.pi * out["hour"] / 24.0)
+    out["month_sin"] = np.sin(2 * np.pi * out["month"] / 12.0)
+
+    # простые флаги
+    out["is_daylight"] = (out["Irradiation"] > 20).astype(int)
+
+    cloud = pd.to_numeric(out.get("cloudcover"), errors="coerce").fillna(100.0)
+    out["is_clear"] = ((cloud < 50) & (out["Irradiation"] > 80)).astype(int)
+
+    out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 49)).astype(int)
+    out["overdrive_flag"] = ((out["Irradiation"] > 700) & (out["Air_Temp"] > 25)).astype(int)
+    out["midday_penalty"] = ((out["hour"].isin([12, 13, 14])) & (out["Irradiation"] > 600)).astype(int)
+
+    # гарантируем порядок и наличие
+    for c in XGB_EXPECTED_FEATURES:
+        if c not in out.columns:
+            out[c] = 0.0
+
+    return out
+
+
+def _load_xgb_model(path: Path) -> Optional[xgb.Booster]:
+    try:
+        booster = xgb.Booster()
+        booster.load_model(str(path))
+        return booster
+    except Exception:
+        return None
+
+
+def _allow_torch_safe_globals_for_np() -> None:
+    """
+    PyTorch 2.6 включил weights_only=True по умолчанию и начал блокировать классы.
+    Мы разрешаем те классы NeuralProphet, которые вылезают в твоих ошибках.
+    """
+    try:
+        import torch
+        from torch.serialization import add_safe_globals
+
+        # импорт learnable классов
+        import neuralprophet
+        from neuralprophet.forecaster import NeuralProphet
+        from neuralprophet.configure import Normalization
+        from neuralprophet.df_utils import ShiftScale
+
+        allow = [
+            NeuralProphet,
+            Normalization,
+            ShiftScale,
+        ]
+
+        # иногда вылезает через модульные пути
+        add_safe_globals(allow)
+
+    except Exception:
+        # если нет torch / другое окружение — молча
+        return
+
+
+def _load_np_model(path: Path):
+    """
+    Грузим .np через neuralprophet.load().
+    Для PyTorch 2.6 делаем allowlist.
+    """
+    _allow_torch_safe_globals_for_np()
+    return np_load(str(path))
+
+
+def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
+    """
+    Предикт NeuralProphet:
+    - model.predict ожидает df с 'ds' и будущими регрессорами, если они были при обучении.
+    Тут мы подаём минимум: ds + регрессоры Irradiation/Air_Temp/PV_Temp и т.п.
+    Если модель обучалась на другом наборе — она сама скажет ошибку.
+    """
+    dfp = pd.DataFrame({"ds": pd.to_datetime(df_feat["ds"])})
+    # пробуем подложить самые вероятные регрессоры
+    for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty"]:
+        if col in df_feat.columns:
+            dfp[col] = df_feat[col].values
+
+    fcst = model.predict(dfp)
+    # NeuralProphet обычно возвращает yhat1
+    yhat_col = "yhat1" if "yhat1" in fcst.columns else None
+    if not yhat_col:
+        # fallback: первый yhat
+        yhat_cols = [c for c in fcst.columns if c.startswith("yhat")]
+        yhat_col = yhat_cols[0] if yhat_cols else None
+
+    if not yhat_col:
+        return np.full(len(dfp), np.nan)
+
+    return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
+
+
+def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame) -> np.ndarray:
+    X = df_feat[XGB_EXPECTED_FEATURES].astype(float)
+    dmat = xgb.DMatrix(X, feature_names=XGB_EXPECTED_FEATURES)
+    pred = booster.predict(dmat)
+    return pred
+
+
+def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
+    """
+    Простая эвристика: мощность ~ irradiation/1000 * capacity * k
+    k подбираем грубо, чтобы не было микроскопии.
+    """
+    irr = df_feat["Irradiation"].astype(float).to_numpy()
+    # нормализация irradiation: 0..1000 W/m2
+    p = (irr / 1000.0) * capacity_mw
+    # лёгкая “кривая” — чтобы утро/вечер не были нулём
+    p = np.clip(p, 0, capacity_mw)
+    return p
 
 
 @transaction.atomic
-def run_forecast_for_station(station_id: int, days: int = 3) -> Dict[str, Any]:
-    """
-    Стабильный прогноз-минимум на N дней вперед по часу.
-    Пишем в реальные поля SolarForecast:
-      timestamp, pred_np, pred_xgb, pred_heur, pred_final, irradiation_fc, air_temp_fc, ...
-    """
-    Station = _station_model()
-    Forecast = _forecast_model()
+def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
+    st = Station.objects.get(pk=station_id)
+    capacity_mw = _station_capacity_mw(st)
+    solar_hours = _solar_hours_from_history(st)
 
-    station = Station.objects.get(pk=station_id)
-    cap_kw = _get_station_capacity_kw(station)
+    base = _make_base_grid(days=days, solar_hours=solar_hours)
 
-    now = timezone.localtime()
-    start = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    end = start + timedelta(days=int(days))
+    # ---- погода ----
+    weather_source = "fallback_zero"
+    weather_df = pd.DataFrame(columns=["ds", "irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip"])
 
-    # Найдём реальные имена полей в SolarForecast
-    station_field = _pick_model_field(Forecast, ["station", "plant", "solar_station", "stations_station"])
-    ts_field = _pick_model_field(Forecast, ["timestamp", "dt", "datetime", "date_time", "ds"])
+    lat = getattr(st, "lat", None) or getattr(st, "latitude", None)
+    lon = getattr(st, "lon", None) or getattr(st, "longitude", None)
 
-    # поля прогнозов (в твоей модели они такие)
-    pred_np_field = _pick_model_field(Forecast, ["pred_np"])
-    pred_xgb_field = _pick_model_field(Forecast, ["pred_xgb"])
-    pred_heur_field = _pick_model_field(Forecast, ["pred_heur"])
-    pred_final_field = _pick_model_field(Forecast, ["pred_final"])
+    if lat is not None and lon is not None:
+        wres = fetch_visual_crossing_hourly(float(lat), float(lon), days=days)
+        if wres.ok and not wres.df.empty:
+            weather_source = wres.source
+            weather_df = wres.df.copy()
 
-    # поля погоды (в твоей модели они такие)
-    irr_fc_field = _pick_model_field(Forecast, ["irradiation_fc"])
-    air_fc_field = _pick_model_field(Forecast, ["air_temp_fc"])
-    wind_fc_field = _pick_model_field(Forecast, ["wind_speed_fc"])
-    cloud_fc_field = _pick_model_field(Forecast, ["cloudcover_fc"])
-    hum_fc_field = _pick_model_field(Forecast, ["humidity_fc"])
-    precip_fc_field = _pick_model_field(Forecast, ["precip_fc"])
+    merged = _merge_weather(base, weather_df)
+    feat = _compute_features(merged)
 
-    # (created_at есть в твоей модели)
-    created_field = None
-    try:
-        created_field = _pick_model_field(Forecast, ["created_at", "created", "created_on", "created_dt"])
-    except Exception:
-        created_field = None
+    # ---- load models ----
+    np_path = MODEL_DIR / f"np_model_{station_id}.np"
+    xgb_path = MODEL_DIR / f"xgb_model_{station_id}.json"
 
-    rows: List[ForecastRow] = []
-    ts = start
+    np_ok = False
+    xgb_ok = False
+    np_error = None
+    xgb_error = None
 
-    while ts < end:
-        hour = ts.hour
+    y_np = np.full(len(feat), np.nan)
+    y_xgb = np.full(len(feat), np.nan)
 
-        # простая “солнечная форма” (чтобы UI жил)
-        daylight = 1.0 if 6 <= hour <= 18 else 0.0
-        bell = math.exp(-((hour - 12) ** 2) / (2 * 3.0 ** 2))
-        irradiation = 900.0 * daylight * bell  # W/m2
+    # XGB
+    booster = None
+    if xgb_path.exists():
+        booster = _load_xgb_model(xgb_path)
 
-        # минимальная погода-заглушка
-        air_temp = 10.0
-        wind_speed = 3.0
-        cloudcover = 30.0
-        humidity = 50.0
-        precip = 0.0
+    if booster is not None:
+        try:
+            y_xgb = _predict_xgb(booster, feat)
+            xgb_ok = True
+        except Exception as e:
+            xgb_error = str(e)
+            xgb_ok = False
 
-        heur_mw = _simple_heuristic_mw(irradiation, cap_kw)
-        final_mw = heur_mw  # пока ансамбль = эвристика
+    # NP
+    if np_path.exists():
+        try:
+            model = _load_np_model(np_path)
+            y_np = _predict_np(model, feat)
+            np_ok = True
+        except Exception as e:
+            np_error = str(e)
+            np_ok = False
+    else:
+        np_error = f"NP model not found: {np_path}"
 
-        rows.append(
-            ForecastRow(
-                ts=ts,
-                irradiation=irradiation,
-                air_temp=air_temp,
-                wind_speed=wind_speed,
-                cloudcover=cloudcover,
-                humidity=humidity,
-                precip=precip,
-                pred_np_kw=None,
-                pred_xgb_kw=None,
-                pred_heur_kw=float(heur_mw * 1000.0),   # MW -> kW
-                pred_final_kw=float(final_mw * 1000.0), # MW -> kW
+    # эвристика (MW)
+    y_heur = _heuristic_mw(feat, capacity_mw=capacity_mw)
+
+    # ансамбль:
+    # - если NP есть → 0.5 NP + 0.5 XGB
+    # - если NP нет → XGB если есть, иначе эвристика
+    y_final = y_heur.copy()
+    if xgb_ok:
+        y_final = 0.6 * y_heur + 0.4 * y_xgb
+    if np_ok and xgb_ok:
+        y_final = 0.2 * y_heur + 0.4 * y_xgb + 0.4 * y_np
+    elif np_ok and not xgb_ok:
+        y_final = 0.6 * y_heur + 0.4 * y_np
+
+    # клип по мощности станции
+    y_np = np.clip(np.nan_to_num(y_np, nan=0.0), 0, capacity_mw)
+    y_xgb = np.clip(np.nan_to_num(y_xgb, nan=0.0), 0, capacity_mw)
+    y_heur = np.clip(np.nan_to_num(y_heur, nan=0.0), 0, capacity_mw)
+    y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
+
+    # ---- save ----
+    # чистим прогноз на этот диапазон (солнечные часы текущих days)
+    ts_min = feat["ds"].min()
+    ts_max = feat["ds"].max()
+    SolarForecast.objects.filter(station=st, timestamp__gte=ts_min, timestamp__lte=ts_max).delete()
+
+    objs: List[SolarForecast] = []
+    for i, row in feat.iterrows():
+        objs.append(
+            SolarForecast(
+                station=st,
+                timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
+                # ВНИМАНИЕ: сохраняем в MW (и в UI показываем MW)
+                pred_np=float(y_np[i]),
+                pred_xgb=float(y_xgb[i]),
+                pred_heur=float(y_heur[i]),
+                pred_final=float(y_final[i]),
+                irradiation_fc=float(row.get("irradiation") or 0.0) if not pd.isna(row.get("irradiation")) else None,
+                air_temp_fc=float(row.get("air_temp") or 0.0) if not pd.isna(row.get("air_temp")) else None,
+                wind_speed_fc=float(row.get("wind_speed") or 0.0) if not pd.isna(row.get("wind_speed")) else None,
+                cloudcover_fc=float(row.get("cloudcover") or 0.0) if not pd.isna(row.get("cloudcover")) else None,
+                humidity_fc=float(row.get("humidity") or 0.0) if not pd.isna(row.get("humidity")) else None,
+                precip_fc=float(row.get("precip") or 0.0) if not pd.isna(row.get("precip")) else None,
             )
         )
-        ts += timedelta(hours=1)
 
-    # чистим прогноз по станции и диапазону
-    Forecast.objects.filter(**{station_field: station, f"{ts_field}__gte": start, f"{ts_field}__lt": end}).delete()
+    SolarForecast.objects.bulk_create(objs, batch_size=500)
 
-    objs = []
-    now_ts = timezone.now()
-    for r in rows:
-        dt_value = r.ts
-        if timezone.is_naive(dt_value):
-            dt_value = timezone.make_aware(dt_value, timezone.get_default_timezone())
-
-        kwargs = {
-            station_field: station,
-            ts_field: dt_value,
-
-            pred_np_field: r.pred_np_kw,
-            pred_xgb_field: r.pred_xgb_kw,
-            pred_heur_field: r.pred_heur_kw,
-            pred_final_field: r.pred_final_kw,
-
-            irr_fc_field: float(r.irradiation),
-            air_fc_field: float(r.air_temp),
-            wind_fc_field: float(r.wind_speed),
-            cloud_fc_field: float(r.cloudcover),
-            hum_fc_field: float(r.humidity),
-            precip_fc_field: float(r.precip),
-        }
-        if created_field:
-            kwargs[created_field] = now_ts
-        objs.append(Forecast(**kwargs))
-
-    Forecast.objects.bulk_create(objs)
-    return {"ok": True, "count": len(objs), "start": start.isoformat(), "end": end.isoformat()}
+    return {
+        "ok": True,
+        "count": len(objs),
+        "days": days,
+        "solar_hours": list(solar_hours),
+        "weather_source": weather_source,
+        "np_ok": np_ok,
+        "xgb_ok": xgb_ok,
+        "np_error": np_error,
+        "xgb_error": xgb_error,
+    }
 

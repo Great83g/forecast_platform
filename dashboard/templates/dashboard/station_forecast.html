@@ -1,55 +1,61 @@
 {% extends "dashboard/base.html" %}
 {% block content %}
 
-<h2 class="mb-2">Прогноз: {{ station.name }}</h2>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="m-0">Прогноз: {{ station.name }}</h2>
 
-<div class="d-flex flex-wrap gap-2 mb-3">
-  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
-
-  <form method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}" class="ms-auto d-flex align-items-center gap-2">
-  <select name="days" class="form-select form-select-sm" style="width: auto">
-    {% for d in days_options %}
-      <option value="{{ d }}" {% if d == days_selected %}selected{% endif %}>{{ d }} дн.</option>
-    {% endfor %}
-  </select>
-  <button class="btn btn-primary btn-sm" type="submit">Сделать прогноз</button>
-</form>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
+  </div>
 </div>
 
-<form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
-  <div>
-    <label class="form-label mb-0 small">С даты</label>
-    <input type="date" name="from" value="{{ from_date }}" class="form-control form-control-sm">
-  </div>
-  <div>
-    <label class="form-label mb-0 small">По дату</label>
-    <input type="date" name="to" value="{{ to_date }}" class="form-control form-control-sm">
-  </div>
-  <div>
-    <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
-  </div>
+<div class="card mb-3">
+  <div class="card-body">
 
-  <div class="ms-auto d-flex gap-2">
-    <a class="btn btn-sm btn-success"
-       href="{% url 'dashboard:station-forecast-export' station.pk %}?from={{ from_date }}&to={{ to_date }}">
-      Скачать в Excel
-    </a>
-    <a class="btn btn-sm btn-outline-danger"
-       onclick="return confirm('Очистить прогноз?');"
-       href="{% url 'dashboard:station-forecast-clear' station.pk %}">
-      Очистить прогноз
-    </a>
-  </div>
-</form>
+    <div class="d-flex justify-content-between align-items-end flex-wrap gap-3">
 
-<div class="text-muted small mb-2">
-  Всего записей: <b>{{ total_count }}</b>. Отфильтровано: <b>{{ filtered_count }}</b>.
+      <form method="get" class="d-flex align-items-end gap-2 flex-wrap">
+        <div>
+          <label class="form-label small mb-1">С даты</label>
+          <input type="date" class="form-control form-control-sm" name="from" value="{{ from_date }}">
+        </div>
+
+        <div>
+          <label class="form-label small mb-1">По дату</label>
+          <input type="date" class="form-control form-control-sm" name="to" value="{{ to_date }}">
+        </div>
+
+        <input type="hidden" name="days" value="{{ days_selected|default:3 }}">
+        <button class="btn btn-outline-primary btn-sm" type="submit">Фильтр</button>
+      </form>
+
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <form method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}" class="d-flex align-items-center gap-2">
+          <select class="form-select form-select-sm" name="days" style="width: 90px;">
+            {% for d in days_options %}
+              <option value="{{ d }}" {% if d == days_selected %}selected{% endif %}>{{ d }} дн.</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-primary btn-sm" type="submit">Сделать прогноз</button>
+        </form>
+
+        <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-export' station.pk %}?from={{ from_date }}&to={{ to_date }}">Скачать в Excel</a>
+        <a class="btn btn-outline-danger btn-sm" href="{% url 'dashboard:station-forecast-clear' station.pk %}">Очистить прогноз</a>
+      </div>
+
+    </div>
+
+    <div class="text-muted small mt-2">
+      Всего записей: {{ total_count }}. Отфильтровано: {{ filtered_count }}.
+    </div>
+
+  </div>
 </div>
 
-<div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
-  <table class="table table-sm table-striped mb-0">
-    <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead>
       <tr>
         <th>Дата/время</th>
         <th>NP</th>
@@ -61,14 +67,16 @@
     <tbody>
       {% for r in rows %}
         <tr>
-          <td>{{ r.timestamp }}</td>
-          <td>{{ r.np_mw }}</td>
-          <td>{{ r.xgb_mw }}</td>
-          <td>{{ r.heuristic_mw }}</td>
-          <td><b>{{ r.ensemble_mw }}</b></td>
+          <td>{{ r.timestamp|date:"d.m.Y H:i" }}</td>
+          <td>{{ r.np_mw|default:"—" }}</td>
+          <td>{{ r.xgb_mw|default:"—" }}</td>
+          <td>{{ r.heuristic_mw|default:"—" }}</td>
+          <td><b>{{ r.ensemble_mw|default:"—" }}</b></td>
         </tr>
       {% empty %}
-        <tr><td colspan="5" class="text-center text-muted py-4">Нет прогноза</td></tr>
+        <tr>
+          <td colspan="5" class="text-muted">Нет прогноза</td>
+        </tr>
       {% endfor %}
     </tbody>
   </table>

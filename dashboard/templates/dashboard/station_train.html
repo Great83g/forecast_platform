@@ -1,0 +1,12 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<div class="container py-4">
+  <h2>Обучение моделей: {{ station.name|default:station }}</h2>
+  <p class="text-muted">Нажми кнопку — запустится обучение NeuralProphet и XGBoost для этой станции.</p>
+  <form method="post">
+    {% csrf_token %}
+    <button class="btn btn-warning" type="submit">Запустить обучение</button>
+    <a class="btn btn-secondary" href="{% url 'dashboard:station-list' %}">Назад</a>
+  </form>
+</div>
+{% endblock %}

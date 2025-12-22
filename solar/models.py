@@ -1,4 +1,3 @@
-# solar/models.py
 from django.db import models
 from stations.models import Station
 
@@ -38,23 +37,16 @@ class SolarRecord(models.Model):
         return f"{self.station.name} @ {self.timestamp}"
 
 
-# ========= ПРОГНОЗЫ ==========
-
 class SolarForecast(models.Model):
     """
     Прогноз выработки станции на конкретный час:
-    - pred_np: прогноз NeuralProphet
-    - pred_xgb: прогноз XGBoost
-    - pred_heur: простая эвристика
-    - pred_final: итоговый ансамбль (то, что показываем на графике)
+    - pred_np: прогноз NeuralProphet (может быть None)
+    - pred_xgb: прогноз XGBoost (может быть None)
+    - pred_heur: эвристика
+    - pred_final: итоговый ансамбль
 
-    Дополнительно сохраняем прогноз погоды из Visual Crossing:
-    - irradiation_fc: прогноз солнечной радиации (Вт/м²)
-    - air_temp_fc: прогноз температуры воздуха (°C)
-    - wind_speed_fc: прогноз скорости ветра (м/с или км/ч — как в VC)
-    - cloudcover_fc: прогноз облачности (%)
-    - humidity_fc: прогноз влажности (%)
-    - precip_fc: прогноз осадков (мм)
+    Дополнительно сохраняем прогноз погоды:
+    - irradiation_fc, air_temp_fc, wind_speed_fc, cloudcover_fc, humidity_fc, precip_fc
     """
     station = models.ForeignKey(
         Station,
@@ -64,12 +56,12 @@ class SolarForecast(models.Model):
     timestamp = models.DateTimeField()
 
     # прогноз генерации (кВт)
-    pred_np = models.FloatField()
-    pred_xgb = models.FloatField()
-    pred_heur = models.FloatField()
-    pred_final = models.FloatField()
+    pred_np = models.FloatField(null=True, blank=True)
+    pred_xgb = models.FloatField(null=True, blank=True)
+    pred_heur = models.FloatField(null=True, blank=True)
+    pred_final = models.FloatField(null=True, blank=True)
 
-    # --- НОВОЕ: прогноз погоды из Visual Crossing ---
+    # прогноз погоды из Visual Crossing / заглушка
     irradiation_fc = models.FloatField(null=True, blank=True)
     air_temp_fc = models.FloatField(null=True, blank=True)
     wind_speed_fc = models.FloatField(null=True, blank=True)
@@ -88,3 +80,4 @@ class SolarForecast(models.Model):
 
     def __str__(self):
         return f"Forecast {self.station.name} @ {self.timestamp}"
+

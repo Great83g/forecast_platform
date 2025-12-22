@@ -1,0 +1,18 @@
+{
+  "station_id": 1,
+  "X_cols": [
+    "Irradiation",
+    "Air_Temp",
+    "PV_Temp",
+    "hour",
+    "month",
+    "hour_sin",
+    "month_sin",
+    "is_daylight",
+    "is_clear",
+    "morning_peak_boost",
+    "overdrive_flag",
+    "midday_penalty"
+  ],
+  "cap_mw_used": 8.905000000000001
+}

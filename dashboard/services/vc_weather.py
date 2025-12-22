@@ -1,60 +1,98 @@
 # dashboard/services/vc_weather.py
+from __future__ import annotations
 
-import requests
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Optional, Tuple
+
 import pandas as pd
-import numpy as np
-from datetime import datetime
-
-# Можно вынести в settings, но для простоты оставим тут
-VC_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
+import requests
+from django.conf import settings
+from django.utils import timezone
 
 
-def load_weather(lat: float, lon: float, hours_ahead: int = 72) -> pd.DataFrame:
+@dataclass
+class WeatherResult:
+    ok: bool
+    source: str
+    df: pd.DataFrame
+    error: Optional[str] = None
+
+
+def _now_local() -> datetime:
+    return timezone.localtime(timezone.now()).replace(minute=0, second=0, microsecond=0)
+
+
+def fetch_visual_crossing_hourly(lat: float, lon: float, days: int) -> WeatherResult:
     """
-    Загружает прогноз Visual Crossing на N часов вперёд
-    и возвращает DataFrame с колонками:
-      ds, Irradiation, Air_Temp, PV_Temp, cloudcover, hour, hour_sin, hour_cos
+    Возвращает почасовой прогноз Visual Crossing на N дней вперёд в датафрейме:
+    ds, irradiation, air_temp, wind_speed, cloudcover, humidity, precip
     """
+    api_key = getattr(settings, "VISUAL_CROSSING_API_KEY", None)
+    if not api_key:
+        return WeatherResult(ok=False, source="visual_crossing", df=pd.DataFrame(), error="VISUAL_CROSSING_API_KEY missing")
+
+    start = _now_local()
+    end = start + timedelta(days=days)
+
+    # Visual Crossing timeline API (metric)
     url = (
-        "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"
-        f"{lat},{lon}/next{hours_ahead}hours"
-        f"?unitGroup=metric&include=hours&key={VC_API_KEY}&contentType=json"
+        f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/"
+        f"{lat},{lon}/{start.date()}/{end.date()}"
     )
+    params = {
+        "unitGroup": "metric",
+        "include": "hours",
+        "key": api_key,
+        "contentType": "json",
+    }
 
-    r = requests.get(url, timeout=30)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(url, params=params, timeout=45)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        return WeatherResult(ok=False, source="visual_crossing", df=pd.DataFrame(), error=str(e))
 
-    hours = []
-    for day in data.get("days", []):
-        day_date = day.get("datetime")
-        for h in day.get("hours", []):
-            # day_date = '2025-12-09', h['datetime'] = '06:00:00+06:00'
-            time_str = h.get("datetime", "00:00:00")
-            # обрежем TZ, если есть
-            if "+" in time_str or "-" in time_str[2:]:
-                time_str = time_str.split("+")[0].split("-")[0]
-            dt_str = f"{day_date}T{time_str}"
-            ts = datetime.fromisoformat(dt_str)
+    rows = []
+    for day in data.get("days", []) or []:
+        for h in day.get("hours", []) or []:
+            # datetime string like "2025-12-19T10:00:00"
+            dt_str = h.get("datetime")  # "10:00:00" in some responses
+            if "datetimeEpoch" in h:
+                dt = datetime.fromtimestamp(h["datetimeEpoch"], tz=timezone.get_current_timezone())
+            else:
+                # fallback: day["datetime"] + hour
+                base = day.get("datetime")
+                if base and dt_str:
+                    dt = datetime.fromisoformat(f"{base}T{dt_str}").replace(tzinfo=timezone.get_current_timezone())
+                else:
+                    continue
 
-            hours.append(
+            rows.append(
                 {
-                    "ds": ts,
-                    "Irradiation": float(h.get("solarradiation", 0)),
-                    "Air_Temp": float(h.get("temp", 0)),
-                    "PV_Temp": float(h.get("feelslike", 0)),
-                    "cloudcover": float(h.get("cloudcover", 0)),
+                    "ds": dt,
+                    "irradiation": h.get("solarradiation"),  # W/m2
+                    "air_temp": h.get("temp"),
+                    "wind_speed": h.get("windspeed"),
+                    "cloudcover": h.get("cloudcover"),
+                    "humidity": h.get("humidity"),
+                    "precip": h.get("precip"),
                 }
             )
 
-    df = pd.DataFrame(hours)
+    df = pd.DataFrame(rows)
     if df.empty:
-        return df
+        return WeatherResult(ok=False, source="visual_crossing", df=df, error="Empty VC response")
 
+    # нормализуем типы
     df["ds"] = pd.to_datetime(df["ds"])
-    df["hour"] = df["ds"].dt.hour
+    df = df.sort_values("ds").reset_index(drop=True)
+    df["ds"] = df["ds"].dt.floor("h")  # pandas future-safe
 
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24.0)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24.0)
+    # numeric
+    for c in ["irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    return df
+    return WeatherResult(ok=True, source="visual_crossing", df=df)
+

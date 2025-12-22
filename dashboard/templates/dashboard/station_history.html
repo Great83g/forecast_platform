@@ -1,0 +1,120 @@
+{% extends "dashboard/base.html" %}
+{% block title %}История: {{ station.name }}{% endblock %}
+{% block content %}
+<div class="container mt-4">
+
+  {% if messages %}
+    {% for m in messages %}
+      <div class="alert alert-{{ m.tags }} mb-3">{{ m }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <h2 class="mb-2">История: {{ station.name }}</h2>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">
+      ← Назад к станции
+    </a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">
+      К списку станций
+    </a>
+  </div>
+
+  <!-- Фильтр дат -->
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+    <div>
+      <label class="form-label mb-0 small">С даты</label>
+      <input type="date" name="from" value="{{ from_date }}" class="form-control form-control-sm">
+    </div>
+    <div>
+      <label class="form-label mb-0 small">По дату</label>
+      <input type="date" name="to" value="{{ to_date }}" class="form-control form-control-sm">
+    </div>
+    <div>
+      <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
+    </div>
+
+    <div class="ms-auto d-flex gap-2">
+      <a class="btn btn-sm btn-success" href="{% url 'dashboard:station-export-history' station.pk %}?from={{ from_date }}&to={{ to_date }}">
+        Скачать Excel
+      </a>
+
+      <form method="post" class="d-inline">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="clear">
+        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Точно очистить всю историю станции?');">
+          Очистить историю
+        </button>
+      </form>
+    </div>
+  </form>
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h5 class="card-title mb-3">Загрузить историю (CSV/XLSX)</h5>
+      <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload">
+        {{ form.file }}
+        <button type="submit" class="btn btn-primary btn-sm">Загрузить</button>
+      </form>
+      <div class="text-muted small mt-2">
+        Ожидаемые колонки: <code>ds, Irradiation, Air_Temp, PV_Temp, Power_KW</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="text-muted small">
+      Всего записей: <b>{{ total_count }}</b>. Отфильтровано: <b>{{ history_count }}</b>.
+    </div>
+
+    <form method="post" class="d-inline">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="delete_selected">
+      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить выбранные записи?');">
+        Удалить выбранные
+      </button>
+  </div>
+
+  <div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
+    <table class="table table-sm table-striped mb-0">
+      <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+        <tr>
+          <th style="width:40px;"><input type="checkbox" id="chk_all" /></th>
+          <th>Дата/время</th>
+          <th>Irradiation</th>
+          <th>Air_Temp</th>
+          <th>PV_Temp</th>
+          <th>Power_KW</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in history %}
+          <tr>
+            <td><input type="checkbox" name="selected" value="{{ r.id }}" class="chk_row" /></td>
+            <td>{{ r.timestamp }}</td>
+            <td>{{ r.irradiation }}</td>
+            <td>{{ r.air_temp }}</td>
+            <td>{{ r.pv_temp }}</td>
+            <td>{{ r.power_kw }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="text-center text-muted py-4">Нет данных</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  </form>
+</div>
+
+<script>
+  const all = document.getElementById('chk_all');
+  if (all) {
+    all.addEventListener('change', function() {
+      document.querySelectorAll('.chk_row').forEach(ch => ch.checked = all.checked);
+    });
+  }
+</script>
+{% endblock %}

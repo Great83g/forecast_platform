@@ -1,325 +1,364 @@
+# dashboard/views.py
 from __future__ import annotations
 
 from datetime import datetime
 from io import BytesIO
+from typing import Optional
 
 import pandas as pd
-
 from django.contrib import messages
-
-
-def _pick_model_field(Model, candidates):
-    fields = {f.name for f in Model._meta.get_fields()}
-    for c in candidates:
-        if c in fields:
-            return c
-    raise RuntimeError(f"No matching field in {Model.__name__}; candidates={candidates}; fields={sorted(fields)}")
-
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 
-from django.apps import apps
+from stations.models import Station
+from solar.models import SolarRecord, SolarForecast
 
-from .services.run_forecast import run_forecast_for_station, train_models_for_station
+from .forms import StationForm, UploadHistoryForm
+
+# forecast service (обязательно должен быть)
+from .services.forecast_engine import run_forecast_for_station
+
+# train service (может быть/не быть — не валим портал)
+try:
+    from .services.train_models import train_models_for_station
+except Exception:
+    train_models_for_station = None
 
 
-def _get_model(app_label: str, candidates: list[str]):
-    for name in candidates:
+# ----------------------------
+# helpers
+# ----------------------------
+def _parse_date(s: str) -> Optional[datetime]:
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%m/%d/%Y"):
         try:
-            m = apps.get_model(app_label, name)
-            if m:
-                return m
+            return datetime.strptime(s, fmt)
         except Exception:
-            continue
+            pass
     return None
 
 
-def StationModel():
-    m = _get_model("solar", ["SolarStation", "Station", "PVStation"]) or _get_model("stations", ["Station"])
-    if not m:
-        raise RuntimeError("Не нашёл модель станции. Проверь solar/stations models.py.")
-    return m
+def _excel_safe_datetime(series: pd.Series) -> pd.Series:
+    """
+    Excel не поддерживает tz-aware datetime.
+    Приводим к naive.
+    """
+    s = pd.to_datetime(series, errors="coerce")
+    try:
+        # если tz-aware -> убираем tz
+        if getattr(s.dt, "tz", None) is not None:
+            s = s.dt.tz_convert(None)
+        s = s.dt.tz_localize(None)
+    except Exception:
+        # если уже naive — ок
+        pass
+    return s
 
 
-def RecordModel():
-    m = _get_model("solar", ["SolarRecord", "Record"]) or _get_model("stations", ["SolarRecord", "Record"])
-    if not m:
-        raise RuntimeError("Не нашёл модель истории (SolarRecord).")
-    return m
-
-
-def ForecastModel():
-    m = _get_model("solar", ["SolarForecast", "Forecast"]) or _get_model("stations", ["SolarForecast", "Forecast"])
-    if not m:
-        raise RuntimeError("Не нашёл модель прогноза (SolarForecast).")
-    return m
-
-
+# ----------------------------
+# stations
+# ----------------------------
 @login_required
 def station_list(request):
-    Station = StationModel()
     stations = Station.objects.all().order_by("id")
     return render(request, "dashboard/station_list.html", {"stations": stations})
 
 
 @login_required
 def station_create(request):
-    Station = StationModel()
     if request.method == "POST":
-        name = request.POST.get("name", "").strip()
-        operator = request.POST.get("operator", "").strip()
-        if not name:
-            messages.error(request, "Имя станции обязательно.")
-        else:
-            st = Station.objects.create(name=name, operator=operator)
+        form = StationForm(request.POST)
+        if form.is_valid():
+            st = form.save()
             messages.success(request, "Станция создана.")
             return redirect("dashboard:station-detail", pk=st.pk)
-    return render(request, "dashboard/station_create.html")
+        messages.error(request, "Ошибка в форме станции.")
+    else:
+        form = StationForm()
+
+    return render(request, "dashboard/station_create.html", {"form": form})
 
 
 @login_required
 def station_edit(request, pk: int):
-    Station = StationModel()
     st = get_object_or_404(Station, pk=pk)
 
     if request.method == "POST":
-        st.name = request.POST.get("name", st.name).strip()
-        st.operator = request.POST.get("operator", getattr(st, "operator", "")).strip()
-        # опционально
-        for f in ["capacity_kw", "capacity_mw", "lat", "lon"]:
-            if hasattr(st, f) and f in request.POST:
-                val = request.POST.get(f, "").strip()
-                if val != "":
-                    try:
-                        setattr(st, f, float(val))
-                    except Exception:
-                        pass
-        st.save()
-        messages.success(request, "Станция обновлена.")
-        return redirect("dashboard:station-detail", pk=st.pk)
+        form = StationForm(request.POST, instance=st)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Станция обновлена.")
+            return redirect("dashboard:station-detail", pk=st.pk)
+        messages.error(request, "Ошибка в форме станции.")
+    else:
+        form = StationForm(instance=st)
 
-    return render(request, "dashboard/station_edit.html", {"station": st})
+    return render(request, "dashboard/station_edit.html", {"station": st, "form": form})
 
 
 @login_required
 def station_detail(request, pk: int):
-    Station = StationModel()
     st = get_object_or_404(Station, pk=pk)
     return render(request, "dashboard/station_detail.html", {"station": st})
 
 
+# ----------------------------
+# history upload/export
+# ----------------------------
 @login_required
 def station_upload(request, pk: int):
-    Station = StationModel()
-    Record = RecordModel()
     st = get_object_or_404(Station, pk=pk)
 
-    # фильтр дат
-    from_date = request.GET.get("from", "")
-    to_date = request.GET.get("to", "")
-
-    qs = Record.objects.filter(station=st).order_by("-timestamp")
-    if from_date:
-        qs = qs.filter(timestamp__date__gte=from_date)
-    if to_date:
-        qs = qs.filter(timestamp__date__lte=to_date)
-
     if request.method == "POST":
-        action = request.POST.get("action", "")
-
-        if action == "clear":
-            Record.objects.filter(station=st).delete()
-            messages.success(request, "История очищена.")
+        form = UploadHistoryForm(request.POST, request.FILES)
+        if not form.is_valid():
+            messages.error(request, "Ошибка формы загрузки.")
             return redirect("dashboard:station-upload", pk=pk)
 
-        if action == "upload":
-            f = request.FILES.get("file")
-            if not f:
-                messages.error(request, "Файл не выбран.")
-                return redirect("dashboard:station-upload", pk=pk)
+        f = request.FILES.get("file")
+        if not f:
+            messages.error(request, "Файл не выбран.")
+            return redirect("dashboard:station-upload", pk=pk)
 
-            # CSV/XLSX
+        try:
             if f.name.lower().endswith(".csv"):
                 df = pd.read_csv(f)
             else:
                 df = pd.read_excel(f)
-
-            # ожидаемые колонки
-            # ds, Irradiation, Air_Temp, PV_Temp, Power_KW
-            colmap = {c.lower(): c for c in df.columns}
-            def pick(name): return colmap.get(name.lower())
-
-            ds_col = pick("ds")
-            irr_col = pick("Irradiation")
-            air_col = pick("Air_Temp")
-            pv_col = pick("PV_Temp")
-            pwr_col = pick("Power_KW")
-
-            if not ds_col or not irr_col or not air_col or not pv_col or not pwr_col:
-                messages.error(request, "Не вижу нужные колонки: ds, Irradiation, Air_Temp, PV_Temp, Power_KW")
-                return redirect("dashboard:station-upload", pk=pk)
-
-            df = df[[ds_col, irr_col, air_col, pv_col, pwr_col]].copy()
-            df.columns = ["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]
-            df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
-            df = df.dropna(subset=["ds"])
-
-            objs = []
-            for r in df.itertuples(index=False):
-                objs.append(
-                    Record(
-                        station=st,
-                        timestamp=timezone.make_aware(r.ds) if timezone.is_naive(r.ds) else r.ds,
-                        irradiation=float(r.irradiation or 0),
-                        air_temp=float(r.air_temp or 0),
-                        pv_temp=float(r.pv_temp or 0),
-                        power_kw=float(r.power_kw or 0),
-                    )
-                )
-            Record.objects.bulk_create(objs)
-            messages.success(request, f"Загружено записей: {len(objs)}")
+        except Exception as e:
+            messages.error(request, f"Не удалось прочитать файл: {e}")
             return redirect("dashboard:station-upload", pk=pk)
 
-    ctx = {
-        "station": st,
-        "history": qs[:2000],  # чтобы страницу не убивать
-        "total_count": Record.objects.filter(station=st).count(),
-        "history_count": qs.count(),
-        "from_date": from_date,
-        "to_date": to_date,
-        "days_options": list(range(1, 8)),
-        "days_selected": int(request.GET.get("days", 3)) if str(request.GET.get("days", "")).isdigit() else 3,
-    }
-    return render(request, "dashboard/station_upload.html", ctx)
+        # поддержим разные названия колонок
+        col_ts = "timestamp" if "timestamp" in df.columns else ("ds" if "ds" in df.columns else None)
+        col_y = "power_kw" if "power_kw" in df.columns else ("y" if "y" in df.columns else None)
+
+        if not col_ts or not col_y:
+            messages.error(request, "Нужны колонки timestamp/ds и power_kw/y.")
+            return redirect("dashboard:station-upload", pk=pk)
+
+        df[col_ts] = pd.to_datetime(df[col_ts], errors="coerce")
+        df[col_y] = pd.to_numeric(df[col_y], errors="coerce")
+
+        # опциональные колонки
+        for c in ["irradiation", "air_temp", "pv_temp"]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+
+        df = df.dropna(subset=[col_ts]).sort_values(col_ts).reset_index(drop=True)
+
+        # полностью заменяем историю
+        SolarRecord.objects.filter(station=st).delete()
+
+        objs = []
+        for _, r in df.iterrows():
+            objs.append(
+                SolarRecord(
+                    station=st,
+                    timestamp=r[col_ts].to_pydatetime(),
+                    power_kw=float(r[col_y]) if pd.notna(r[col_y]) else None,
+                    irradiation=float(r["irradiation"]) if "irradiation" in df.columns and pd.notna(r.get("irradiation")) else None,
+                    air_temp=float(r["air_temp"]) if "air_temp" in df.columns and pd.notna(r.get("air_temp")) else None,
+                    pv_temp=float(r["pv_temp"]) if "pv_temp" in df.columns and pd.notna(r.get("pv_temp")) else None,
+                )
+            )
+
+        SolarRecord.objects.bulk_create(objs, batch_size=1000)
+        messages.success(request, f"История загружена: {len(objs)} строк.")
+        return redirect("dashboard:station-detail", pk=pk)
+
+    form = UploadHistoryForm()
+    return render(request, "dashboard/station_upload.html", {"station": st, "form": form})
 
 
 @login_required
 def station_export_history(request, pk: int):
-    Station = StationModel()
-    Record = RecordModel()
     st = get_object_or_404(Station, pk=pk)
 
-    from_date = request.GET.get("from", "")
-    to_date = request.GET.get("to", "")
+    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    data = list(qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp"))
+    df = pd.DataFrame(data)
 
-    qs = Record.objects.filter(station=st).order_by("timestamp")
-    if from_date:
-        qs = qs.filter(timestamp__date__gte=from_date)
-    if to_date:
-        qs = qs.filter(timestamp__date__lte=to_date)
+    if not df.empty and "timestamp" in df.columns:
+        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
 
-    rows = list(qs.values("timestamp", "irradiation", "air_temp", "pv_temp", "power_kw"))
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df.rename(columns={ts_field: "ds"}, inplace=True)
-
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as w:
         df.to_excel(w, index=False, sheet_name="history")
+    out.seek(0)
 
-    resp = HttpResponse(bio.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    resp["Content-Disposition"] = f'attachment; filename="history_station_{pk}.xlsx"'
+    resp = HttpResponse(
+        out.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="history_station_{st.pk}.xlsx"'
     return resp
 
 
+# ----------------------------
+# training (обязательно)
+# ----------------------------
 @login_required
 def station_train(request, pk: int):
-    st = get_object_or_404(StationModel(), pk=pk)
-    res = train_models_for_station(st.pk)
-    if res.get("ok"):
-        messages.success(request, "Обучение выполнено (пока заглушка, но кнопка рабочая).")
-    else:
-        messages.error(request, "Ошибка обучения.")
-    return redirect("dashboard:station-detail", pk=pk)
+    """
+    Страница обучения (GET) + запуск обучения (POST).
+    """
+    st = get_object_or_404(Station, pk=pk)
+
+    if request.method == "POST":
+        if train_models_for_station is None:
+            messages.error(request, "train_models_for_station не найден. Проверь dashboard/services/train_models.py")
+            return redirect("dashboard:station-train", pk=pk)
+
+        try:
+            res = train_models_for_station(st.pk)
+            # res может быть dict/str — покажем как есть
+            messages.success(request, f"Обучение запущено/выполнено: {res}")
+        except Exception as e:
+            messages.error(request, f"Ошибка обучения: {e}")
+
+        return redirect("dashboard:station-detail", pk=pk)
+
+    # GET
+    # покажем статус: есть ли модели в models_cache (если хочешь — добавим позже красиво)
+    return render(request, "dashboard/station_train.html", {"station": st})
 
 
 @login_required
+def station_train_models(request, pk: int):
+    """
+    Совместимость с url: /train-models/ (у тебя в urls он указывает на station_train)
+    """
+    return station_train(request, pk=pk)
+
+
+# ----------------------------
+# forecast list/run/export/clear
+# ----------------------------
+@login_required
 def station_forecast_list(request, pk: int):
-    Station = StationModel()
-    Forecast = ForecastModel()
     st = get_object_or_404(Station, pk=pk)
 
-    from_date = request.GET.get("from", "")
-    to_date = request.GET.get("to", "")
+    days = int(request.GET.get("days", "1") or 1)
+    from_s = request.GET.get("from") or ""
+    to_s = request.GET.get("to") or ""
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
 
-    ts_field = _pick_model_field(Forecast, ["timestamp", "dt", "datetime", "date_time", "ds"])
+    qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
+    if dt_from:
+        qs = qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        qs = qs.filter(timestamp__lte=dt_to)
 
-    qs = Forecast.objects.filter(station=st).order_by(ts_field)
-    if from_date:
-        qs = qs.filter(**{f"{ts_field}__date__gte": from_date})
-    if to_date:
-        qs = qs.filter(**{f"{ts_field}__date__lte": to_date})
+    forecasts = list(qs)
 
-    ctx = {
-        "station": st,
-        "rows": qs[:5000],
-        "total_count": Forecast.objects.filter(station=st).count(),
-        "filtered_count": qs.count(),
-        "from_date": from_date,
-        "to_date": to_date,
-        "days_options": list(range(1, 8)),
-        "days_selected": int(request.GET.get("days", 3)) if str(request.GET.get("days", "")).isdigit() else 3,
-    }
-    return render(request, "dashboard/station_forecast.html", ctx)
+    return render(
+        request,
+        "dashboard/station_forecast_list.html",
+        {
+            "station": st,
+            "forecasts": forecasts,
+            "days": days,
+            "from": from_s,
+            "to": to_s,
+        },
+    )
 
 
 @login_required
 def station_forecast_run(request, pk: int):
-    st = get_object_or_404(StationModel(), pk=pk)
-
-    # days can be passed as ?days=1..7
-    try:
-        days = int(request.GET.get("days", 3))
-    except (TypeError, ValueError):
-        days = 3
-    days = max(1, min(7, days))
-
-    # IMPORTANT: call service with keyword arg to avoid positional mismatch
-    run_forecast_for_station(st.pk, days=days)
-    messages.success(request, f"Прогноз построен на {days} дн.")
-    return redirect("dashboard:station-forecast-list", pk=pk)
-
-
-@login_required
-def station_forecast_export(request, pk: int):
-    Station = StationModel()
-    Forecast = ForecastModel()
     st = get_object_or_404(Station, pk=pk)
+    days = int(request.GET.get("days", "1") or 1)
 
-    from_date = request.GET.get("from", "")
-    to_date = request.GET.get("to", "")
+    try:
+        res = run_forecast_for_station(st.pk, days=days)
+        if res.get("ok"):
+            msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
+            if not res.get("np_ok"):
+                msg += " | NP: FAIL"
+            if not res.get("xgb_ok"):
+                msg += " | XGB: FAIL"
+            messages.success(request, msg)
+        else:
+            messages.error(request, f"Ошибка прогноза: {res}")
+    except Exception as e:
+        messages.error(request, f"Ошибка запуска прогноза: {e}")
 
-    ts_field = _pick_model_field(Forecast, ["timestamp", "dt", "datetime", "date_time", "ds"])
-
-    qs = Forecast.objects.filter(station=st).order_by(ts_field)
-    if from_date:
-        qs = qs.filter(**{f"{ts_field}__date__gte": from_date})
-    if to_date:
-        qs = qs.filter(**{f"{ts_field}__date__lte": to_date})
-
-    fields = [ts_field, "np_mw", "xgb_mw", "heuristic_mw", "ensemble_mw"]
-    rows = list(qs.values(*fields))
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df.rename(columns={ts_field: "ds"}, inplace=True)
-
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl") as w:
-        df.to_excel(w, index=False, sheet_name="forecast")
-
-    resp = HttpResponse(bio.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{pk}.xlsx"'
-    return resp
+    return redirect("dashboard:station-forecast-list", pk=st.pk)
 
 
 @login_required
 def station_forecast_clear(request, pk: int):
-    Station = StationModel()
-    Forecast = ForecastModel()
     st = get_object_or_404(Station, pk=pk)
-    Forecast.objects.filter(station=st).delete()
+    SolarForecast.objects.filter(station=st).delete()
     messages.success(request, "Прогноз очищен.")
-    return redirect("dashboard:station-forecast-list", pk=pk)
+    return redirect("dashboard:station-forecast-list", pk=st.pk)
+
+
+@login_required
+def station_forecast_export(request, pk: int):
+    st = get_object_or_404(Station, pk=pk)
+
+    from_s = request.GET.get("from") or ""
+    to_s = request.GET.get("to") or ""
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
+
+    qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
+    if dt_from:
+        qs = qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        qs = qs.filter(timestamp__lte=dt_to)
+
+    data = list(
+        qs.values(
+            "timestamp",
+            "pred_np",
+            "pred_xgb",
+            "pred_heur",
+            "pred_final",
+            "irradiation_fc",
+            "air_temp_fc",
+            "wind_speed_fc",
+            "cloudcover_fc",
+            "humidity_fc",
+            "precip_fc",
+        )
+    )
+    df = pd.DataFrame(data)
+
+    if df.empty:
+        df = pd.DataFrame(
+            columns=[
+                "timestamp",
+                "pred_np",
+                "pred_xgb",
+                "pred_heur",
+                "pred_final",
+                "irradiation_fc",
+                "air_temp_fc",
+                "wind_speed_fc",
+                "cloudcover_fc",
+                "humidity_fc",
+                "precip_fc",
+            ]
+        )
+
+    if "timestamp" in df.columns and not df.empty:
+        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="forecast")
+    out.seek(0)
+
+    resp = HttpResponse(
+        out.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}.xlsx"'
+    return resp
 
