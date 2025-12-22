@@ -2,6 +2,7 @@
 
 from io import BytesIO
 from datetime import datetime
+import re
 
 import pandas as pd
 from django.contrib import messages
@@ -122,6 +123,7 @@ def station_upload_history(request, pk):
     - фильтр по датам (GET ?from=YYYY-MM-DD&to=YYYY-MM-DD)
     """
     station = get_object_or_404(Station, pk=pk)
+    display_name = re.sub(r"10\s*mw", "8.8MW", station.name or "", flags=re.IGNORECASE)
 
     # ---------- ФИЛЬТР ДАТ ----------
     from_date = request.GET.get("from") or ""
@@ -239,6 +241,7 @@ def station_upload_history(request, pk):
 
     return render(request, "dashboard/station_upload.html", {
         "station": station,
+        "display_name": display_name,
         "form": form,
         "history": history,
         "history_count": history_count,
