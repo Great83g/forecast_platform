@@ -5,40 +5,38 @@ from django.db import migrations
 
 def forward_update_capacity(apps, schema_editor):
     Station = apps.get_model("stations", "Station")
-    pattern = re.compile(r"10\\s*mw", re.IGNORECASE)
+    pattern = re.compile(r"10\s*mw", re.IGNORECASE)
 
     for station in Station.objects.all():
-        name_updated = False
+        updated_fields = []
         if pattern.search(station.name or ""):
             station.name = pattern.sub("8.8MW", station.name)
-            name_updated = True
+            updated_fields.append("name")
 
-        capacity_updated = False
         if station.capacity_mw == 10:
             station.capacity_mw = 8.8
-            capacity_updated = True
+            updated_fields.append("capacity_mw")
 
-        if name_updated or capacity_updated:
-            station.save(update_fields=["name", "capacity_mw"])
+        if updated_fields:
+            station.save(update_fields=updated_fields)
 
 
 def reverse_update_capacity(apps, schema_editor):
     Station = apps.get_model("stations", "Station")
-    pattern = re.compile(r"8\\.8\\s*mw", re.IGNORECASE)
+    pattern = re.compile(r"8\.8\s*mw", re.IGNORECASE)
 
     for station in Station.objects.all():
-        name_updated = False
+        updated_fields = []
         if pattern.search(station.name or ""):
             station.name = pattern.sub("10MW", station.name)
-            name_updated = True
+            updated_fields.append("name")
 
-        capacity_updated = False
         if station.capacity_mw == 8.8:
             station.capacity_mw = 10
-            capacity_updated = True
+            updated_fields.append("capacity_mw")
 
-        if name_updated or capacity_updated:
-            station.save(update_fields=["name", "capacity_mw"])
+        if updated_fields:
+            station.save(update_fields=updated_fields)
 
 
 class Migration(migrations.Migration):
