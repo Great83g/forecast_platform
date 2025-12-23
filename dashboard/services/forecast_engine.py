@@ -214,11 +214,14 @@ def _load_np_model(path: Path):
     model = None
 
     def _extract(m: object) -> object:
-        if isinstance(m, tuple) and m:
-            if hasattr(m[0], "predict"):
-                return m[0]
-            if isinstance(m[0], dict) and "model" in m[0]:
-                return m[0]["model"]
+        # tuple/list: ищем первый элемент с predict либо ключ model
+        if isinstance(m, (tuple, list)) and m:
+            for itm in m:
+                if hasattr(itm, "predict"):
+                    return itm
+                if isinstance(itm, dict) and "model" in itm:
+                    return itm["model"]
+        # словарь: пробуем ключ model
         if isinstance(m, dict) and "model" in m:
             return m["model"]
         return m
