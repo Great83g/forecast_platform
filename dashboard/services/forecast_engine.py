@@ -81,11 +81,11 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
 
     hmin = int(df.loc[mask, "hour"].min())
     hmax = int(df.loc[mask, "hour"].max())
-    # немного расширим; если окно узкое — берём фиксированный день 5-20
+    # немного расширим и зададим минимальную ширину окна (не менее 8 часов)
     h1 = max(5, hmin - 1)
     h2 = min(20, hmax + 1)
-    if (h2 - h1) < 12:
-        return (5, 20)
+    if (h2 - h1) < 8:
+        h1, h2 = 6, 20
     return (h1, h2)
 
 
@@ -210,36 +210,13 @@ def _load_np_model(path: Path):
     Для PyTorch 2.6 делаем allowlist.
     """
     _allow_torch_safe_globals_for_np()
-    # Сначала пробуем torch.load с weights_only=False (для старых .np)
     try:
         import torch
 
-        model = torch.load(str(path), map_location="cpu", weights_only=False)
-    except Exception:
-        model = None
-
-    # fallback: native loader NeuralProphet, если torch.load не дал корректную модель
-    def _load_np_native() -> object:
-        m = np_load(str(path))
-        if isinstance(m, tuple) and m:
-            # иногда np_load возвращает (model, ...)
-            if hasattr(m[0], "predict"):
-                return m[0]
-            # или (dict, ...)
-            if isinstance(m[0], dict) and "model" in m[0]:
-                return m[0]["model"]
-        if isinstance(m, dict) and "model" in m:
-            return m["model"]
-        return m
-
-    if model is None:
-        model = _load_np_native()
-    # если после torch.load predict отсутствует — пробуем native loader
-    if not hasattr(model, "predict"):
-        model = _load_np_native()
-    if not hasattr(model, "predict"):
-        raise TypeError("Loaded NP object has no predict()")
-    return model
+        return torch.load(str(path), map_location="cpu", weights_only=False)
+    except TypeError:
+        # если weights_only ещё не поддерживается
+        return np_load(str(path))
 
 
 def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
@@ -274,8 +251,8 @@ def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] 
     dfp = pd.DataFrame({"ds": pd.to_datetime(df_feat["ds"])})
     # y нужен для некоторых версий NP даже в будущем — кладём NaN
     dfp["y"] = np.nan
-    # пробуем подложить все регрессоры из meta/по умолчанию
-    for col in reg_list:
+    # пробуем подложить самые вероятные регрессоры
+    for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty", "y_expected_log"]:
         if col in df_feat.columns:
             dfp[col] = df_feat[col].values
         else:
