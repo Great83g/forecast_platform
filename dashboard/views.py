@@ -10,6 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -282,7 +283,18 @@ def station_forecast_list(request, pk: int):
     if dt_to:
         qs = qs.filter(timestamp__lte=dt_to)
 
-    forecasts = list(qs)
+    forecasts_raw = list(qs)
+
+    forecasts = [
+        {
+            "timestamp": f.timestamp,
+            "pred_final_kw": f.pred_final,
+            "pred_np_kw": f.pred_np,
+            "pred_xgb_kw": f.pred_xgb,
+            "pred_heur_kw": f.pred_heur,
+        }
+        for f in forecasts_raw
+    ]
 
     return render(
         request,
@@ -293,6 +305,7 @@ def station_forecast_list(request, pk: int):
             "days": days,
             "from": from_s,
             "to": to_s,
+            "count": len(forecasts),
         },
     )
 
@@ -307,16 +320,18 @@ def station_forecast_run(request, pk: int):
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
             if not res.get("np_ok"):
-                msg += " | NP: FAIL"
+                np_err = res.get("np_error") or "FAIL"
+                msg += f" | NP: {np_err}"
             if not res.get("xgb_ok"):
-                msg += " | XGB: FAIL"
+                xgb_err = res.get("xgb_error") or "FAIL"
+                msg += f" | XGB: {xgb_err}"
             messages.success(request, msg)
         else:
             messages.error(request, f"Ошибка прогноза: {res}")
     except Exception as e:
         messages.error(request, f"Ошибка запуска прогноза: {e}")
 
-    return redirect("dashboard:station-forecast-list", pk=st.pk)
+    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?days={days}")
 
 
 @login_required

@@ -313,11 +313,16 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     elif np_ok and not xgb_ok:
         y_final = 0.6 * y_heur + 0.4 * y_np
 
-    # клип по мощности станции
+    # клип по мощности станции (MW) и перевод в кВт для сохранения
     y_np = np.clip(np.nan_to_num(y_np, nan=0.0), 0, capacity_mw)
     y_xgb = np.clip(np.nan_to_num(y_xgb, nan=0.0), 0, capacity_mw)
     y_heur = np.clip(np.nan_to_num(y_heur, nan=0.0), 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
+
+    y_np_kw = y_np * 1000.0
+    y_xgb_kw = y_xgb * 1000.0
+    y_heur_kw = y_heur * 1000.0
+    y_final_kw = y_final * 1000.0
 
     # ---- save ----
     # чистим прогноз на этот диапазон (солнечные часы текущих days)
@@ -331,11 +336,11 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             SolarForecast(
                 station=st,
                 timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
-                # ВНИМАНИЕ: сохраняем в MW (и в UI показываем MW)
-                pred_np=float(y_np[i]),
-                pred_xgb=float(y_xgb[i]),
-                pred_heur=float(y_heur[i]),
-                pred_final=float(y_final[i]),
+                # Сохраняем в кВт (модель работает в MW, перевели выше)
+                pred_np=float(y_np_kw[i]),
+                pred_xgb=float(y_xgb_kw[i]),
+                pred_heur=float(y_heur_kw[i]),
+                pred_final=float(y_final_kw[i]),
                 irradiation_fc=float(row.get("irradiation") or 0.0) if not pd.isna(row.get("irradiation")) else None,
                 air_temp_fc=float(row.get("air_temp") or 0.0) if not pd.isna(row.get("air_temp")) else None,
                 wind_speed_fc=float(row.get("wind_speed") or 0.0) if not pd.isna(row.get("wind_speed")) else None,
@@ -358,4 +363,3 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         "np_error": np_error,
         "xgb_error": xgb_error,
     }
-
