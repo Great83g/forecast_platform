@@ -219,13 +219,35 @@ def _load_np_model(path: Path):
         return np_load(str(path))
 
 
-def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
+def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
     """
     Предикт NeuralProphet:
     - model.predict ожидает df с 'ds' и будущими регрессорами, если они были при обучении.
     Тут мы подаём минимум: ds + регрессоры Irradiation/Air_Temp/PV_Temp и т.п.
     Если модель обучалась на другом наборе — она сама скажет ошибку.
     """
+    df_feat = df_feat.copy()
+
+    reg_list = reg_features or [
+        "Irradiation",
+        "Air_Temp",
+        "PV_Temp",
+        "hour_sin",
+        "month_sin",
+        "is_daylight",
+        "is_clear",
+        "morning_peak_boost",
+        "overdrive_flag",
+        "midday_penalty",
+        "y_expected_log",
+    ]
+
+    # если нет y_expected_log, посчитаем на основе irradiation и мощности
+    if "y_expected_log" not in df_feat.columns and "Irradiation" in df_feat.columns:
+        cap_use = cap_for_expected if cap_for_expected is not None else 1.0
+        expected_mw = (cap_use * (df_feat["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, cap_use * 0.95)
+        df_feat["y_expected_log"] = np.log1p(expected_mw)
+
     dfp = pd.DataFrame({"ds": pd.to_datetime(df_feat["ds"])})
     # y нужен для некоторых версий NP даже в будущем — кладём NaN
     dfp["y"] = np.nan
@@ -233,6 +255,8 @@ def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
     for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty", "y_expected_log"]:
         if col in df_feat.columns:
             dfp[col] = df_feat[col].values
+        else:
+            dfp[col] = 0.0
 
     fcst = model.predict(dfp)
     # NeuralProphet обычно возвращает yhat1
@@ -296,6 +320,13 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     # ---- load models ----
     np_path = MODEL_DIR / f"np_model_{station_id}.np"
     xgb_path = MODEL_DIR / f"xgb_model_{station_id}.json"
+    np_meta_path = MODEL_DIR / f"np_model_{station_id}.meta.json"
+    np_meta: Dict = {}
+    if np_meta_path.exists():
+        try:
+            np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            np_meta = {}
 
     np_ok = False
     xgb_ok = False
@@ -322,7 +353,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     if np_path.exists():
         try:
             model = _load_np_model(np_path)
-            y_np = _predict_np(model, feat)
+            y_np = _predict_np(model, feat, reg_features=np_meta.get("features_reg"), cap_for_expected=np_meta.get("cap_mw_used"))
             np_ok = True
         except Exception as e:
             np_error = str(e)
