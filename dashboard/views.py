@@ -10,6 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -131,12 +132,15 @@ def station_upload(request, pk: int):
             messages.error(request, f"Не удалось прочитать файл: {e}")
             return redirect("dashboard:station-upload", pk=pk)
 
+        # нормализуем названия колонок: убираем пробелы и приводим к нижнему регистру
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
         # поддержим разные названия колонок
         col_ts = "timestamp" if "timestamp" in df.columns else ("ds" if "ds" in df.columns else None)
         col_y = "power_kw" if "power_kw" in df.columns else ("y" if "y" in df.columns else None)
 
         if not col_ts or not col_y:
-            messages.error(request, "Нужны колонки timestamp/ds и power_kw/y.")
+            messages.error(request, "Нужны колонки timestamp/ds и power_kw/y (регистр не важен).")
             return redirect("dashboard:station-upload", pk=pk)
 
         df[col_ts] = pd.to_datetime(df[col_ts], errors="coerce")
@@ -167,10 +171,36 @@ def station_upload(request, pk: int):
 
         SolarRecord.objects.bulk_create(objs, batch_size=1000)
         messages.success(request, f"История загружена: {len(objs)} строк.")
-        return redirect("dashboard:station-detail", pk=pk)
+        return redirect("dashboard:station-upload", pk=pk)
 
+    # GET + показ истории
     form = UploadHistoryForm()
-    return render(request, "dashboard/station_upload.html", {"station": st, "form": form})
+    from_s = request.GET.get("from") or ""
+    to_s = request.GET.get("to") or ""
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
+
+    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    total_count = qs.count()
+    if dt_from:
+        qs = qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        qs = qs.filter(timestamp__lte=dt_to)
+    history = list(qs)
+
+    return render(
+        request,
+        "dashboard/station_upload.html",
+        {
+            "station": st,
+            "form": form,
+            "history": history,
+            "from_date": from_s,
+            "to_date": to_s,
+            "total_count": total_count,
+            "history_count": len(history),
+        },
+    )
 
 
 @login_required
@@ -213,7 +243,7 @@ def station_train(request, pk: int):
             return redirect("dashboard:station-train", pk=pk)
 
         try:
-            res = train_models_for_station(st.pk)
+            res = train_models_for_station(st)
             # res может быть dict/str — покажем как есть
             messages.success(request, f"Обучение запущено/выполнено: {res}")
         except Exception as e:
@@ -253,7 +283,18 @@ def station_forecast_list(request, pk: int):
     if dt_to:
         qs = qs.filter(timestamp__lte=dt_to)
 
-    forecasts = list(qs)
+    forecasts_raw = list(qs)
+
+    forecasts = [
+        {
+            "timestamp": f.timestamp,
+            "pred_final_kw": f.pred_final,
+            "pred_np_kw": f.pred_np,
+            "pred_xgb_kw": f.pred_xgb,
+            "pred_heur_kw": f.pred_heur,
+        }
+        for f in forecasts_raw
+    ]
 
     return render(
         request,
@@ -264,6 +305,7 @@ def station_forecast_list(request, pk: int):
             "days": days,
             "from": from_s,
             "to": to_s,
+            "count": len(forecasts),
         },
     )
 
@@ -278,16 +320,18 @@ def station_forecast_run(request, pk: int):
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
             if not res.get("np_ok"):
-                msg += " | NP: FAIL"
+                np_err = res.get("np_error") or "FAIL"
+                msg += f" | NP: {np_err}"
             if not res.get("xgb_ok"):
-                msg += " | XGB: FAIL"
+                xgb_err = res.get("xgb_error") or "FAIL"
+                msg += f" | XGB: {xgb_err}"
             messages.success(request, msg)
         else:
             messages.error(request, f"Ошибка прогноза: {res}")
     except Exception as e:
         messages.error(request, f"Ошибка запуска прогноза: {e}")
 
-    return redirect("dashboard:station-forecast-list", pk=st.pk)
+    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?days={days}")
 
 
 @login_required
@@ -361,4 +405,3 @@ def station_forecast_export(request, pk: int):
     )
     resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}.xlsx"'
     return resp
-
