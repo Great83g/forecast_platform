@@ -38,6 +38,8 @@ XGB_EXPECTED_FEATURES = [
     "midday_penalty",
 ]
 
+PR_FOR_EXPECTED = 0.90
+
 
 def _station_capacity_mw(st: Station) -> float:
     """
@@ -61,20 +63,21 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
     Берём “солнечные часы” из истории:
     - ищем часы, где irradiation>50 или power_kw>0
     - берём min/max hour
+    Всегда гарантируем широкий диапазон 5-20.
     """
     qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
     if not qs.exists():
-        return (6, 20)
+        return (5, 20)
 
     df = pd.DataFrame.from_records(qs.values("timestamp", "irradiation", "power_kw"))
     if df.empty:
-        return (6, 20)
+        return (5, 20)
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df["hour"] = df["timestamp"].dt.hour
     mask = (df["irradiation"].fillna(0) > 50) | (df["power_kw"].fillna(0) > 0)
     if mask.sum() < 5:
-        return (6, 20)
+        return (5, 20)
 
     hmin = int(df.loc[mask, "hour"].min())
     hmax = int(df.loc[mask, "hour"].max())
@@ -117,7 +120,7 @@ def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
+def _compute_features(df: pd.DataFrame, capacity_mw: float) -> pd.DataFrame:
     """
     Генерим фичи под XGB ожидаемый набор.
     """
@@ -146,6 +149,10 @@ def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
     out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 49)).astype(int)
     out["overdrive_flag"] = ((out["Irradiation"] > 700) & (out["Air_Temp"] > 25)).astype(int)
     out["midday_penalty"] = ((out["hour"].isin([12, 13, 14])) & (out["Irradiation"] > 600)).astype(int)
+
+    # ожидаемая генерация и лог-таргет (как в обучении)
+    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
+    out["y_expected_log"] = np.log1p(expected_mw)
 
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
@@ -223,7 +230,7 @@ def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
     # y нужен для некоторых версий NP даже в будущем — кладём NaN
     dfp["y"] = np.nan
     # пробуем подложить самые вероятные регрессоры
-    for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty"]:
+    for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty", "y_expected_log"]:
         if col in df_feat.columns:
             dfp[col] = df_feat[col].values
 
@@ -265,7 +272,8 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
-    solar_hours = _solar_hours_from_history(st)
+    # форсируем широкий диапазон солнечных часов, чтобы покрыть весь день
+    solar_hours = (5, 20)
 
     base = _make_base_grid(days=days, solar_hours=solar_hours)
 
@@ -283,7 +291,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             weather_df = wres.df.copy()
 
     merged = _merge_weather(base, weather_df)
-    feat = _compute_features(merged)
+    feat = _compute_features(merged, capacity_mw)
 
     # ---- load models ----
     np_path = MODEL_DIR / f"np_model_{station_id}.np"
