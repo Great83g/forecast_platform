@@ -78,8 +78,12 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
 
     hmin = int(df.loc[mask, "hour"].min())
     hmax = int(df.loc[mask, "hour"].max())
-    # немного расширим
-    return (max(0, hmin - 1), min(23, hmax + 1))
+    # немного расширим и зададим минимальную ширину окна (не менее 8 часов)
+    h1 = max(5, hmin - 1)
+    h2 = min(20, hmax + 1)
+    if (h2 - h1) < 8:
+        h1, h2 = 6, 20
+    return (h1, h2)
 
 
 def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
@@ -175,12 +179,14 @@ def _allow_torch_safe_globals_for_np() -> None:
         from neuralprophet.configure import Normalization
         from neuralprophet.df_utils import ShiftScale
         from pandas._libs.tslibs import timestamps as _ts
+        from pandas._libs.tslibs import timedeltas as _td
 
         allow = [
             NeuralProphet,
             Normalization,
             ShiftScale,
             _ts._unpickle_timestamp,
+            _td._unpickle_timedelta,
         ]
 
         # иногда вылезает через модульные пути
@@ -197,7 +203,13 @@ def _load_np_model(path: Path):
     Для PyTorch 2.6 делаем allowlist.
     """
     _allow_torch_safe_globals_for_np()
-    return np_load(str(path))
+    try:
+        import torch
+
+        return torch.load(str(path), map_location="cpu", weights_only=False)
+    except TypeError:
+        # если weights_only ещё не поддерживается
+        return np_load(str(path))
 
 
 def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
