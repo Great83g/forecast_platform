@@ -17,7 +17,15 @@
   </div>
 
   <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-sm btn-primary" href="{% url 'dashboard:station-forecast-run' station.pk %}">Сделать прогноз</a>
+    <form class="d-flex align-items-center gap-2" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
+      <label class="small mb-0 text-muted">Дней:</label>
+      <select name="days" class="form-select form-select-sm" style="width: 100px;">
+        {% for d in '12345' %}
+          <option value="{{ d }}" {% if days|stringformat:'s' == d %}selected{% endif %}>{{ d }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
+    </form>
     <a class="btn btn-sm btn-outline-success" href="{% url 'dashboard:station-forecast-export' station.pk %}">Скачать Excel</a>
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-inline">
       {% csrf_token %}
@@ -32,19 +40,23 @@
       <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
         <tr>
           <th>Дата/время</th>
-          <th>Power_KW</th>
-          <th>Model</th>
+          <th class="text-end">Итог, кВт</th>
+          <th class="text-end">NP, кВт</th>
+          <th class="text-end">XGB, кВт</th>
+          <th class="text-end">Эвристика, кВт</th>
         </tr>
       </thead>
       <tbody>
         {% for r in forecasts %}
           <tr>
             <td>{{ r.timestamp }}</td>
-            <td>{{ r.power_kw }}</td>
-            <td>{{ r.model_name|default:"" }}</td>
+            <td class="text-end">{{ r.pred_final_kw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_np_kw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_xgb_kw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_heur_kw|default_if_none:""|floatformat:2 }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="3" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
+          <tr><td colspan="5" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
         {% endfor %}
       </tbody>
     </table>
