@@ -78,10 +78,10 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
 
     hmin = int(df.loc[mask, "hour"].min())
     hmax = int(df.loc[mask, "hour"].max())
-    # немного расширим и зададим минимальную ширину окна (не менее 12 часов)
+    # немного расширим и зададим минимальную ширину окна (не менее 8 часов)
     h1 = max(5, hmin - 1)
     h2 = min(20, hmax + 1)
-    if (h2 - h1) < 12:
+    if (h2 - h1) < 8:
         h1, h2 = 6, 20
     return (h1, h2)
 
@@ -207,8 +207,8 @@ def _load_np_model(path: Path):
         import torch
 
         return torch.load(str(path), map_location="cpu", weights_only=False)
-    except Exception:
-        # fallback на стандартный loader, если weights_only не поддерживается или другая ошибка
+    except TypeError:
+        # если weights_only ещё не поддерживается
         return np_load(str(path))
 
 
