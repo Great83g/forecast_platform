@@ -242,7 +242,7 @@ def station_train(request, pk: int):
             return redirect("dashboard:station-train", pk=pk)
 
         try:
-            res = train_models_for_station(st.pk)
+            res = train_models_for_station(st)
             # res может быть dict/str — покажем как есть
             messages.success(request, f"Обучение запущено/выполнено: {res}")
         except Exception as e:
