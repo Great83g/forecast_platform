@@ -220,6 +220,8 @@ def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
     Если модель обучалась на другом наборе — она сама скажет ошибку.
     """
     dfp = pd.DataFrame({"ds": pd.to_datetime(df_feat["ds"])})
+    # y нужен для некоторых версий NP даже в будущем — кладём NaN
+    dfp["y"] = np.nan
     # пробуем подложить самые вероятные регрессоры
     for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty"]:
         if col in df_feat.columns:
