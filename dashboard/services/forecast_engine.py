@@ -38,6 +38,8 @@ XGB_EXPECTED_FEATURES = [
     "midday_penalty",
 ]
 
+PR_FOR_EXPECTED = 0.90
+
 
 def _station_capacity_mw(st: Station) -> float:
     """
@@ -61,38 +63,50 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
     Берём “солнечные часы” из истории:
     - ищем часы, где irradiation>50 или power_kw>0
     - берём min/max hour
+    Всегда гарантируем широкий диапазон 5-20.
     """
     qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
     if not qs.exists():
-        return (6, 20)
+        return (5, 20)
 
     df = pd.DataFrame.from_records(qs.values("timestamp", "irradiation", "power_kw"))
     if df.empty:
-        return (6, 20)
+        return (5, 20)
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df["hour"] = df["timestamp"].dt.hour
     mask = (df["irradiation"].fillna(0) > 50) | (df["power_kw"].fillna(0) > 0)
     if mask.sum() < 5:
-        return (6, 20)
+        return (5, 20)
 
     hmin = int(df.loc[mask, "hour"].min())
     hmax = int(df.loc[mask, "hour"].max())
-    # немного расширим
-    return (max(0, hmin - 1), min(23, hmax + 1))
+    # немного расширим; если окно узкое — берём фиксированный день 5-20
+    h1 = max(5, hmin - 1)
+    h2 = min(20, hmax + 1)
+    if (h2 - h1) < 12:
+        return (5, 20)
+    return (h1, h2)
 
 
 def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     """
     Делает сетку часов на days вперёд (включая сегодня/завтра, но только солнечные часы).
     """
-    start = timezone.localtime(timezone.now()).replace(minute=0, second=0, microsecond=0)
+    now = timezone.localtime(timezone.now())
+    h1, h2 = solar_hours
+
+    # начинаем с ближайшего следующего солнечного дня, чтобы не строить уже прошедшие часы
+    start_date = (now + pd.Timedelta(days=1)).date()
+    start = (
+        timezone.datetime.combine(start_date, timezone.datetime.min.time())
+        .replace(hour=h1, tzinfo=now.tzinfo, minute=0, second=0, microsecond=0)
+    )
     end = start + pd.Timedelta(days=days)
 
     all_hours = pd.date_range(start=start, end=end, freq="h", inclusive="left")
     df = pd.DataFrame({"ds": all_hours})
 
-    h1, h2 = solar_hours
     df = df[(df["ds"].dt.hour >= h1) & (df["ds"].dt.hour <= h2)].copy()
     df["ds"] = df["ds"].dt.floor("h")
     return df.reset_index(drop=True)
@@ -106,7 +120,7 @@ def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
+def _compute_features(df: pd.DataFrame, capacity_mw: float) -> pd.DataFrame:
     """
     Генерим фичи под XGB ожидаемый набор.
     """
@@ -135,6 +149,10 @@ def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
     out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 49)).astype(int)
     out["overdrive_flag"] = ((out["Irradiation"] > 700) & (out["Air_Temp"] > 25)).astype(int)
     out["midday_penalty"] = ((out["hour"].isin([12, 13, 14])) & (out["Irradiation"] > 600)).astype(int)
+
+    # ожидаемая генерация и лог-таргет (как в обучении)
+    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
+    out["y_expected_log"] = np.log1p(expected_mw)
 
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
@@ -167,11 +185,15 @@ def _allow_torch_safe_globals_for_np() -> None:
         from neuralprophet.forecaster import NeuralProphet
         from neuralprophet.configure import Normalization
         from neuralprophet.df_utils import ShiftScale
+        from pandas._libs.tslibs import timestamps as _ts
+        from pandas._libs.tslibs import timedeltas as _td
 
         allow = [
             NeuralProphet,
             Normalization,
             ShiftScale,
+            _ts._unpickle_timestamp,
+            _td._unpickle_timedelta,
         ]
 
         # иногда вылезает через модульные пути
@@ -188,7 +210,13 @@ def _load_np_model(path: Path):
     Для PyTorch 2.6 делаем allowlist.
     """
     _allow_torch_safe_globals_for_np()
-    return np_load(str(path))
+    try:
+        import torch
+
+        return torch.load(str(path), map_location="cpu", weights_only=False)
+    except Exception:
+        # fallback на стандартный loader, если weights_only не поддерживается или другая ошибка
+        return np_load(str(path))
 
 
 def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
@@ -199,8 +227,10 @@ def _predict_np(model, df_feat: pd.DataFrame) -> np.ndarray:
     Если модель обучалась на другом наборе — она сама скажет ошибку.
     """
     dfp = pd.DataFrame({"ds": pd.to_datetime(df_feat["ds"])})
+    # y нужен для некоторых версий NP даже в будущем — кладём NaN
+    dfp["y"] = np.nan
     # пробуем подложить самые вероятные регрессоры
-    for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty"]:
+    for col in ["Irradiation", "Air_Temp", "PV_Temp", "hour_sin", "month_sin", "is_daylight", "is_clear", "morning_peak_boost", "overdrive_flag", "midday_penalty", "y_expected_log"]:
         if col in df_feat.columns:
             dfp[col] = df_feat[col].values
 
@@ -242,7 +272,8 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
-    solar_hours = _solar_hours_from_history(st)
+    # форсируем широкий диапазон солнечных часов, чтобы покрыть весь день
+    solar_hours = (5, 20)
 
     base = _make_base_grid(days=days, solar_hours=solar_hours)
 
@@ -260,7 +291,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             weather_df = wres.df.copy()
 
     merged = _merge_weather(base, weather_df)
-    feat = _compute_features(merged)
+    feat = _compute_features(merged, capacity_mw)
 
     # ---- load models ----
     np_path = MODEL_DIR / f"np_model_{station_id}.np"
@@ -313,11 +344,16 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     elif np_ok and not xgb_ok:
         y_final = 0.6 * y_heur + 0.4 * y_np
 
-    # клип по мощности станции
+    # клип по мощности станции (MW) и перевод в кВт для сохранения
     y_np = np.clip(np.nan_to_num(y_np, nan=0.0), 0, capacity_mw)
     y_xgb = np.clip(np.nan_to_num(y_xgb, nan=0.0), 0, capacity_mw)
     y_heur = np.clip(np.nan_to_num(y_heur, nan=0.0), 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
+
+    y_np_kw = y_np * 1000.0
+    y_xgb_kw = y_xgb * 1000.0
+    y_heur_kw = y_heur * 1000.0
+    y_final_kw = y_final * 1000.0
 
     # ---- save ----
     # чистим прогноз на этот диапазон (солнечные часы текущих days)
@@ -331,11 +367,11 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             SolarForecast(
                 station=st,
                 timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
-                # ВНИМАНИЕ: сохраняем в MW (и в UI показываем MW)
-                pred_np=float(y_np[i]),
-                pred_xgb=float(y_xgb[i]),
-                pred_heur=float(y_heur[i]),
-                pred_final=float(y_final[i]),
+                # Сохраняем в кВт (модель работает в MW, перевели выше)
+                pred_np=float(y_np_kw[i]),
+                pred_xgb=float(y_xgb_kw[i]),
+                pred_heur=float(y_heur_kw[i]),
+                pred_final=float(y_final_kw[i]),
                 irradiation_fc=float(row.get("irradiation") or 0.0) if not pd.isna(row.get("irradiation")) else None,
                 air_temp_fc=float(row.get("air_temp") or 0.0) if not pd.isna(row.get("air_temp")) else None,
                 wind_speed_fc=float(row.get("wind_speed") or 0.0) if not pd.isna(row.get("wind_speed")) else None,
@@ -358,4 +394,3 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         "np_error": np_error,
         "xgb_error": xgb_error,
     }
-
