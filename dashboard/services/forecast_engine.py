@@ -211,6 +211,7 @@ def _load_np_model(path: Path):
     """
     _allow_torch_safe_globals_for_np()
     torch_err = None
+    np_err = None
     model = None
 
     def _extract(m: object) -> object:
@@ -226,27 +227,29 @@ def _load_np_model(path: Path):
             return m["model"]
         return m
 
-    # Сначала пробуем torch.load с weights_only=False (для старых .np)
+    # Сначала пробуем native loader NeuralProphet
+    try:
+        model = _extract(np_load(str(path)))
+        if model is not None and hasattr(model, "predict"):
+            return model
+    except Exception as e:
+        np_err = str(e)
+        model = None
+
+    # Fallback: torch.load с weights_only=False (для старых .np)
     try:
         import torch
 
         model = _extract(torch.load(str(path), map_location="cpu", weights_only=False))
+        if model is not None and hasattr(model, "predict"):
+            return model
     except Exception as e:
         torch_err = str(e)
         model = None
 
-    # fallback: native loader NeuralProphet, если torch.load не дал корректную модель
-    if (model is None) or (not hasattr(model, "predict")):
-        try:
-            model = _extract(np_load(str(path)))
-        except Exception as e:
-            raise TypeError(f"NP load failed: torch_err={torch_err}, np_err={e}") from e
-
     if model is None:
-        raise TypeError("Loaded NP object is None")
-    if not hasattr(model, "predict"):
-        raise TypeError(f"Loaded NP object has no predict(): type={type(model)} torch_err={torch_err}")
-    return model
+        raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
+    raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
 
 def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
