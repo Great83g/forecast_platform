@@ -31,9 +31,13 @@ XGB_EXPECTED_FEATURES = [
     "month",
     "hour_sin",
     "month_sin",
+    "sun_elev_deg",
+    "low_sun_flag",
     "is_daylight",
     "is_clear",
     "morning_peak_boost",
+    "evening_penalty",
+    "is_morning_active",
     "overdrive_flag",
     "midday_penalty",
 ]
@@ -120,7 +124,22 @@ def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _compute_features(df: pd.DataFrame, capacity_mw: float) -> pd.DataFrame:
+def _add_sun_geometry(df: pd.DataFrame, lat_deg: float) -> pd.DataFrame:
+    lat = np.deg2rad(lat_deg)
+    doy = df["ds"].dt.dayofyear
+    hour = df["ds"].dt.hour
+    hour_angle = np.deg2rad((hour - 12) * 15)
+    decl = np.deg2rad(23.44) * np.sin(2 * np.pi * (284 + doy) / 365)
+    sin_elev = (
+        np.sin(lat) * np.sin(decl)
+        + np.cos(lat) * np.cos(decl) * np.cos(hour_angle)
+    )
+    df["sun_elev_deg"] = np.rad2deg(np.arcsin(np.clip(sin_elev, -1, 1)))
+    df["low_sun_flag"] = (df["sun_elev_deg"] < 15).astype(int)
+    return df
+
+
+def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> pd.DataFrame:
     """
     Генерим фичи под XGB ожидаемый набор.
     """
@@ -130,9 +149,8 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float) -> pd.DataFrame:
     out["Irradiation"] = pd.to_numeric(out.get("irradiation"), errors="coerce").fillna(0.0)
     out["Air_Temp"] = pd.to_numeric(out.get("air_temp"), errors="coerce").fillna(0.0)
 
-    # PV_Temp — если нет в погоде, грубо аппроксимируем
-    # (можно позже заменить на нормальную формулу)
-    out["PV_Temp"] = out["Air_Temp"] + 0.03 * out["Irradiation"]
+    # PV_Temp — если нет в погоде, аппроксимируем как в локальном скрипте
+    out["PV_Temp"] = out["Air_Temp"] + np.maximum(out["Irradiation"] - 50, 0) / 1000 * 20
 
     out["hour"] = pd.to_datetime(out["ds"]).dt.hour.astype(int)
     out["month"] = pd.to_datetime(out["ds"]).dt.month.astype(int)
@@ -146,9 +164,17 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float) -> pd.DataFrame:
     cloud = pd.to_numeric(out.get("cloudcover"), errors="coerce").fillna(100.0)
     out["is_clear"] = ((cloud < 50) & (out["Irradiation"] > 80)).astype(int)
 
-    out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 49)).astype(int)
+    out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 39)).astype(int)
+    out["evening_penalty"] = ((out["hour"] == 19) & (out["Irradiation"] > 39)).astype(int)
     out["overdrive_flag"] = ((out["Irradiation"] > 700) & (out["Air_Temp"] > 25)).astype(int)
     out["midday_penalty"] = ((out["hour"].isin([12, 13, 14])) & (out["Irradiation"] > 600)).astype(int)
+    out["is_morning_active"] = ((out["hour"] == 6) & (out["Irradiation"] > 49)).astype(int)
+
+    # ожидаемая генерация и лог-таргет (как в обучении)
+    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
+    out["y_expected_log"] = np.log1p(expected_mw * 0.95)
+
+    out = _add_sun_geometry(out, lat_deg)
 
     # ожидаемая генерация и лог-таргет (как в обучении)
     expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
@@ -251,6 +277,9 @@ def _load_np_model(path: Path):
         raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
     raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
+    if model is None:
+        raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
+    raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
 def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
     """
@@ -307,9 +336,9 @@ def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] 
     return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
 
 
-def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame) -> np.ndarray:
-    X = df_feat[XGB_EXPECTED_FEATURES].astype(float)
-    dmat = xgb.DMatrix(X, feature_names=XGB_EXPECTED_FEATURES)
+def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
+    X = df_feat[feature_names].astype(float)
+    dmat = xgb.DMatrix(X, feature_names=feature_names)
     pred = booster.predict(dmat)
     return pred
 
@@ -350,18 +379,31 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             weather_df = wres.df.copy()
 
     merged = _merge_weather(base, weather_df)
-    feat = _compute_features(merged, capacity_mw)
+    lat_deg = float(lat) if lat is not None else 47.86
+    feat = _compute_features(merged, capacity_mw, lat_deg)
 
     # ---- load models ----
     np_path = MODEL_DIR / f"np_model_{station_id}.np"
     xgb_path = MODEL_DIR / f"xgb_model_{station_id}.json"
     np_meta_path = MODEL_DIR / f"np_model_{station_id}.meta.json"
+    xgb_meta_path = MODEL_DIR / f"xgb_model_{station_id}.meta.json"
     np_meta: Dict = {}
     if np_meta_path.exists():
         try:
             np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
         except Exception:
             np_meta = {}
+    xgb_meta: Dict = {}
+    if xgb_meta_path.exists():
+        try:
+            xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            xgb_meta = {}
+
+    fallback_np_path = MODEL_DIR / "trained_np_kw_8p8mw.np"
+    fallback_np_meta_path = MODEL_DIR / "trained_np_kw_8p8mw.meta.json"
+    fallback_xgb_path = MODEL_DIR / "xgb_permw_kw_8p8mw.json"
+    fallback_xgb_meta_path = MODEL_DIR / "xgb_permw_kw_8p8mw.meta.json"
 
     np_ok = False
     xgb_ok = False
@@ -375,10 +417,18 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     booster = None
     if xgb_path.exists():
         booster = _load_xgb_model(xgb_path)
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
+        booster = _load_xgb_model(fallback_xgb_path)
+        if fallback_xgb_meta_path.exists():
+            try:
+                xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                xgb_meta = xgb_meta
 
     if booster is not None:
         try:
-            y_xgb = _predict_xgb(booster, feat)
+            feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
+            y_xgb = _predict_xgb(booster, feat, feature_names)
             xgb_ok = True
         except Exception as e:
             xgb_error = str(e)
@@ -388,7 +438,30 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     if np_path.exists():
         try:
             model = _load_np_model(np_path)
-            y_np = _predict_np(model, feat, reg_features=np_meta.get("features_reg"), cap_for_expected=np_meta.get("cap_mw_used"))
+            y_np = _predict_np(
+                model,
+                feat,
+                reg_features=np_meta.get("features_reg"),
+                cap_for_expected=np_meta.get("cap_mw_used"),
+            )
+            np_ok = True
+        except Exception as e:
+            np_error = str(e)
+            np_ok = False
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
+        try:
+            model = _load_np_model(fallback_np_path)
+            if fallback_np_meta_path.exists():
+                try:
+                    np_meta = json.loads(fallback_np_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    np_meta = np_meta
+            y_np = _predict_np(
+                model,
+                feat,
+                reg_features=np_meta.get("features_reg"),
+                cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
+            )
             np_ok = True
         except Exception as e:
             np_error = str(e)

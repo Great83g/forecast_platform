@@ -74,7 +74,7 @@ def compute_cap_mw(df: pd.DataFrame) -> float:
     return max(0.5, max_kw / 1000.0)
 
 
-def add_features(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
+def add_features(df: pd.DataFrame, cap_mw: float, lat_deg: float) -> pd.DataFrame:
     """
     Добавляем все фичи, которые нужны и для XGB, и для NeuralProphet.
 
@@ -101,9 +101,8 @@ def add_features(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
     df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > -10)).astype(int)
 
     # Усиление утра (6:00, есть солнце)
-    df["morning_peak_boost"] = (
-        (df["hour"] == 6) & (df["Irradiation"] > 39)
-    ).astype(int)
+    df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 39)).astype(int)
+    df["evening_penalty"] = ((df["hour"] == 19) & (df["Irradiation"] > 39)).astype(int)
 
     # Лёгкий штраф середины дня, когда часто клип
     df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
@@ -113,12 +112,25 @@ def add_features(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
         (df["Irradiation"] > 900) & (df["Air_Temp"] > 25)
     ).astype(int)
 
+    df["is_morning_active"] = ((df["hour"] == 6) & (df["Irradiation"] > 49)).astype(int)
+
+    lat = np.deg2rad(lat_deg)
+    doy = df["ds"].dt.dayofyear
+    hour_angle = np.deg2rad((df["hour"] - 12) * 15)
+    decl = np.deg2rad(23.44) * np.sin(2 * np.pi * (284 + doy) / 365)
+    sin_elev = (
+        np.sin(lat) * np.sin(decl)
+        + np.cos(lat) * np.cos(decl) * np.cos(hour_angle)
+    )
+    df["sun_elev_deg"] = np.rad2deg(np.arcsin(np.clip(sin_elev, -1, 1)))
+    df["low_sun_flag"] = (df["sun_elev_deg"] < 15).astype(int)
+
     # Простая эвристика expected MW (по PR)
     df["Expected_MW"] = (
         cap_mw * (df["Irradiation"] / 1000.0) * PR_FOR_EXPECTED
     ).clip(0, cap_mw * 0.95)
 
-    df["y_expected_log"] = np.log1p(df["Expected_MW"])
+    df["y_expected_log"] = np.log1p(df["Expected_MW"] * 0.95)
 
     return df
 
@@ -148,8 +160,10 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     # таргет в MW
     df["y_mw"] = (df["Power_KW"] / 1000.0).clip(lower=0)
 
+    lat_deg = getattr(station, "lat", None) or getattr(station, "latitude", None) or 47.86
+
     # общее фичеобразование
-    df = add_features(df, cap_mw)
+    df = add_features(df, cap_mw, float(lat_deg))
     n_rows = len(df)
 
     # =========================================================
@@ -163,9 +177,13 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         "month",
         "hour_sin",
         "month_sin",
+        "sun_elev_deg",
+        "low_sun_flag",
         "is_daylight",
         "is_clear",
         "morning_peak_boost",
+        "evening_penalty",
+        "is_morning_active",
         "overdrive_flag",
         "midday_penalty",
     ]
@@ -268,8 +286,12 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "is_clear",
             "y_expected_log",
             "morning_peak_boost",
+            "evening_penalty",
             "overdrive_flag",
             "midday_penalty",
+            "is_morning_active",
+            "sun_elev_deg",
+            "low_sun_flag",
         ]
         for col in reg_cols:
             m.add_future_regressor(col, normalize="minmax")
