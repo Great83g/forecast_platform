@@ -405,10 +405,10 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         except Exception:
             xgb_meta = {}
 
-    fallback_np_path = MODEL_DIR / "trained_np_kw_8p8mw.np"
-    fallback_np_meta_path = MODEL_DIR / "trained_np_kw_8p8mw.meta.json"
-    fallback_xgb_path = MODEL_DIR / "xgb_permw_kw_8p8mw.json"
-    fallback_xgb_meta_path = MODEL_DIR / "xgb_permw_kw_8p8mw.meta.json"
+    fallback_np_path = MODEL_DIR / "np_model_1.np"
+    fallback_np_meta_path = MODEL_DIR / "np_model_1.meta.json"
+    fallback_xgb_path = MODEL_DIR / "xgb_model_1.json"
+    fallback_xgb_meta_path = MODEL_DIR / "xgb_model_1.meta.json"
 
     np_ok = False
     xgb_ok = False
@@ -440,26 +440,13 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             xgb_ok = False
             booster = None
 
-    if booster is None and looks_like_8p8 and fallback_xgb_path.exists():
-        booster = _load_xgb_model(fallback_xgb_path)
-        if booster is not None:
-            if fallback_xgb_meta_path.exists():
-                try:
-                    xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
-                except Exception:
-                    xgb_meta = {}
-            try:
-                feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
-                y_xgb = _predict_xgb(booster, feat, feature_names)
-                xgb_ok = True
-            except Exception as e:
-                xgb_error = str(e)
-                xgb_ok = False
-
     # NP
     if np_path.exists():
         try:
             model = _load_np_model(np_path)
+            print(f"[NP] loaded={type(model)} has_predict={hasattr(model, 'predict')}")
+            if model is None or not hasattr(model, "predict"):
+                raise TypeError("NP model is not loaded or has no predict() method")
             y_np = _predict_np(
                 model,
                 feat,
@@ -468,6 +455,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             )
             np_ok = True
         except Exception as e:
+            print(f"[NP] ERROR: {e}")
             np_error = str(e)
             np_ok = False
     elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
