@@ -133,6 +133,11 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
 
     Возвращаем: (кол-во строк истории, путь к NP, путь к XGB)
     """
+    if not hasattr(station, "pk"):
+        from stations.models import Station
+
+        station = Station.objects.get(pk=station)
+
     df = get_history_dataframe(station)
     if df.empty:
         return 0, None, None
