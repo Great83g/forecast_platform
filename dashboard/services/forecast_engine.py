@@ -176,6 +176,10 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
 
     out = _add_sun_geometry(out, lat_deg)
 
+    # ожидаемая генерация и лог-таргет (как в обучении)
+    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
+    out["y_expected_log"] = np.log1p(expected_mw)
+
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
         if c not in out.columns:
@@ -237,25 +241,16 @@ def _load_np_model(path: Path):
     model = None
 
     def _extract(m: object) -> object:
+        # tuple/list: ищем первый элемент с predict либо ключ model
         if isinstance(m, (tuple, list)) and m:
-            for itm in m:
-                candidate = _extract(itm)
-                if candidate is not None and hasattr(candidate, "predict"):
-                    return candidate
             for itm in m:
                 if hasattr(itm, "predict"):
                     return itm
-            return m[0]
-
-        if isinstance(m, dict):
-            for key in ("model", "forecaster", "np_model", "forecast_model"):
-                candidate = m.get(key)
-                if candidate is not None and hasattr(candidate, "predict"):
-                    return candidate
-            for candidate in m.values():
-                if candidate is not None and hasattr(candidate, "predict"):
-                    return candidate
-            return m.get("model") or m.get("forecaster")
+                if isinstance(itm, dict) and "model" in itm:
+                    return itm["model"]
+        # словарь: пробуем ключ model
+        if isinstance(m, dict) and "model" in m:
+            return m["model"]
         return m
 
     # Сначала пробуем native loader NeuralProphet
@@ -282,6 +277,9 @@ def _load_np_model(path: Path):
         raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
     raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
+    if model is None:
+        raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
+    raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
 def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
     """
@@ -406,11 +404,6 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     fallback_np_meta_path = MODEL_DIR / "trained_np_kw_8p8mw.meta.json"
     fallback_xgb_path = MODEL_DIR / "xgb_permw_kw_8p8mw.json"
     fallback_xgb_meta_path = MODEL_DIR / "xgb_permw_kw_8p8mw.meta.json"
-    looks_like_8p8 = (
-        abs(capacity_mw - 8.8) < 0.2
-        or "8.8" in (st.name or "").lower()
-        or "8,8" in (st.name or "").lower()
-    )
 
     np_ok = False
     xgb_ok = False
@@ -472,7 +465,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         except Exception as e:
             np_error = str(e)
             np_ok = False
-    elif looks_like_8p8 and fallback_np_path.exists():
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
         try:
             model = _load_np_model(fallback_np_path)
             if fallback_np_meta_path.exists():
