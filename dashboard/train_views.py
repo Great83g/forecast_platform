@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from django.apps import apps
 
-from dashboard.services.forecast_engine import train_models_for_station
+from dashboard.services.train_models import train_models_for_station
 
 
 def _get_station_model():

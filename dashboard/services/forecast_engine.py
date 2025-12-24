@@ -161,17 +161,16 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     # простые флаги
     out["is_daylight"] = (out["Irradiation"] > 20).astype(int)
 
-    cloud = pd.to_numeric(out.get("cloudcover"), errors="coerce").fillna(100.0)
-    out["is_clear"] = ((cloud < 50) & (out["Irradiation"] > 80)).astype(int)
+    out["is_clear"] = ((out["Irradiation"] > 200) & (out["Air_Temp"] > 0)).astype(int)
 
     out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 39)).astype(int)
     out["evening_penalty"] = ((out["hour"] == 19) & (out["Irradiation"] > 39)).astype(int)
-    out["overdrive_flag"] = ((out["Irradiation"] > 700) & (out["Air_Temp"] > 25)).astype(int)
-    out["midday_penalty"] = ((out["hour"].isin([12, 13, 14])) & (out["Irradiation"] > 600)).astype(int)
+    out["overdrive_flag"] = ((out["Irradiation"] > 950) & (out["Air_Temp"] > 30)).astype(int)
+    out["midday_penalty"] = ((out["hour"].isin([12, 13, 14]))).astype(int)
     out["is_morning_active"] = ((out["hour"] == 6) & (out["Irradiation"] > 49)).astype(int)
 
     # ожидаемая генерация и лог-таргет (как в обучении)
-    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
+    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(upper=capacity_mw * 0.95)
     out["y_expected_log"] = np.log1p(expected_mw * 0.95)
 
     out = _add_sun_geometry(out, lat_deg)

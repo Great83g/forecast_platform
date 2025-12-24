@@ -49,7 +49,7 @@ def get_history_dataframe(station) -> pd.DataFrame:
     )
     df["ds"] = pd.to_datetime(df["ds"])
 
-    numeric_cols = ["Power_KW", "Irradiation", "Air_Temp", "PV_Temp"]
+    numeric_cols = ["Power_KW", "Irradiation", "Air_Temp"]
     before = len(df)
     df = df.replace([np.inf, -np.inf], np.nan)
     df = df.dropna(subset=numeric_cols)
@@ -74,49 +74,23 @@ def compute_cap_mw(df: pd.DataFrame) -> float:
     return max(0.5, max_kw / 1000.0)
 
 
-def add_features(df: pd.DataFrame, cap_mw: float, lat_deg: float) -> pd.DataFrame:
-    """
-    Добавляем все фичи, которые нужны и для XGB, и для NeuralProphet.
+def station_capacity_mw(station, df: pd.DataFrame) -> float:
+    for name in ["capacity_mw", "capacity_ac_mw"]:
+        if hasattr(station, name) and getattr(station, name):
+            return float(getattr(station, name))
 
-    На выходе есть:
-      hour, month, hour_sin, month_sin,
-      is_daylight, is_clear,
-      morning_peak_boost, overdrive_flag, midday_penalty,
-      Expected_MW, y_expected_log
-    """
-    df = df.copy()
-    df["ds"] = pd.to_datetime(df["ds"])
+    for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
+        if hasattr(station, name) and getattr(station, name):
+            return float(getattr(station, name)) / 1000.0
 
-    df["hour"] = df["ds"].dt.hour
-    df["month"] = df["ds"].dt.month
+    return compute_cap_mw(df)
 
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24.0)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24.0)
-    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12.0)
-    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12.0)
 
-    df["is_daylight"] = ((df["hour"] >= 6) & (df["hour"] <= 20)).astype(int)
-
-    # Простой флаг "ясно"
-    df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > -10)).astype(int)
-
-    # Усиление утра (6:00, есть солнце)
-    df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 39)).astype(int)
-    df["evening_penalty"] = ((df["hour"] == 19) & (df["Irradiation"] > 39)).astype(int)
-
-    # Лёгкий штраф середины дня, когда часто клип
-    df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
-
-    # Overdrive при очень высокой радиации и температуре
-    df["overdrive_flag"] = (
-        (df["Irradiation"] > 900) & (df["Air_Temp"] > 25)
-    ).astype(int)
-
-    df["is_morning_active"] = ((df["hour"] == 6) & (df["Irradiation"] > 49)).astype(int)
-
+def add_sun_geometry(df: pd.DataFrame, ds_col: str = "ds", lat_deg: float = 47.86) -> pd.DataFrame:
     lat = np.deg2rad(lat_deg)
-    doy = df["ds"].dt.dayofyear
-    hour_angle = np.deg2rad((df["hour"] - 12) * 15)
+    doy = df[ds_col].dt.dayofyear
+    hour = df[ds_col].dt.hour
+    hour_angle = np.deg2rad((hour - 12) * 15)
     decl = np.deg2rad(23.44) * np.sin(2 * np.pi * (284 + doy) / 365)
     sin_elev = (
         np.sin(lat) * np.sin(decl)
@@ -124,20 +98,47 @@ def add_features(df: pd.DataFrame, cap_mw: float, lat_deg: float) -> pd.DataFram
     )
     df["sun_elev_deg"] = np.rad2deg(np.arcsin(np.clip(sin_elev, -1, 1)))
     df["low_sun_flag"] = (df["sun_elev_deg"] < 15).astype(int)
+    return df
 
-    # Простая эвристика expected MW (по PR)
-    df["Expected_MW"] = (
-        cap_mw * (df["Irradiation"] / 1000.0) * PR_FOR_EXPECTED
-    ).clip(0, cap_mw * 0.95)
 
-    df["y_expected_log"] = np.log1p(df["Expected_MW"] * 0.95)
+def add_common_features(df: pd.DataFrame, cap_mw: float, ds_col: str = "ds") -> pd.DataFrame:
+    """
+    Добавляем все фичи, которые нужны и для XGB, и для NeuralProphet.
+
+    На выходе есть:
+      hour, month, hour_sin, month_sin,
+      is_clear, morning_peak_boost, evening_penalty,
+      overdrive_flag, midday_penalty, is_morning_active,
+      y_expected_log
+    """
+    df = df.copy()
+    df["ds"] = pd.to_datetime(df["ds"])
+
+    df["hour"] = df["ds"].dt.hour
+    df["month"] = df["ds"].dt.month
+
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+
+    df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > 0)).astype(int)
+    df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 39)).astype(int)
+    df["evening_penalty"] = ((df["hour"] == 19) & (df["Irradiation"] > 39)).astype(int)
+    df["overdrive_flag"] = ((df["Irradiation"] > 950) & (df["Air_Temp"] > 30)).astype(int)
+    df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
+    df["is_morning_active"] = ((df["hour"] == 6) & (df["Irradiation"] > 49)).astype(int)
+
+    df["PV_Temp"] = df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000 * 20
+
+    df["y_expected"] = cap_mw * (df["Irradiation"] / 1000) * PR_FOR_EXPECTED
+    df["y_expected"] = df["y_expected"].clip(upper=cap_mw * 0.95)
+    df["y_expected_log"] = np.log1p(df["y_expected"] * 0.95)
 
     return df
 
 
 def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     """
-    Обучаем XGB(per-MW) и NeuralProphet(y_mw) для одной станции.
+    Обучаем XGB(per-MW) и NeuralProphet(y) для одной станции.
 
     Сохраняем:
       - XGB:  xgb_model_{pk}.json + .meta.json
@@ -154,16 +155,16 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     if df.empty:
         return 0, None, None
 
-    cap_mw = compute_cap_mw(df)
+    cap_mw = station_capacity_mw(station, df)
     print(f"[TRAIN] station {station.pk}: оценка cap_mw={cap_mw:.3f}")
-
-    # таргет в MW
-    df["y_mw"] = (df["Power_KW"] / 1000.0).clip(lower=0)
 
     lat_deg = getattr(station, "lat", None) or getattr(station, "latitude", None) or 47.86
 
-    # общее фичеобразование
-    df = add_features(df, cap_mw, float(lat_deg))
+    df["y"] = (df["Power_KW"] / 1000.0).clip(lower=0)
+    df = df[df["y"] >= 0].copy()
+
+    df = add_common_features(df, cap_mw, "ds")
+    df = add_sun_geometry(df, "ds", float(lat_deg))
     n_rows = len(df)
 
     # =========================================================
@@ -179,34 +180,23 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         "month_sin",
         "sun_elev_deg",
         "low_sun_flag",
-        "is_daylight",
-        "is_clear",
-        "morning_peak_boost",
-        "evening_penalty",
-        "is_morning_active",
-        "overdrive_flag",
-        "midday_penalty",
     ]
 
-    df["y_permw"] = (df["y_mw"] / cap_mw).clip(lower=0)
+    df["y_permw"] = (df["y"] / cap_mw).clip(lower=0)
     df_xgb = df.dropna(subset=X_cols + ["y_permw"]).copy()
 
     xgb_path: Path | None = None
-    if len(df_xgb) < 50:
-        print(
-            f"[TRAIN] station {station.pk}: недостаточно строк для XGB "
-            f"({len(df_xgb)} < 50)"
-        )
+    if len(df_xgb) == 0:
+        print(f"[TRAIN] station {station.pk}: нет строк для XGB после фильтрации")
     else:
         try:
             model_xgb = xgb.XGBRegressor(
-                n_estimators=400,
-                max_depth=6,
+                n_estimators=500,
+                max_depth=5,
                 learning_rate=0.05,
                 subsample=0.9,
                 colsample_bytree=0.9,
-                objective="reg:squarederror",
-                tree_method="hist",
+                random_state=42,
             )
             model_xgb.fit(df_xgb[X_cols], df_xgb["y_permw"])
 
@@ -217,6 +207,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 "station_id": station.pk,
                 "X_cols": X_cols,
                 "cap_mw_used": cap_mw,
+                "target": "y_per_MW = y / cap_mw",
             }
             meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
             meta_path.write_text(
@@ -240,28 +231,13 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     np_path: Path | None = None
     try:
         df_np = df.copy()
-        df_np = df_np[
-            [
-                "ds",
-                "y_mw",
-                "Irradiation",
-                "Air_Temp",
-                "PV_Temp",
-                "hour_sin",
-                "month_sin",
-                "is_daylight",
-                "is_clear",
-                "y_expected_log",
-                "morning_peak_boost",
-                "overdrive_flag",
-                "midday_penalty",
-            ]
-        ].dropna()
-
-        df_np.rename(columns={"y_mw": "y"}, inplace=True)
+        df_np["dup_weight"] = 1
+        df_np.loc[df_np["is_morning_active"] == 1, "dup_weight"] = 8
+        df_dup = df_np.loc[df_np.index.repeat(df_np["dup_weight"])].copy()
+        df_b = df_dup.drop(columns=["dup_weight"])
 
         print(
-            f"[TRAIN] station {station.pk}: старт обучения NP(y_mw), строк={len(df_np)}"
+            f"[TRAIN] station {station.pk}: старт обучения NP(y), строк={len(df_b)}"
         )
 
         m = NeuralProphet(
@@ -269,11 +245,12 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             n_forecasts=1,
             yearly_seasonality=False,
             weekly_seasonality=False,
-            daily_seasonality=False,
-            learning_rate=0.5,
-            epochs=300,
+            daily_seasonality=True,
+            seasonality_mode="additive",
+            learning_rate=0.2,
+            epochs=400,
             batch_size=64,
-            loss_func="Huber",
+            loss_func="MSE",
         )
 
         reg_cols = [
@@ -282,7 +259,6 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "PV_Temp",
             "hour_sin",
             "month_sin",
-            "is_daylight",
             "is_clear",
             "y_expected_log",
             "morning_peak_boost",
@@ -296,19 +272,22 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         for col in reg_cols:
             m.add_future_regressor(col, normalize="minmax")
 
-        m.fit(df_np, freq="H")
+        df_train = df_b[["ds", "y"] + reg_cols].dropna().copy()
+        m.fit(df_train, freq="h")
 
         np_path = MODEL_DIR / f"np_model_{station.pk}.np"
         np_save(m, str(np_path))
-        print(f"[TRAIN] station {station.pk}: NP(y_mw) сохранён в {np_path}")
+        print(f"[TRAIN] station {station.pk}: NP(y) сохранён в {np_path}")
 
         features_reg = reg_cols
         np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
         np_meta = {
             "station_id": station.pk,
+            "cap_mw": cap_mw,
+            "pr_for_expected": PR_FOR_EXPECTED,
             "features_reg": features_reg,
-            "cap_mw_used": cap_mw,
-            "note": "NP trained on direct y_mw from SolarRecord",
+            "target": "y (MWh) = power_kw/1000",
+            "note": "NP trained on direct y from SolarRecord",
         }
         np_meta_path.write_text(
             json.dumps(np_meta, ensure_ascii=False, indent=2), encoding="utf-8"

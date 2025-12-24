@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from .forecast_engine import run_forecast_for_station as _run_engine
-from .forecast_engine import train_models_for_station
+from .train_models import train_models_for_station
 
 __all__ = ["run_forecast_for_station", "train_models_for_station"]
 
