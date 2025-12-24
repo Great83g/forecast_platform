@@ -317,6 +317,28 @@ def _predict_np(
     if model is None or not hasattr(model, "predict"):
         raise TypeError("NP model is not loaded or has no predict() method")
 
+    if getattr(model, "trainer", None) is None:
+        init_trainer = getattr(model, "_init_trainer", None)
+        errors: List[str] = []
+        if callable(init_trainer):
+            try:
+                init_trainer()
+            except TypeError as exc:
+                errors.append(f"default: {exc}")
+                try:
+                    init_trainer(max_epochs=1)
+                except Exception as exc2:
+                    errors.append(f"max_epochs=1: {exc2}")
+            except Exception as exc:
+                errors.append(f"default: {exc}")
+        if getattr(model, "trainer", None) is None:
+            details = f" Ошибка инициализации: {', '.join(errors)}" if errors else ""
+            raise TypeError(
+                "NeuralProphet loaded without trainer (predict cannot run). "
+                "Пересохрани модель через `model.save('...np')` или переобучи."
+                + details
+            )
+
     df_feat = df_feat.copy()
 
     reg_list = reg_features or [
