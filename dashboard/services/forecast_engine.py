@@ -441,7 +441,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     y_np = np.full(len(feat), np.nan)
     y_xgb = np.full(len(feat), np.nan)
 
-    # XGB (без изменений)
+    # XGB
     xgb_candidates: List[Tuple[Path, Path]] = [(xgb_path, xgb_meta_path)]
     if abs(capacity_mw - 8.8) < 0.05:
         xgb_candidates.append((fallback_xgb_path, fallback_xgb_meta_path))
@@ -470,7 +470,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     if not xgb_ok and xgb_error is None:
         xgb_error = f"XGB model not found: {xgb_path}"
 
-    # NP (обновлено: logger + strict features + фикс safe-unpickle)
+    # NP
     np_candidates: List[Tuple[Path, Path]] = [(np_path, np_meta_path)]
     if abs(capacity_mw - 8.8) < 0.05:
         np_candidates.append((fallback_np_path, fallback_np_meta_path))
@@ -480,8 +480,9 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             continue
         try:
             model = _load_np_model(model_path)
-            logger.info("[NP] loaded from %s type=%s has_predict=%s", model_path, type(model), hasattr(model, "predict"))
-
+            print(f"[NP] loaded={type(model)} has_predict={hasattr(model, 'predict')}")
+            if model is None or not hasattr(model, "predict"):
+                raise TypeError("NP model is not loaded or has no predict() method")
             if meta_path.exists():
                 try:
                     np_meta = json.loads(meta_path.read_text(encoding="utf-8"))
