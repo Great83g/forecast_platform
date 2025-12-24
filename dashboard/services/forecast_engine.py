@@ -486,6 +486,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             )
             np_ok = True
         except Exception as e:
+            print(f"[NP] ERROR: {e}")
             np_error = str(e)
             np_ok = False
     else:
