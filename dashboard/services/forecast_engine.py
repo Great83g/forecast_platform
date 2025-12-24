@@ -333,11 +333,12 @@ def _predict_np(
                 errors.append(f"default: {exc}")
         if getattr(model, "trainer", None) is None:
             details = f" Ошибка инициализации: {', '.join(errors)}" if errors else ""
-            raise TypeError(
-                "NeuralProphet loaded without trainer (predict cannot run). "
-                "Пересохрани модель через `model.save('...np')` или переобучи."
-                + details
+            logger.warning(
+                "[NP] NeuralProphet loaded without trainer (predict cannot run). "
+                "Пересохрани модель через `model.save('...np')` или переобучи.%s",
+                details,
             )
+            return np.full(len(df_feat), np.nan)
 
     df_feat = df_feat.copy()
 
