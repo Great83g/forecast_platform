@@ -26,16 +26,16 @@
        href="{% url 'dashboard:station-export-history' station.pk %}?from={{ from_date }}&to={{ to_date }}">
       Скачать Excel
     </a>
-
-    <form method="post" class="d-inline">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="clear">
-      <button type="submit" class="btn btn-sm btn-outline-danger"
-              onclick="return confirm('Точно очистить всю историю станции?');">
-        Очистить историю
-      </button>
-    </form>
   </div>
+</form>
+
+<form method="post" class="mb-3">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="clear">
+  <button type="submit" class="btn btn-sm btn-outline-danger"
+          onclick="return confirm('Точно очистить всю историю станции?');">
+    Очистить историю
+  </button>
 </form>
 
 <div class="card mb-3">
@@ -85,4 +85,3 @@
 </div>
 
 {% endblock %}
-
