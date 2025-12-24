@@ -22,8 +22,8 @@ from .vc_weather import fetch_visual_crossing_hourly
 
 
 MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
-
 logger = logging.getLogger(__name__)
+
 
 XGB_EXPECTED_FEATURES = [
     "Irradiation",
@@ -200,10 +200,8 @@ def _load_xgb_model(path: Path) -> Optional[xgb.Booster]:
 
 def _allow_torch_safe_globals_for_np() -> None:
     """
-    PyTorch 2.6: по умолчанию weights_only=True и safe-unpickle режет pandas/neuralprophet объекты.
-    Тут best-effort allowlist:
-      - NeuralProphet классы
-      - pandas timestamp/timedelta unpickle helpers (разные имена на разных версиях)
+    PyTorch 2.6: safe-unpickle режет pandas/neuralprophet объекты.
+    Best-effort allowlist под разные версии pandas.
     """
     try:
         from torch.serialization import add_safe_globals
@@ -215,7 +213,7 @@ def _allow_torch_safe_globals_for_np() -> None:
         from pandas._libs.tslibs import timestamps as _ts
         from pandas._libs.tslibs import timedeltas as _td
 
-        allow: List[object] = [NeuralProphet, Normalization, ShiftScale]
+        allow = [NeuralProphet, Normalization, ShiftScale]
 
         # timestamp helper variants
         for name in ("_unpickle_timestamp", "_timestamp_unpickle"):
@@ -223,24 +221,24 @@ def _allow_torch_safe_globals_for_np() -> None:
             if fn is not None:
                 allow.append(fn)
 
-        # timedelta helper variants (у тебя в ошибках часто именно _timedelta_unpickle)
+        # timedelta helper variants (в твоих ошибках часто именно _timedelta_unpickle)
         for name in ("_unpickle_timedelta", "_timedelta_unpickle"):
             fn = getattr(_td, name, None)
             if fn is not None:
                 allow.append(fn)
 
         add_safe_globals(allow)
-
     except Exception:
-        # если нет torch / другое окружение — молча
         return
 
 
 def _load_np_model(path: Path):
     """
-    Грузим .np через neuralprophet.load().
-    Для PyTorch 2.6 делаем allowlist.
-    Fallback: torch.load(weights_only=False)
+    Грузим .np через neuralprophet.load() (правильный формат — model.save()).
+    Fallback: torch.load(weights_only=False).
+
+    ВАЖНО: если загружается объект NeuralProphet, но obj.model == None,
+    то predict() падает 'NoneType has no attribute predict'. Ловим это здесь и даём ясную причину.
     """
     _allow_torch_safe_globals_for_np()
     torch_err: Optional[str] = None
@@ -256,24 +254,39 @@ def _load_np_model(path: Path):
                 cand = _extract(itm)
                 if cand is not None:
                     return cand
+            return None
         if isinstance(m, dict):
-            # частые ключи
             for key in ("model", "forecaster", "np_model", "forecast_model"):
-                cand = m.get(key)
-                if cand is not None and hasattr(cand, "predict"):
+                cand = _extract(m.get(key))
+                if cand is not None:
                     return cand
             for v in m.values():
                 cand = _extract(v)
                 if cand is not None:
                     return cand
+            return None
         return None
+
+    def _validate_np(obj: object, src: str) -> object:
+        if obj is None or not hasattr(obj, "predict"):
+            raise TypeError(f"NP load returned invalid object from {src}: {type(obj)}")
+
+        # КЛЮЧЕВО: внутренний torch-модуль должен быть восстановлен
+        inner = getattr(obj, "model", None)
+        if inner is None:
+            raise TypeError(
+                "NeuralProphet loaded but internal `model` is None (weights not restored). "
+                "Обычно это значит: файл НЕ настоящий .np от `model.save()`, "
+                "или повреждён/не той версии. Пересохрани модель через `model.save('...np')`."
+            )
+        return obj
 
     # 1) native NP loader
     try:
         loaded = np_load(str(path))
         model = _extract(loaded)
-        if model is not None and hasattr(model, "predict"):
-            return model
+        if model is not None:
+            return _validate_np(model, f"neuralprophet.load({path.name})")
     except Exception as e:
         np_err = str(e)
 
@@ -282,8 +295,8 @@ def _load_np_model(path: Path):
         import torch
         loaded = torch.load(str(path), map_location="cpu", weights_only=False)
         model = _extract(loaded)
-        if model is not None and hasattr(model, "predict"):
-            return model
+        if model is not None:
+            return _validate_np(model, f"torch.load({path.name})")
     except Exception as e:
         torch_err = str(e)
 
@@ -295,22 +308,18 @@ def _predict_np(
     df_feat: pd.DataFrame,
     reg_features: Optional[List[str]] = None,
     cap_for_expected: Optional[float] = None,
-    strict: bool = True,
 ) -> np.ndarray:
     """
-    Предикт NeuralProphet.
-
-    ВАЖНО: набор reg_features должен 1-в-1 совпадать с add_future_regressor() при обучении.
-    Поэтому:
-      - strict=True: если meta не дала features_reg → сразу ошибка (лучше честно упасть, чем гадать и ловить “день сурка”)
-      - strict=False: используем дефолтный набор (для отладки)
+    Предикт NeuralProphet:
+    - model.predict ожидает df с 'ds' и будущими регрессорами, если они были при обучении.
+    Тут мы подаём минимум: ds + регрессоры Irradiation/Air_Temp/PV_Temp и т.п.
     """
     if model is None or not hasattr(model, "predict"):
         raise TypeError("NP model is not loaded or has no predict() method")
 
     df_feat = df_feat.copy()
 
-    default_regs = [
+    reg_list = reg_features or [
         "Irradiation",
         "Air_Temp",
         "PV_Temp",
@@ -324,20 +333,14 @@ def _predict_np(
         "y_expected_log",
     ]
 
-    reg_list = reg_features if reg_features else None
-    if reg_list is None:
-        if strict:
-            raise ValueError("NP meta missing features_reg (cannot ensure train/predict feature match)")
-        reg_list = default_regs
-
     # если нет y_expected_log, посчитаем на основе irradiation и мощности
-    if "y_expected_log" in reg_list and "y_expected_log" not in df_feat.columns and "Irradiation" in df_feat.columns:
+    if "y_expected_log" not in df_feat.columns and "Irradiation" in df_feat.columns:
         cap_use = float(cap_for_expected) if cap_for_expected is not None else 1.0
         expected_mw = (cap_use * (df_feat["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, cap_use * 0.95)
         df_feat["y_expected_log"] = np.log1p(expected_mw)
 
     dfp = pd.DataFrame({"ds": pd.to_datetime(df_feat["ds"])})
-    # y иногда требуется в некоторых версиях NP — кладём NaN
+    # y нужен для некоторых версий NP даже в будущем — кладём NaN
     dfp["y"] = np.nan
 
     missing = []
@@ -349,17 +352,18 @@ def _predict_np(
             dfp[col] = 0.0
 
     if missing:
-        logger.warning("[NP] missing regressors will be filled with 0.0: %s", missing)
+        logger.warning("[NP] missing regressors -> filled with 0.0: %s", missing)
 
     fcst = model.predict(dfp)
 
+    # NeuralProphet обычно возвращает yhat1
     yhat_col = "yhat1" if "yhat1" in fcst.columns else None
     if not yhat_col:
         yhat_cols = [c for c in fcst.columns if c.startswith("yhat")]
         yhat_col = yhat_cols[0] if yhat_cols else None
 
     if not yhat_col:
-        raise ValueError(f"NP predict() returned no yhat columns. columns={list(fcst.columns)}")
+        return np.full(len(dfp), np.nan)
 
     return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
 
@@ -377,9 +381,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
     k подбираем грубо, чтобы не было микроскопии.
     """
     irr = df_feat["Irradiation"].astype(float).to_numpy()
-    # нормализация irradiation: 0..1000 W/m2
     p = (irr / 1000.0) * capacity_mw
-    # лёгкая “кривая” — чтобы утро/вечер не были нулём
     p = np.clip(p, 0, capacity_mw)
     return p
 
@@ -388,7 +390,6 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
-    # форсируем широкий диапазон солнечных часов, чтобы покрыть весь день
     solar_hours = (5, 20)
 
     base = _make_base_grid(days=days, solar_hours=solar_hours)
@@ -415,12 +416,14 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     xgb_path = MODEL_DIR / f"xgb_model_{station_id}.json"
     np_meta_path = MODEL_DIR / f"np_model_{station_id}.meta.json"
     xgb_meta_path = MODEL_DIR / f"xgb_model_{station_id}.meta.json"
+
     np_meta: Dict = {}
     if np_meta_path.exists():
         try:
             np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
         except Exception:
             np_meta = {}
+
     xgb_meta: Dict = {}
     if xgb_meta_path.exists():
         try:
@@ -432,6 +435,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     fallback_np_meta_path = MODEL_DIR / "np_model_1.meta.json"
     fallback_xgb_path = MODEL_DIR / "xgb_model_1.json"
     fallback_xgb_meta_path = MODEL_DIR / "xgb_model_1.meta.json"
+
     np_ok = False
     xgb_ok = False
     np_error = None
@@ -440,84 +444,71 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     y_np = np.full(len(feat), np.nan)
     y_xgb = np.full(len(feat), np.nan)
 
-    # XGB (без изменений)
-    xgb_candidates: List[Tuple[Path, Path]] = [(xgb_path, xgb_meta_path)]
-    if abs(capacity_mw - 8.8) < 0.05:
-        xgb_candidates.append((fallback_xgb_path, fallback_xgb_meta_path))
-
-    for model_path, meta_path in xgb_candidates:
-        if not model_path.exists():
-            continue
-        booster = _load_xgb_model(model_path)
-        if booster is None:
-            continue
-        if meta_path.exists():
+    # XGB
+    booster = None
+    if xgb_path.exists():
+        booster = _load_xgb_model(xgb_path)
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
+        booster = _load_xgb_model(fallback_xgb_path)
+        if fallback_xgb_meta_path.exists():
             try:
-                xgb_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
             except Exception:
                 xgb_meta = xgb_meta
+
+    if booster is not None:
         try:
             feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
             y_xgb = _predict_xgb(booster, feat, feature_names)
             xgb_ok = True
-            break
         except Exception as e:
             xgb_error = str(e)
             xgb_ok = False
             booster = None
 
-    if not xgb_ok and xgb_error is None:
-        xgb_error = f"XGB model not found: {xgb_path}"
-
-    # NP (обновлено: logger + strict features + фикс safe-unpickle)
-    np_candidates: List[Tuple[Path, Path]] = [(np_path, np_meta_path)]
-    if abs(capacity_mw - 8.8) < 0.05:
-        np_candidates.append((fallback_np_path, fallback_np_meta_path))
-
-    for model_path, meta_path in np_candidates:
-        if not model_path.exists():
-            continue
+    # NP (FIXED)
+    if np_path.exists():
         try:
-            model = _load_np_model(model_path)
-            logger.info("[NP] loaded from %s type=%s has_predict=%s", model_path, type(model), hasattr(model, "predict"))
-
-            if meta_path.exists():
+            model = _load_np_model(np_path)
+            logger.info("[NP] loaded from %s type=%s has_predict=%s", np_path, type(model), hasattr(model, "predict"))
+            y_np = _predict_np(
+                model,
+                feat,
+                reg_features=np_meta.get("features_reg"),
+                cap_for_expected=np_meta.get("cap_mw_used"),
+            )
+            np_ok = True
+        except Exception as e:
+            logger.exception("[NP] ERROR: %s", e)
+            np_error = str(e)
+            np_ok = False
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
+        try:
+            model = _load_np_model(fallback_np_path)
+            if fallback_np_meta_path.exists():
                 try:
-                    np_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    np_meta = json.loads(fallback_np_meta_path.read_text(encoding="utf-8"))
                 except Exception:
                     np_meta = np_meta
-
+            logger.info("[NP] loaded from %s type=%s has_predict=%s", fallback_np_path, type(model), hasattr(model, "predict"))
             y_np = _predict_np(
                 model,
                 feat,
                 reg_features=np_meta.get("features_reg"),
                 cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
-                strict=True,  # <- ключ: не гадаем регрессоры в проде
             )
             np_ok = True
-            break
         except Exception as e:
-            logger.exception("[NP] ERROR for %s: %s", model_path, e)
+            logger.exception("[NP] ERROR: %s", e)
             np_error = str(e)
             np_ok = False
-
-    if not np_ok and np_error is None:
+    else:
         np_error = f"NP model not found: {np_path}"
 
     # эвристика (MW)
     y_heur = _heuristic_mw(feat, capacity_mw=capacity_mw)
 
-    if xgb_ok:
-        cap_scale = xgb_meta.get("cap_mw_used") or xgb_meta.get("cap_mw") or capacity_mw
-        y_xgb = y_xgb * float(cap_scale)
-
-    y_np = np.clip(np.nan_to_num(y_np, nan=0.0), 0, capacity_mw)
-    y_xgb = np.clip(np.nan_to_num(y_xgb, nan=0.0), 0, capacity_mw)
-    y_heur = np.clip(np.nan_to_num(y_heur, nan=0.0), 0, capacity_mw)
-
     # ансамбль:
-    # - если NP есть → 0.4 NP + 0.4 XGB + 0.2 эвристика
-    # - если NP нет → XGB если есть, иначе эвристика
     y_final = y_heur.copy()
     if xgb_ok:
         y_final = 0.6 * y_heur + 0.4 * y_xgb
@@ -527,6 +518,9 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         y_final = 0.6 * y_heur + 0.4 * y_np
 
     # клип по мощности станции (MW) и перевод в кВт для сохранения
+    y_np = np.clip(np.nan_to_num(y_np, nan=0.0), 0, capacity_mw)
+    y_xgb = np.clip(np.nan_to_num(y_xgb, nan=0.0), 0, capacity_mw)
+    y_heur = np.clip(np.nan_to_num(y_heur, nan=0.0), 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
 
     y_np_kw = y_np * 1000.0
@@ -545,6 +539,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             SolarForecast(
                 station=st,
                 timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
+                # Сохраняем в кВт (модель работает в MW, перевели выше)
                 pred_np=float(y_np_kw[i]),
                 pred_xgb=float(y_xgb_kw[i]),
                 pred_heur=float(y_heur_kw[i]),
