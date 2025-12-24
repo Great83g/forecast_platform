@@ -333,6 +333,19 @@ def _predict_np(
         "y_expected_log",
     ]
 
+    allowed_regressors = None
+    if hasattr(model, "config_regressors"):
+        config_regs = getattr(model, "config_regressors", None)
+        regs = getattr(config_regs, "regressors", None) if config_regs is not None else None
+        if isinstance(regs, dict):
+            allowed_regressors = list(regs.keys())
+
+    if allowed_regressors is not None:
+        unexpected = [c for c in reg_list if c not in allowed_regressors]
+        if unexpected:
+            logger.warning("[NP] regressors not in model config -> dropped: %s", unexpected)
+        reg_list = allowed_regressors
+
     # если нет y_expected_log, посчитаем на основе irradiation и мощности
     if "y_expected_log" not in df_feat.columns and "Irradiation" in df_feat.columns:
         cap_use = float(cap_for_expected) if cap_for_expected is not None else 1.0
