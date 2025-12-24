@@ -113,6 +113,11 @@ def station_upload(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
     if request.method == "POST":
+        if request.POST.get("action") == "clear":
+            SolarRecord.objects.filter(station=st).delete()
+            messages.success(request, "История очищена.")
+            return redirect("dashboard:station-upload", pk=pk)
+
         form = UploadHistoryForm(request.POST, request.FILES)
         if not form.is_valid():
             messages.error(request, "Ошибка формы загрузки.")
