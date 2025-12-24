@@ -176,10 +176,6 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
 
     out = _add_sun_geometry(out, lat_deg)
 
-    # ожидаемая генерация и лог-таргет (как в обучении)
-    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
-    out["y_expected_log"] = np.log1p(expected_mw)
-
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
         if c not in out.columns:
@@ -241,16 +237,25 @@ def _load_np_model(path: Path):
     model = None
 
     def _extract(m: object) -> object:
-        # tuple/list: ищем первый элемент с predict либо ключ model
         if isinstance(m, (tuple, list)) and m:
+            for itm in m:
+                candidate = _extract(itm)
+                if candidate is not None and hasattr(candidate, "predict"):
+                    return candidate
             for itm in m:
                 if hasattr(itm, "predict"):
                     return itm
-                if isinstance(itm, dict) and "model" in itm:
-                    return itm["model"]
-        # словарь: пробуем ключ model
-        if isinstance(m, dict) and "model" in m:
-            return m["model"]
+            return m[0]
+
+        if isinstance(m, dict):
+            for key in ("model", "forecaster", "np_model", "forecast_model"):
+                candidate = m.get(key)
+                if candidate is not None and hasattr(candidate, "predict"):
+                    return candidate
+            for candidate in m.values():
+                if candidate is not None and hasattr(candidate, "predict"):
+                    return candidate
+            return m.get("model") or m.get("forecaster")
         return m
 
     # Сначала пробуем native loader NeuralProphet
