@@ -433,6 +433,23 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         except Exception as e:
             xgb_error = str(e)
             xgb_ok = False
+            booster = None
+
+    if booster is None and looks_like_8p8 and fallback_xgb_path.exists():
+        booster = _load_xgb_model(fallback_xgb_path)
+        if booster is not None:
+            if fallback_xgb_meta_path.exists():
+                try:
+                    xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    xgb_meta = {}
+            try:
+                feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
+                y_xgb = _predict_xgb(booster, feat, feature_names)
+                xgb_ok = True
+            except Exception as e:
+                xgb_error = str(e)
+                xgb_ok = False
 
     # NP
     if np_path.exists():
