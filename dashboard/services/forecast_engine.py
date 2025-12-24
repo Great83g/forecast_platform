@@ -282,6 +282,9 @@ def _load_np_model(path: Path):
         raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
     raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
+    if model is None:
+        raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
+    raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
 def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
     """
@@ -402,6 +405,11 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         except Exception:
             xgb_meta = {}
 
+    fallback_np_path = MODEL_DIR / "trained_np_kw_8p8mw.np"
+    fallback_np_meta_path = MODEL_DIR / "trained_np_kw_8p8mw.meta.json"
+    fallback_xgb_path = MODEL_DIR / "xgb_permw_kw_8p8mw.json"
+    fallback_xgb_meta_path = MODEL_DIR / "xgb_permw_kw_8p8mw.meta.json"
+
     np_ok = False
     xgb_ok = False
     np_error = None
@@ -414,6 +422,13 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     booster = None
     if xgb_path.exists():
         booster = _load_xgb_model(xgb_path)
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
+        booster = _load_xgb_model(fallback_xgb_path)
+        if fallback_xgb_meta_path.exists():
+            try:
+                xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                xgb_meta = xgb_meta
 
     if booster is not None:
         try:
@@ -425,16 +440,49 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             xgb_ok = False
             booster = None
 
+    if booster is None and looks_like_8p8 and fallback_xgb_path.exists():
+        booster = _load_xgb_model(fallback_xgb_path)
+        if booster is not None:
+            if fallback_xgb_meta_path.exists():
+                try:
+                    xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    xgb_meta = {}
+            try:
+                feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
+                y_xgb = _predict_xgb(booster, feat, feature_names)
+                xgb_ok = True
+            except Exception as e:
+                xgb_error = str(e)
+                xgb_ok = False
+
     # NP
     if np_path.exists():
         try:
             model = _load_np_model(np_path)
-            print(f"[NP] loaded={type(model)} has_predict={hasattr(model, 'predict')}")
             y_np = _predict_np(
                 model,
                 feat,
                 reg_features=np_meta.get("features_reg"),
                 cap_for_expected=np_meta.get("cap_mw_used"),
+            )
+            np_ok = True
+        except Exception as e:
+            np_error = str(e)
+            np_ok = False
+    elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
+        try:
+            model = _load_np_model(fallback_np_path)
+            if fallback_np_meta_path.exists():
+                try:
+                    np_meta = json.loads(fallback_np_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    np_meta = np_meta
+            y_np = _predict_np(
+                model,
+                feat,
+                reg_features=np_meta.get("features_reg"),
+                cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
             )
             np_ok = True
         except Exception as e:
