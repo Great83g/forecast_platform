@@ -176,6 +176,10 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
 
     out = _add_sun_geometry(out, lat_deg)
 
+    # ожидаемая генерация и лог-таргет (как в обучении)
+    expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(0, capacity_mw * 0.95)
+    out["y_expected_log"] = np.log1p(expected_mw)
+
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
         if c not in out.columns:
@@ -273,6 +277,9 @@ def _load_np_model(path: Path):
         raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
     raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
+    if model is None:
+        raise TypeError(f"NP load failed: np_err={np_err}, torch_err={torch_err}")
+    raise TypeError(f"Loaded NP object has no predict(): type={type(model)} np_err={np_err} torch_err={torch_err}")
 
 def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] = None, cap_for_expected: Optional[float] = None) -> np.ndarray:
     """
