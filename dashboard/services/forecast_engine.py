@@ -242,6 +242,8 @@ def _load_np_model(path: Path):
         except Exception as e:
             raise TypeError(f"NP load failed: torch_err={torch_err}, np_err={e}") from e
 
+    if model is None:
+        raise TypeError("Loaded NP object is None")
     if not hasattr(model, "predict"):
         raise TypeError(f"Loaded NP object has no predict(): type={type(model)} torch_err={torch_err}")
     return model
@@ -254,6 +256,8 @@ def _predict_np(model, df_feat: pd.DataFrame, reg_features: Optional[List[str]] 
     Тут мы подаём минимум: ds + регрессоры Irradiation/Air_Temp/PV_Temp и т.п.
     Если модель обучалась на другом наборе — она сама скажет ошибку.
     """
+    if model is None or not hasattr(model, "predict"):
+        raise TypeError("NP model is not loaded or has no predict() method")
     df_feat = df_feat.copy()
 
     reg_list = reg_features or [
