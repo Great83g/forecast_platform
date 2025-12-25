@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -292,7 +293,7 @@ def station_forecast_list(request, pk: int):
 
     forecasts = [
         {
-            "timestamp": f.timestamp,
+            "timestamp": timezone.localtime(f.timestamp) if f.timestamp is not None else None,
             "pred_final_kw": f.pred_final,
             "pred_np_kw": f.pred_np,
             "pred_xgb_kw": f.pred_xgb,
@@ -397,7 +398,13 @@ def station_forecast_export(request, pk: int):
         )
 
     if "timestamp" in df.columns and not df.empty:
-        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+        ts = pd.to_datetime(df["timestamp"], errors="coerce")
+        try:
+            if getattr(ts.dt, "tz", None) is not None:
+                ts = ts.dt.tz_convert(timezone.get_current_timezone())
+        except Exception:
+            pass
+        df["timestamp"] = _excel_safe_datetime(ts)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
