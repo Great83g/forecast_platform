@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -292,7 +293,7 @@ def station_forecast_list(request, pk: int):
 
     forecasts = [
         {
-            "timestamp": f.timestamp,
+            "timestamp": timezone.localtime(f.timestamp) if f.timestamp is not None else None,
             "pred_final_kw": f.pred_final,
             "pred_np_kw": f.pred_np,
             "pred_xgb_kw": f.pred_xgb,
