@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -122,8 +123,8 @@ def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     try:
         h1, h2 = solar_hours
     except Exception:
-        logger.warning("[FORECAST] invalid solar_hours=%s, fallback to (5, 20)", solar_hours)
-        h1, h2 = 5, 20
+        logger.warning("[FORECAST] invalid solar_hours=%s, fallback to (9, 17)", solar_hours)
+        h1, h2 = 9, 17
 
     # начинаем с ближайшего следующего дня, чтобы не строить уже прошедшие часы
     start_date = (now + pd.Timedelta(days=1)).date()
@@ -138,6 +139,42 @@ def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     df = df[(df["ds"].dt.hour >= h1) & (df["ds"].dt.hour <= h2)].copy()
     df["ds"] = df["ds"].dt.floor("h")
     return df.reset_index(drop=True)
+
+
+def _solar_hours_from_weather(
+    weather_df: pd.DataFrame,
+    start_date: date,
+    days: int,
+) -> Optional[Tuple[int, int]]:
+    if weather_df.empty or "irradiation" not in weather_df.columns:
+        return None
+
+    df = weather_df.copy()
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    try:
+        if getattr(df["ds"].dt, "tz", None) is not None:
+            df["ds"] = df["ds"].dt.tz_convert(timezone.get_current_timezone())
+    except Exception:
+        pass
+
+    end_date = start_date + pd.Timedelta(days=days)
+    mask_date = (df["ds"].dt.date >= start_date) & (df["ds"].dt.date < end_date.date())
+    df = df[mask_date]
+    if df.empty:
+        return None
+
+    mask = df["irradiation"].fillna(0) > 50
+    if mask.sum() < 3:
+        return None
+
+    hours = df.loc[mask, "ds"].dt.hour.astype(int)
+    hmin = int(np.floor(hours.quantile(0.1)))
+    hmax = int(np.ceil(hours.quantile(0.9)))
+    h1 = max(5, hmin - 1)
+    h2 = min(20, hmax + 1)
+    if (h2 - h1) < 6:
+        return None
+    return (h1, h2)
 
 
 def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
@@ -461,9 +498,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
-    solar_hours = _solar_hours_from_history(st)
-
-    base = _make_base_grid(days=days, solar_hours=solar_hours)
+    now = timezone.localtime(timezone.now())
 
     # ---- погода ----
     weather_source = "fallback_zero"
@@ -478,6 +513,10 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             weather_source = wres.source
             weather_df = wres.df.copy()
 
+    start_date = (now + pd.Timedelta(days=1)).date()
+    solar_hours = _solar_hours_from_weather(weather_df, start_date, days) or _solar_hours_from_history(st)
+
+    base = _make_base_grid(days=days, solar_hours=solar_hours)
     merged = _merge_weather(base, weather_df)
     lat_deg = float(lat) if lat is not None else 47.86
     feat = _compute_features(merged, capacity_mw, lat_deg)
