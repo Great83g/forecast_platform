@@ -123,7 +123,7 @@ def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     start_date = (now + pd.Timedelta(days=1)).date()
     start = (
         timezone.datetime.combine(start_date, timezone.datetime.min.time())
-        .replace(hour=h1, tzinfo=now.tzinfo, minute=0, second=0, microsecond=0)
+        .replace(hour=0, tzinfo=now.tzinfo, minute=0, second=0, microsecond=0)
     )
     end = start + pd.Timedelta(days=days)
 

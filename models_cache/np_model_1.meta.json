@@ -19,5 +19,6 @@
     "low_sun_flag"
   ],
   "target": "y (MWh) = power_kw/1000",
-  "note": "NP trained on direct y from SolarRecord"
+  "note": "NP trained on direct y from SolarRecord",
+  "np_version": "1.0.0rc10"
 }
