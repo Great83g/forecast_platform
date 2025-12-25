@@ -158,7 +158,9 @@ def _solar_hours_from_weather(
         pass
 
     end_date = start_date + pd.Timedelta(days=days)
-    mask_date = (df["ds"].dt.date >= start_date) & (df["ds"].dt.date < end_date.date())
+    if hasattr(end_date, "date"):
+        end_date = end_date.date()
+    mask_date = (df["ds"].dt.date >= start_date) & (df["ds"].dt.date < end_date)
     df = df[mask_date]
     if df.empty:
         return None
