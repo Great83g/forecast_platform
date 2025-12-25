@@ -382,13 +382,13 @@ def station_forecast_export(request, pk: int):
             "pred_np",
             "pred_xgb",
             "pred_heur",
-            "pred_final",
             "irradiation_fc",
             "air_temp_fc",
             "wind_speed_fc",
             "cloudcover_fc",
             "humidity_fc",
             "precip_fc",
+            "pred_final",
         )
     )
     df = pd.DataFrame(data)
@@ -400,13 +400,13 @@ def station_forecast_export(request, pk: int):
                 "pred_np",
                 "pred_xgb",
                 "pred_heur",
-                "pred_final",
                 "irradiation_fc",
                 "air_temp_fc",
                 "wind_speed_fc",
                 "cloudcover_fc",
                 "humidity_fc",
                 "precip_fc",
+                "pred_final",
             ]
         )
 
