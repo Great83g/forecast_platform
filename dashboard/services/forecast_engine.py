@@ -110,7 +110,7 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
 
 def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     """
-    Делает сетку часов на days вперёд (включая завтра), на весь день.
+    Делает сетку часов на days вперёд (включая завтра), ограничивая "солнечными" часами.
     """
     now = timezone.localtime(timezone.now())
 
@@ -124,6 +124,7 @@ def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
 
     all_hours = pd.date_range(start=start, end=end, freq="h", inclusive="left")
     df = pd.DataFrame({"ds": all_hours})
+    df = df[(df["ds"].dt.hour >= h1) & (df["ds"].dt.hour <= h2)].copy()
     df["ds"] = df["ds"].dt.floor("h")
     return df.reset_index(drop=True)
 
@@ -449,7 +450,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
-    solar_hours = (5, 20)
+    solar_hours = _solar_hours_from_history(st)
 
     base = _make_base_grid(days=days, solar_hours=solar_hours)
 
