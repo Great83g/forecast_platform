@@ -86,25 +86,26 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
     """
     qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
     if not qs.exists():
-        return (5, 20)
+        return (9, 17)
 
     df = pd.DataFrame.from_records(qs.values("timestamp", "irradiation", "power_kw"))
     if df.empty:
-        return (5, 20)
+        return (9, 17)
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df["hour"] = df["timestamp"].dt.hour
     mask = (df["irradiation"].fillna(0) > 50) | (df["power_kw"].fillna(0) > 0)
     if mask.sum() < 5:
-        return (5, 20)
+        return (9, 17)
 
-    hmin = int(df.loc[mask, "hour"].min())
-    hmax = int(df.loc[mask, "hour"].max())
-    # немного расширим; если окно узкое — берём фиксированный день 5-20
+    hours = df.loc[mask, "hour"].astype(int)
+    hmin = int(np.floor(hours.quantile(0.1)))
+    hmax = int(np.ceil(hours.quantile(0.9)))
+    # немного расширим; если окно узкое — берём фиксированный день 9-17
     h1 = max(5, hmin - 1)
     h2 = min(20, hmax + 1)
-    if (h2 - h1) < 12:
-        return (5, 20)
+    if (h2 - h1) < 6:
+        return (9, 17)
     return (h1, h2)
 
 
