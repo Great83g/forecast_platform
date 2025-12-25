@@ -11,6 +11,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -56,6 +57,17 @@ def _excel_safe_datetime(series: pd.Series) -> pd.Series:
         # если уже naive — ок
         pass
     return s
+
+
+def _localize_timestamp(value):
+    if value is None or pd.isna(value):
+        return value
+    try:
+        if timezone.is_naive(value):
+            return timezone.make_aware(value, timezone.get_current_timezone())
+        return timezone.localtime(value)
+    except Exception:
+        return value
 
 
 # ----------------------------
@@ -292,7 +304,7 @@ def station_forecast_list(request, pk: int):
 
     forecasts = [
         {
-            "timestamp": f.timestamp,
+            "timestamp": _localize_timestamp(f.timestamp),
             "pred_final_kw": f.pred_final,
             "pred_np_kw": f.pred_np,
             "pred_xgb_kw": f.pred_xgb,
@@ -397,7 +409,9 @@ def station_forecast_export(request, pk: int):
         )
 
     if "timestamp" in df.columns and not df.empty:
-        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+        ts = pd.to_datetime(df["timestamp"], errors="coerce")
+        ts = ts.apply(_localize_timestamp)
+        df["timestamp"] = _excel_safe_datetime(ts)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
