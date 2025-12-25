@@ -59,6 +59,17 @@ def _excel_safe_datetime(series: pd.Series) -> pd.Series:
     return s
 
 
+def _localize_timestamp(value):
+    if value is None or pd.isna(value):
+        return value
+    try:
+        if timezone.is_naive(value):
+            return timezone.make_aware(value, timezone.get_current_timezone())
+        return timezone.localtime(value)
+    except Exception:
+        return value
+
+
 # ----------------------------
 # stations
 # ----------------------------
@@ -293,7 +304,7 @@ def station_forecast_list(request, pk: int):
 
     forecasts = [
         {
-            "timestamp": timezone.localtime(f.timestamp) if f.timestamp is not None else None,
+            "timestamp": _localize_timestamp(f.timestamp),
             "pred_final_kw": f.pred_final,
             "pred_np_kw": f.pred_np,
             "pred_xgb_kw": f.pred_xgb,
@@ -399,16 +410,7 @@ def station_forecast_export(request, pk: int):
 
     if "timestamp" in df.columns and not df.empty:
         ts = pd.to_datetime(df["timestamp"], errors="coerce")
-
-        def _localize_dt(value):
-            if pd.isna(value):
-                return value
-            try:
-                return timezone.localtime(value)
-            except Exception:
-                return value
-
-        ts = ts.apply(_localize_dt)
+        ts = ts.apply(_localize_timestamp)
         df["timestamp"] = _excel_safe_datetime(ts)
 
     out = BytesIO()
