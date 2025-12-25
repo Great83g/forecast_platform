@@ -9,6 +9,7 @@ from django.conf import settings
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+import neuralprophet
 from neuralprophet import NeuralProphet, save as np_save
 
 from solar.models import SolarRecord
@@ -278,8 +279,15 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         m.fit(df_train, freq="h")
 
         np_path = MODEL_DIR / f"np_model_{station.pk}.np"
-        np_save(m, str(np_path))
-        print(f"[TRAIN] station {station.pk}: NP(y) сохранён в {np_path}")
+        try:
+            if hasattr(m, "save"):
+                m.save(str(np_path))
+            else:
+                np_save(m, str(np_path))
+            print(f"[TRAIN] station {station.pk}: NP(y) сохранён в {np_path}")
+        except Exception as e:
+            print(f"[TRAIN] station {station.pk}: ОШИБКА сохранения NP(y) -> {e}")
+            raise
 
         features_reg = reg_cols
         np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
@@ -290,6 +298,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "features_reg": features_reg,
             "target": "y (MWh) = power_kw/1000",
             "note": "NP trained on direct y from SolarRecord",
+            "np_version": getattr(neuralprophet, "__version__", "unknown"),
         }
         np_meta_path.write_text(
             json.dumps(np_meta, ensure_ascii=False, indent=2), encoding="utf-8"
