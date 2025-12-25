@@ -93,6 +93,11 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
         return (9, 17)
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
+    try:
+        if getattr(df["timestamp"].dt, "tz", None) is not None:
+            df["timestamp"] = df["timestamp"].dt.tz_convert(timezone.get_current_timezone())
+    except Exception:
+        pass
     df["hour"] = df["timestamp"].dt.hour
     mask = (df["irradiation"].fillna(0) > 50) | (df["power_kw"].fillna(0) > 0)
     if mask.sum() < 5:
