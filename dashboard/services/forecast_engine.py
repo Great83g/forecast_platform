@@ -110,23 +110,20 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
 
 def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     """
-    Делает сетку часов на days вперёд (включая сегодня/завтра, но только солнечные часы).
+    Делает сетку часов на days вперёд (включая завтра), на весь день.
     """
     now = timezone.localtime(timezone.now())
-    h1, h2 = solar_hours
 
-    # начинаем с ближайшего следующего солнечного дня, чтобы не строить уже прошедшие часы
+    # начинаем с ближайшего следующего дня, чтобы не строить уже прошедшие часы
     start_date = (now + pd.Timedelta(days=1)).date()
     start = (
         timezone.datetime.combine(start_date, timezone.datetime.min.time())
-        .replace(hour=h1, tzinfo=now.tzinfo, minute=0, second=0, microsecond=0)
+        .replace(hour=0, tzinfo=now.tzinfo, minute=0, second=0, microsecond=0)
     )
     end = start + pd.Timedelta(days=days)
 
     all_hours = pd.date_range(start=start, end=end, freq="h", inclusive="left")
     df = pd.DataFrame({"ds": all_hours})
-
-    df = df[(df["ds"].dt.hour >= h1) & (df["ds"].dt.hour <= h2)].copy()
     df["ds"] = df["ds"].dt.floor("h")
     return df.reset_index(drop=True)
 
