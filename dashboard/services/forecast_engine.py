@@ -484,13 +484,22 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     booster = None
     if xgb_path.exists():
         booster = _load_xgb_model(xgb_path)
+        if booster is None:
+            xgb_error = f"XGB load failed: {xgb_path}"
+            logger.warning("[XGB] load failed from %s", xgb_path)
     elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
         booster = _load_xgb_model(fallback_xgb_path)
+        if booster is None:
+            xgb_error = f"XGB load failed: {fallback_xgb_path}"
+            logger.warning("[XGB] load failed from %s", fallback_xgb_path)
         if fallback_xgb_meta_path.exists():
             try:
                 xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
             except Exception:
                 xgb_meta = xgb_meta
+    else:
+        xgb_error = f"XGB model not found: {xgb_path}"
+        logger.warning("[XGB] model not found: %s", xgb_path)
 
     if booster is not None:
         try:
@@ -540,6 +549,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             np_ok = False
     else:
         np_error = f"NP model not found: {np_path}"
+        logger.warning("[NP] model not found: %s", np_path)
 
     # эвристика (MW)
     y_heur = _heuristic_mw(feat, capacity_mw=capacity_mw)
