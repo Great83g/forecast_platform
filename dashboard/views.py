@@ -51,8 +51,10 @@ def _excel_safe_datetime(series: pd.Series) -> pd.Series:
     try:
         # если tz-aware -> убираем tz
         if getattr(s.dt, "tz", None) is not None:
-            s = s.dt.tz_convert(None)
-        s = s.dt.tz_localize(None)
+            s = s.dt.tz_convert(timezone.get_current_timezone())
+            s = s.dt.tz_localize(None)
+        else:
+            s = s.dt.tz_localize(None)
     except Exception:
         # если уже naive — ок
         pass
@@ -409,8 +411,7 @@ def station_forecast_export(request, pk: int):
         )
 
     if "timestamp" in df.columns and not df.empty:
-        ts = pd.to_datetime(df["timestamp"], errors="coerce")
-        ts = ts.apply(_localize_timestamp)
+        ts = df["timestamp"].apply(_localize_timestamp)
         df["timestamp"] = _excel_safe_datetime(ts)
 
     out = BytesIO()
