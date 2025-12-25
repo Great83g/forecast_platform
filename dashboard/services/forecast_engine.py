@@ -47,6 +47,19 @@ XGB_EXPECTED_FEATURES = [
 PR_FOR_EXPECTED = 0.90
 
 
+def _describe_np_model(model: object) -> str:
+    if model is None:
+        return "model=None"
+    parts = [
+        f"type={type(model)}",
+        f"has_predict={hasattr(model, 'predict')}",
+        f"has_trainer={getattr(model, 'trainer', None) is not None}",
+        f"has_model={getattr(model, 'model', None) is not None}",
+        f"has_init_trainer={callable(getattr(model, '_init_trainer', None))}",
+    ]
+    return ", ".join(parts)
+
+
 def _station_capacity_mw(st: Station) -> float:
     """
     Пытаемся достать мощность станции.
@@ -339,8 +352,9 @@ def _predict_np(
             details = f" Ошибка инициализации: {', '.join(errors)}" if errors else ""
             logger.warning(
                 "[NP] NeuralProphet loaded without trainer (predict cannot run). "
-                "Пересохрани модель через `model.save('...np')` или переобучи.%s",
+                "Пересохрани модель через `model.save('...np')` или переобучи.%s | %s",
                 details,
+                _describe_np_model(model),
             )
             return np.full(len(df_feat), np.nan)
 
@@ -547,7 +561,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     if np_path.exists():
         try:
             model = _load_np_model(np_path)
-            logger.info("[NP] loaded from %s type=%s has_predict=%s", np_path, type(model), hasattr(model, "predict"))
+            logger.info("[NP] loaded from %s %s", np_path, _describe_np_model(model))
             y_np = _predict_np(
                 model,
                 feat,
@@ -567,7 +581,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
                     np_meta = json.loads(fallback_np_meta_path.read_text(encoding="utf-8"))
                 except Exception:
                     np_meta = np_meta
-            logger.info("[NP] loaded from %s type=%s has_predict=%s", fallback_np_path, type(model), hasattr(model, "predict"))
+            logger.info("[NP] loaded from %s %s", fallback_np_path, _describe_np_model(model))
             y_np = _predict_np(
                 model,
                 feat,
