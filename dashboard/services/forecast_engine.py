@@ -467,6 +467,34 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         except Exception:
             xgb_meta = {}
 
+    if not np_path.exists() or not xgb_path.exists():
+        try:
+            from .train_models import train_models_for_station
+
+            logger.info(
+                "[MODEL] missing model files (np=%s, xgb=%s). Attempting auto-train.",
+                np_path.exists(),
+                xgb_path.exists(),
+            )
+            _, np_path_new, xgb_path_new = train_models_for_station(st)
+            if np_path_new is not None:
+                np_path = np_path_new
+            if xgb_path_new is not None:
+                xgb_path = xgb_path_new
+        except Exception as exc:
+            logger.exception("[MODEL] auto-train failed: %s", exc)
+        else:
+            if np_meta_path.exists():
+                try:
+                    np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    np_meta = {}
+            if xgb_meta_path.exists():
+                try:
+                    xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    xgb_meta = {}
+
     fallback_np_path = MODEL_DIR / "np_model_1.np"
     fallback_np_meta_path = MODEL_DIR / "np_model_1.meta.json"
     fallback_xgb_path = MODEL_DIR / "xgb_model_1.json"
