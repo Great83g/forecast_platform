@@ -332,8 +332,16 @@ def _predict_np(
 
     if getattr(model, "trainer", None) is None:
         init_trainer = getattr(model, "_init_trainer", None)
+        restore_trainer = getattr(model, "restore_trainer", None)
         errors: List[str] = []
-        if callable(init_trainer):
+        if callable(restore_trainer):
+            try:
+                trainer_obj = restore_trainer()
+                if trainer_obj is not None and getattr(model, "trainer", None) is None:
+                    model.trainer = trainer_obj
+            except Exception as exc:
+                errors.append(f"restore_trainer: {exc}")
+        if getattr(model, "trainer", None) is None and callable(init_trainer):
             try:
                 trainer_obj = init_trainer()
                 if trainer_obj is not None and getattr(model, "trainer", None) is None:
