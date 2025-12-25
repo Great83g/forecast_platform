@@ -322,11 +322,15 @@ def _predict_np(
         errors: List[str] = []
         if callable(init_trainer):
             try:
-                init_trainer()
+                trainer_obj = init_trainer()
+                if trainer_obj is not None and getattr(model, "trainer", None) is None:
+                    model.trainer = trainer_obj
             except TypeError as exc:
                 errors.append(f"default: {exc}")
                 try:
-                    init_trainer(max_epochs=1)
+                    trainer_obj = init_trainer(max_epochs=1)
+                    if trainer_obj is not None and getattr(model, "trainer", None) is None:
+                        model.trainer = trainer_obj
                 except Exception as exc2:
                     errors.append(f"max_epochs=1: {exc2}")
             except Exception as exc:
