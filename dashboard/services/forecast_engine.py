@@ -113,6 +113,11 @@ def _make_base_grid(days: int, solar_hours: Tuple[int, int]) -> pd.DataFrame:
     Делает сетку часов на days вперёд (включая завтра), ограничивая "солнечными" часами.
     """
     now = timezone.localtime(timezone.now())
+    try:
+        h1, h2 = solar_hours
+    except Exception:
+        logger.warning("[FORECAST] invalid solar_hours=%s, fallback to (5, 20)", solar_hours)
+        h1, h2 = 5, 20
 
     # начинаем с ближайшего следующего дня, чтобы не строить уже прошедшие часы
     start_date = (now + pd.Timedelta(days=1)).date()
