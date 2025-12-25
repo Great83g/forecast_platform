@@ -317,6 +317,33 @@ def _predict_np(
     if model is None or not hasattr(model, "predict"):
         raise TypeError("NP model is not loaded or has no predict() method")
 
+    if getattr(model, "trainer", None) is None:
+        init_trainer = getattr(model, "_init_trainer", None)
+        errors: List[str] = []
+        if callable(init_trainer):
+            try:
+                trainer_obj = init_trainer()
+                if trainer_obj is not None and getattr(model, "trainer", None) is None:
+                    model.trainer = trainer_obj
+            except TypeError as exc:
+                errors.append(f"default: {exc}")
+                try:
+                    trainer_obj = init_trainer(max_epochs=1)
+                    if trainer_obj is not None and getattr(model, "trainer", None) is None:
+                        model.trainer = trainer_obj
+                except Exception as exc2:
+                    errors.append(f"max_epochs=1: {exc2}")
+            except Exception as exc:
+                errors.append(f"default: {exc}")
+        if getattr(model, "trainer", None) is None:
+            details = f" Ошибка инициализации: {', '.join(errors)}" if errors else ""
+            logger.warning(
+                "[NP] NeuralProphet loaded without trainer (predict cannot run). "
+                "Пересохрани модель через `model.save('...np')` или переобучи.%s",
+                details,
+            )
+            return np.full(len(df_feat), np.nan)
+
     df_feat = df_feat.copy()
 
     reg_list = reg_features or [
@@ -444,6 +471,34 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
         except Exception:
             xgb_meta = {}
 
+    if not np_path.exists() or not xgb_path.exists():
+        try:
+            from .train_models import train_models_for_station
+
+            logger.info(
+                "[MODEL] missing model files (np=%s, xgb=%s). Attempting auto-train.",
+                np_path.exists(),
+                xgb_path.exists(),
+            )
+            _, np_path_new, xgb_path_new = train_models_for_station(st)
+            if np_path_new is not None:
+                np_path = np_path_new
+            if xgb_path_new is not None:
+                xgb_path = xgb_path_new
+        except Exception as exc:
+            logger.exception("[MODEL] auto-train failed: %s", exc)
+        else:
+            if np_meta_path.exists():
+                try:
+                    np_meta = json.loads(np_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    np_meta = {}
+            if xgb_meta_path.exists():
+                try:
+                    xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    xgb_meta = {}
+
     fallback_np_path = MODEL_DIR / "np_model_1.np"
     fallback_np_meta_path = MODEL_DIR / "np_model_1.meta.json"
     fallback_xgb_path = MODEL_DIR / "xgb_model_1.json"
@@ -461,13 +516,22 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     booster = None
     if xgb_path.exists():
         booster = _load_xgb_model(xgb_path)
+        if booster is None:
+            xgb_error = f"XGB load failed: {xgb_path}"
+            logger.warning("[XGB] load failed from %s", xgb_path)
     elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
         booster = _load_xgb_model(fallback_xgb_path)
+        if booster is None:
+            xgb_error = f"XGB load failed: {fallback_xgb_path}"
+            logger.warning("[XGB] load failed from %s", fallback_xgb_path)
         if fallback_xgb_meta_path.exists():
             try:
                 xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
             except Exception:
                 xgb_meta = xgb_meta
+    else:
+        xgb_error = f"XGB model not found: {xgb_path}"
+        logger.warning("[XGB] model not found: %s", xgb_path)
 
     if booster is not None:
         try:
@@ -517,6 +581,7 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
             np_ok = False
     else:
         np_error = f"NP model not found: {np_path}"
+        logger.warning("[NP] model not found: %s", np_path)
 
     # эвристика (MW)
     y_heur = _heuristic_mw(feat, capacity_mw=capacity_mw)
