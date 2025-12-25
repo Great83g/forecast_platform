@@ -397,7 +397,18 @@ def station_forecast_export(request, pk: int):
         )
 
     if "timestamp" in df.columns and not df.empty:
-        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+        ts = pd.to_datetime(df["timestamp"], errors="coerce")
+
+        def _localize_dt(value):
+            if pd.isna(value):
+                return value
+            try:
+                return timezone.localtime(value)
+            except Exception:
+                return value
+
+        ts = ts.apply(_localize_dt)
+        df["timestamp"] = _excel_safe_datetime(ts)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
