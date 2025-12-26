@@ -24,6 +24,18 @@
           <option value="{{ d }}" {% if days|stringformat:'s' == d %}selected{% endif %}>{{ d }}</option>
         {% endfor %}
       </select>
+      <div class="d-flex align-items-center gap-2 small">
+        <div class="form-check form-check-inline m-0">
+          <input class="form-check-input" type="checkbox" name="providers" id="provider-visual-crossing" value="visual_crossing"
+                 {% if 'visual_crossing' in selected_providers %}checked{% endif %}>
+          <label class="form-check-label" for="provider-visual-crossing">Visual Crossing</label>
+        </div>
+        <div class="form-check form-check-inline m-0">
+          <input class="form-check-input" type="checkbox" name="providers" id="provider-open-meteo" value="open_meteo"
+                 {% if 'open_meteo' in selected_providers %}checked{% endif %}>
+          <label class="form-check-label" for="provider-open-meteo">Open‑Meteo</label>
+        </div>
+      </div>
       <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
     </form>
     <a class="btn btn-sm btn-outline-success" href="{% url 'dashboard:station-forecast-export' station.pk %}">Скачать Excel</a>
