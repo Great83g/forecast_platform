@@ -16,14 +16,67 @@
     <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
   </div>
 
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title mb-2">Автопрогноз по расписанию</h6>
+      <form method="post" action="{% url 'dashboard:station-forecast-schedule' station.pk %}" class="d-flex flex-wrap gap-3 align-items-center">
+        {% csrf_token %}
+        <div class="form-check m-0">
+          <input class="form-check-input" type="checkbox" name="{{ schedule_form.enabled.name }}" id="{{ schedule_form.enabled.id_for_label }}" {% if schedule_form.enabled.value %}checked{% endif %}>
+          <label class="form-check-label ms-1" for="{{ schedule_form.enabled.id_for_label }}">{{ schedule_form.enabled.label }}</label>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted mb-0" for="{{ schedule_form.run_time.id_for_label }}">Время:</label>
+          {{ schedule_form.run_time }}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted mb-0" for="{{ schedule_form.start_at.id_for_label }}">Дата/время старта:</label>
+          {{ schedule_form.start_at }}
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted mb-0" for="{{ schedule_form.days.id_for_label }}">Дней:</label>
+          {{ schedule_form.days }}
+        </div>
+        <div class="d-flex align-items-center gap-2 small">
+          <span class="text-muted">Провайдеры:</span>
+          {{ schedule_form.providers }}
+        </div>
+        <div class="d-flex align-items-center gap-2 small">
+          <label class="text-muted mb-0" for="{{ schedule_form.emails.id_for_label }}">Email:</label>
+          {{ schedule_form.emails }}
+        </div>
+        <button class="btn btn-sm btn-outline-primary" type="submit">Сохранить расписание</button>
+      </form>
+      <div class="text-muted small mt-2">
+        Автопрогноз запускается серверным планировщиком (cron/systemd/Celery) и использует эти настройки.
+      </div>
+    </div>
+  </div>
+
   <div class="d-flex flex-wrap gap-2 mb-3">
-    <form class="d-flex align-items-center gap-2" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
+    <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
       <label class="small mb-0 text-muted">Дней:</label>
       <select name="days" class="form-select form-select-sm" style="width: 100px;">
         {% for d in '12345' %}
           <option value="{{ d }}" {% if days|stringformat:'s' == d %}selected{% endif %}>{{ d }}</option>
         {% endfor %}
       </select>
+      <div class="d-flex align-items-center gap-2 small">
+        <div class="form-check form-check-inline m-0">
+          <input class="form-check-input" type="checkbox" name="providers" id="provider-visual-crossing" value="visual_crossing"
+                 {% if 'visual_crossing' in selected_providers %}checked{% endif %}>
+          <label class="form-check-label" for="provider-visual-crossing">Visual Crossing</label>
+        </div>
+        <div class="form-check form-check-inline m-0">
+          <input class="form-check-input" type="checkbox" name="providers" id="provider-open-meteo" value="open_meteo"
+                 {% if 'open_meteo' in selected_providers %}checked{% endif %}>
+          <label class="form-check-label" for="provider-open-meteo">Open‑Meteo</label>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
+        <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>
+        {{ email_form.emails }}
+      </div>
       <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
     </form>
     <a class="btn btn-sm btn-outline-success" href="{% url 'dashboard:station-forecast-export' station.pk %}">Скачать Excel</a>

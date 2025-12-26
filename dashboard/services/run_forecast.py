@@ -12,6 +12,6 @@ from .forecast_engine import train_models_for_station
 __all__ = ["run_forecast_for_station", "train_models_for_station"]
 
 
-def run_forecast_for_station(station_id: int, days: int = 3):
+def run_forecast_for_station(station_id: int, days: int = 3, providers=None):
     """Запуск прогноза на N дней вперёд."""
-    return _run_engine(station_id, days=days)
+    return _run_engine(station_id, days=days, providers=providers)
