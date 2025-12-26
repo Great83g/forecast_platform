@@ -14,16 +14,16 @@ from django.urls import reverse
 from django.utils import timezone
 from django.conf import settings
 from urllib.parse import urlencode
-from django.core.mail import EmailMessage
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
 
-from .forms import StationForm, UploadHistoryForm, ForecastEmailForm
+from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
 
 # forecast service (обязательно должен быть)
 from .services.forecast_engine import run_forecast_for_station
-from .services.forecast_reports import build_forecast_report
+from .services.forecast_reports import build_forecast_report, send_report_email
+from .models import ForecastSchedule
 
 # train service (может быть/не быть — не валим портал)
 try:
@@ -301,6 +301,16 @@ def station_forecast_list(request, pk: int):
         ["visual_crossing"],
     )
     email_form = ForecastEmailForm(initial={"emails": request.GET.get("emails", "")})
+    schedule = ForecastSchedule.objects.filter(station=st).first()
+    schedule_form = ForecastScheduleForm(
+        initial={
+            "enabled": schedule.enabled if schedule else False,
+            "run_time": schedule.run_time.strftime("%H:%M") if schedule else "06:00",
+            "days": schedule.days if schedule else days,
+            "providers": (schedule.providers.split(",") if schedule and schedule.providers else selected_providers),
+            "emails": schedule.emails if schedule else request.GET.get("emails", ""),
+        }
+    )
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
     dt_from = _parse_date(from_s)
@@ -334,6 +344,7 @@ def station_forecast_list(request, pk: int):
             "days": days,
             "selected_providers": selected_providers,
             "email_form": email_form,
+            "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
             "count": len(forecasts),
@@ -359,19 +370,10 @@ def station_forecast_run(request, pk: int):
                 recipients=[emails_raw],
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
-            recipients = [r.strip() for r in emails_raw.replace(";", ",").split(",") if r.strip()]
-            if recipients:
-                try:
-                    subject = f"Прогноз для {st.name} ({days} дн.)"
-                    body = f"Отчёт по прогнозу для станции {st.name} во вложении."
-                    email = EmailMessage(subject=subject, body=body, to=recipients)
-                    email.attach_file(report.file.path)
-                    email.send(fail_silently=False)
-                    msg += f" | Email: {', '.join(recipients)}"
-                except Exception as exc:
-                    report.error = str(exc)
-                    report.save(update_fields=["error"])
-                    msg += " | Email: ошибка отправки"
+            if send_report_email(report, [emails_raw], st.name, days):
+                msg += f" | Email: {emails_raw}"
+            elif emails_raw:
+                msg += " | Email: ошибка отправки"
             if not res.get("np_ok"):
                 np_err = res.get("np_error") or "FAIL"
                 msg += f" | NP: {np_err}"
@@ -386,6 +388,29 @@ def station_forecast_run(request, pk: int):
 
     query = urlencode({"days": days, "providers": providers or [], "emails": emails_raw}, doseq=True)
     return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?{query}")
+
+
+@login_required
+def station_forecast_schedule_update(request, pk: int):
+    st = get_object_or_404(Station, pk=pk)
+    if request.method != "POST":
+        return redirect("dashboard:station-forecast-list", pk=st.pk)
+
+    form = ForecastScheduleForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Ошибка в настройках автопрогноза.")
+        return redirect("dashboard:station-forecast-list", pk=st.pk)
+
+    schedule, _ = ForecastSchedule.objects.get_or_create(station=st)
+    schedule.enabled = form.cleaned_data["enabled"]
+    schedule.run_time = form.cleaned_data["run_time"]
+    schedule.days = form.cleaned_data["days"]
+    schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
+    schedule.emails = form.cleaned_data.get("emails", "")
+    schedule.save()
+
+    messages.success(request, "Настройки автопрогноза сохранены.")
+    return redirect("dashboard:station-forecast-list", pk=st.pk)
 
 
 @login_required

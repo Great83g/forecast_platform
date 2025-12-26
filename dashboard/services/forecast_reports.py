@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from solar.models import SolarForecast
 from stations.models import Station
+from django.core.mail import EmailMessage
+
 from dashboard.models import ForecastReport
 
 
@@ -116,3 +118,20 @@ def build_forecast_report(
     report.file.save(filename, ContentFile(out.getvalue()), save=False)
     report.save()
     return report
+
+
+def send_report_email(report: ForecastReport, recipients: Iterable[str], station_name: str, days: int) -> bool:
+    cleaned = _normalize_recipients(recipients)
+    if not cleaned:
+        return False
+    try:
+        subject = f"Прогноз для {station_name} ({days} дн.)"
+        body = f"Отчёт по прогнозу для станции {station_name} во вложении."
+        email = EmailMessage(subject=subject, body=body, to=cleaned)
+        email.attach_file(report.file.path)
+        email.send(fail_silently=False)
+        return True
+    except Exception as exc:
+        report.error = str(exc)
+        report.save(update_fields=["error"])
+        return False
