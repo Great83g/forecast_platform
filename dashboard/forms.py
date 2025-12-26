@@ -60,3 +60,48 @@ class StationForm(forms.ModelForm):
 class UploadHistoryForm(forms.Form):
     file = forms.FileField(label="CSV / Excel файл с историей")
 
+
+class ForecastEmailForm(forms.Form):
+    emails = forms.CharField(
+        label="Email получателей",
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "mail1@example.com, mail2@example.com",
+                "class": "form-control form-control-sm",
+            }
+        ),
+    )
+
+
+class ForecastScheduleForm(forms.Form):
+    enabled = forms.BooleanField(label="Авто‑прогноз", required=False)
+    run_time = forms.TimeField(
+        label="Время запуска",
+        widget=forms.TimeInput(attrs={"type": "time", "class": "form-control form-control-sm"}),
+    )
+    days = forms.IntegerField(
+        label="Дней вперёд",
+        min_value=1,
+        max_value=5,
+        widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
+    )
+    providers = forms.MultipleChoiceField(
+        label="Провайдеры",
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=[
+            ("visual_crossing", "Visual Crossing"),
+            ("open_meteo", "Open‑Meteo"),
+        ],
+    )
+    emails = forms.CharField(
+        label="Email получателей",
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "mail1@example.com, mail2@example.com",
+                "class": "form-control form-control-sm",
+            }
+        ),
+    )
