@@ -12,6 +12,16 @@ MODEL_DIR = BASE_DIR / "models_cache"
 # === Visual Crossing API ===
 VISUAL_CROSSING_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
 
+# === Open-Meteo API ===
+OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_TIMEOUT = 45
+
+# === Forecast weather providers (priority order) ===
+FORECAST_WEATHER_PROVIDERS = [
+    "visual_crossing",
+    "open_meteo",
+]
+
 
 # === БЕЗОПАСНОСТЬ (для разработки) ===
 SECRET_KEY = "django-insecure-%v0pjz8ji+z50*r6xlldh55l%n2u@_7r%4j0pvxm26e%5o2rr*"
@@ -104,6 +114,9 @@ USE_TZ = True
 # === СТАТИКА ===
 STATIC_URL = "/static/"
 
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # === DRF / JWT ===
@@ -119,4 +132,3 @@ REST_FRAMEWORK = {
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/login/"
-
