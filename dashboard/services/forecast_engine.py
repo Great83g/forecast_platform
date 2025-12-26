@@ -19,6 +19,7 @@ from neuralprophet import load as np_load
 
 from solar.models import SolarForecast, SolarRecord
 from stations.models import Station
+from .open_meteo import fetch_open_meteo_hourly
 from .vc_weather import fetch_visual_crossing_hourly
 
 
@@ -510,10 +511,21 @@ def run_forecast_for_station(station_id: int, days: int = 1) -> Dict:
     lon = getattr(st, "lon", None) or getattr(st, "longitude", None)
 
     if lat is not None and lon is not None:
-        wres = fetch_visual_crossing_hourly(float(lat), float(lon), days=days)
-        if wres.ok and not wres.df.empty:
-            weather_source = wres.source
-            weather_df = wres.df.copy()
+        providers = getattr(settings, "FORECAST_WEATHER_PROVIDERS", ["visual_crossing"])
+        fetchers = {
+            "visual_crossing": fetch_visual_crossing_hourly,
+            "open_meteo": fetch_open_meteo_hourly,
+        }
+        for provider in providers:
+            fetcher = fetchers.get(provider)
+            if fetcher is None:
+                logger.warning("[FORECAST] unknown weather provider: %s", provider)
+                continue
+            wres = fetcher(float(lat), float(lon), days=days)
+            if wres.ok and not wres.df.empty:
+                weather_source = wres.source
+                weather_df = wres.df.copy()
+                break
 
     start_date = (now + pd.Timedelta(days=1)).date()
     solar_hours = _solar_hours_from_weather(weather_df, start_date, days) or _solar_hours_from_history(st)
