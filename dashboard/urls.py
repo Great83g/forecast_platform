@@ -21,6 +21,7 @@ urlpatterns = [
     path("station/<int:pk>/forecast/list/", views.station_forecast_list, name="station-forecast-list"),
     path("station/<int:pk>/forecast/run/", views.station_forecast_run, name="station-forecast-run"),
     path("station/<int:pk>/forecast/schedule/", views.station_forecast_schedule_update, name="station-forecast-schedule"),
+    path("forecast/scheduler/tick/", views.station_forecast_scheduler_tick, name="station-forecast-scheduler-tick"),
     path("station/<int:pk>/forecast/export/", views.station_forecast_export, name="station-forecast-export"),
     path("station/<int:pk>/forecast/clear/", views.station_forecast_clear, name="station-forecast-clear"),
 ]

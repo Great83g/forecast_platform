@@ -8,7 +8,7 @@ from typing import Optional
 import pandas as pd
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -23,6 +23,7 @@ from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastSc
 # forecast service (обязательно должен быть)
 from .services.forecast_engine import run_forecast_for_station
 from .services.forecast_reports import build_forecast_report, send_report_email
+from .services.forecast_scheduler import run_scheduled_forecasts
 from .models import ForecastSchedule
 
 # train service (может быть/не быть — не валим портал)
@@ -420,6 +421,12 @@ def station_forecast_schedule_update(request, pk: int):
 
     messages.success(request, "Настройки автопрогноза сохранены.")
     return redirect("dashboard:station-forecast-list", pk=st.pk)
+
+
+@login_required
+def station_forecast_scheduler_tick(request):
+    count = run_scheduled_forecasts()
+    return JsonResponse({"ok": True, "count": count})
 
 
 @login_required

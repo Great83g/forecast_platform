@@ -117,3 +117,15 @@
 
 </div>
 {% endblock %}
+{% block extra_scripts %}
+<script>
+  (function () {
+    function tickScheduler() {
+      fetch("{% url 'dashboard:station-forecast-scheduler-tick' %}", {credentials: "same-origin"})
+        .catch(function () {});
+    }
+    tickScheduler();
+    setInterval(tickScheduler, 60000);
+  })();
+</script>
+{% endblock %}
