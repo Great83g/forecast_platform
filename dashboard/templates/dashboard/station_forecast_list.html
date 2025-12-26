@@ -17,7 +17,7 @@
   </div>
 
   <div class="d-flex flex-wrap gap-2 mb-3">
-    <form class="d-flex align-items-center gap-2" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
+    <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
       <label class="small mb-0 text-muted">Дней:</label>
       <select name="days" class="form-select form-select-sm" style="width: 100px;">
         {% for d in '12345' %}
@@ -35,6 +35,10 @@
                  {% if 'open_meteo' in selected_providers %}checked{% endif %}>
           <label class="form-check-label" for="provider-open-meteo">Open‑Meteo</label>
         </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
+        <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>
+        {{ email_form.emails }}
       </div>
       <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
     </form>

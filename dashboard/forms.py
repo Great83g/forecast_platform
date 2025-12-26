@@ -60,3 +60,15 @@ class StationForm(forms.ModelForm):
 class UploadHistoryForm(forms.Form):
     file = forms.FileField(label="CSV / Excel файл с историей")
 
+
+class ForecastEmailForm(forms.Form):
+    emails = forms.CharField(
+        label="Email получателей",
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "mail1@example.com, mail2@example.com",
+                "class": "form-control form-control-sm",
+            }
+        ),
+    )
