@@ -12,6 +12,15 @@ MODEL_DIR = BASE_DIR / "models_cache"
 # === Visual Crossing API ===
 VISUAL_CROSSING_API_KEY = "WFZVPPR44XXZALVNSDDWDALPU"
 
+# === Email (SMTP) ===
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "mail.care-tech.kz"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "zhezsolar@tgs-energy.kz"
+EMAIL_HOST_PASSWORD = "Great@tcreat"
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
 # === Open-Meteo API ===
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_TIMEOUT = 45
