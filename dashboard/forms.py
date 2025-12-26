@@ -76,6 +76,11 @@ class ForecastEmailForm(forms.Form):
 
 class ForecastScheduleForm(forms.Form):
     enabled = forms.BooleanField(label="Авто‑прогноз", required=False)
+    start_at = forms.DateTimeField(
+        label="Старт",
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local", "class": "form-control form-control-sm"}),
+    )
     run_time = forms.TimeField(
         label="Время запуска",
         widget=forms.TimeInput(attrs={"type": "time", "class": "form-control form-control-sm"}),

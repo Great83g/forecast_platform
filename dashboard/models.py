@@ -21,6 +21,7 @@ class ForecastReport(models.Model):
 class ForecastSchedule(models.Model):
     station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name="forecast_schedules")
     enabled = models.BooleanField(default=False)
+    start_at = models.DateTimeField(null=True, blank=True)
     run_time = models.TimeField(default=time(6, 0))
     days = models.PositiveIntegerField(default=1)
     providers = models.CharField(max_length=128, blank=True)

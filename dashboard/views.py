@@ -305,6 +305,11 @@ def station_forecast_list(request, pk: int):
     schedule_form = ForecastScheduleForm(
         initial={
             "enabled": schedule.enabled if schedule else False,
+            "start_at": (
+                timezone.localtime(schedule.start_at).strftime("%Y-%m-%dT%H:%M")
+                if schedule and schedule.start_at
+                else ""
+            ),
             "run_time": schedule.run_time.strftime("%H:%M") if schedule else "06:00",
             "days": schedule.days if schedule else days,
             "providers": (schedule.providers.split(",") if schedule and schedule.providers else selected_providers),
@@ -403,6 +408,10 @@ def station_forecast_schedule_update(request, pk: int):
 
     schedule, _ = ForecastSchedule.objects.get_or_create(station=st)
     schedule.enabled = form.cleaned_data["enabled"]
+    start_at = form.cleaned_data.get("start_at")
+    if start_at and timezone.is_naive(start_at):
+        start_at = timezone.make_aware(start_at, timezone.get_current_timezone())
+    schedule.start_at = start_at
     schedule.run_time = form.cleaned_data["run_time"]
     schedule.days = form.cleaned_data["days"]
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
