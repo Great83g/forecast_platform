@@ -12,6 +12,8 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.conf import settings
+from urllib.parse import urlencode
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
@@ -291,6 +293,11 @@ def station_forecast_list(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
     days = int(request.GET.get("days", "1") or 1)
+    selected_providers = request.GET.getlist("providers") or getattr(
+        settings,
+        "FORECAST_WEATHER_PROVIDERS",
+        ["visual_crossing"],
+    )
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
     dt_from = _parse_date(from_s)
@@ -322,6 +329,7 @@ def station_forecast_list(request, pk: int):
             "station": st,
             "forecasts": forecasts,
             "days": days,
+            "selected_providers": selected_providers,
             "from": from_s,
             "to": to_s,
             "count": len(forecasts),
@@ -333,9 +341,10 @@ def station_forecast_list(request, pk: int):
 def station_forecast_run(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
     days = int(request.GET.get("days", "1") or 1)
+    providers = request.GET.getlist("providers") or None
 
     try:
-        res = run_forecast_for_station(st.pk, days=days)
+        res = run_forecast_for_station(st.pk, days=days, providers=providers)
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
             if not res.get("np_ok"):
@@ -350,7 +359,8 @@ def station_forecast_run(request, pk: int):
     except Exception as e:
         messages.error(request, f"Ошибка запуска прогноза: {e}")
 
-    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?days={days}")
+    query = urlencode({"days": days, "providers": providers or []}, doseq=True)
+    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?{query}")
 
 
 @login_required
