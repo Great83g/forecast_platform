@@ -12,14 +12,18 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.conf import settings
+from urllib.parse import urlencode
+from django.core.mail import EmailMessage
 
 from stations.models import Station
 from solar.models import SolarRecord, SolarForecast
 
-from .forms import StationForm, UploadHistoryForm
+from .forms import StationForm, UploadHistoryForm, ForecastEmailForm
 
 # forecast service (обязательно должен быть)
 from .services.forecast_engine import run_forecast_for_station
+from .services.forecast_reports import build_forecast_report
 
 # train service (может быть/не быть — не валим портал)
 try:
@@ -291,6 +295,12 @@ def station_forecast_list(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
     days = int(request.GET.get("days", "1") or 1)
+    selected_providers = request.GET.getlist("providers") or getattr(
+        settings,
+        "FORECAST_WEATHER_PROVIDERS",
+        ["visual_crossing"],
+    )
+    email_form = ForecastEmailForm(initial={"emails": request.GET.get("emails", "")})
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
     dt_from = _parse_date(from_s)
@@ -322,6 +332,8 @@ def station_forecast_list(request, pk: int):
             "station": st,
             "forecasts": forecasts,
             "days": days,
+            "selected_providers": selected_providers,
+            "email_form": email_form,
             "from": from_s,
             "to": to_s,
             "count": len(forecasts),
@@ -333,11 +345,33 @@ def station_forecast_list(request, pk: int):
 def station_forecast_run(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
     days = int(request.GET.get("days", "1") or 1)
+    providers = request.GET.getlist("providers") or None
+    emails_raw = request.GET.get("emails", "")
 
     try:
-        res = run_forecast_for_station(st.pk, days=days)
+        res = run_forecast_for_station(st.pk, days=days, providers=providers)
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
+            report = build_forecast_report(
+                station=st,
+                days=days,
+                weather_source=res.get("weather_source"),
+                recipients=[emails_raw],
+            )
+            msg += f" | Отчёт сохранён: {report.file.name}"
+            recipients = [r.strip() for r in emails_raw.replace(";", ",").split(",") if r.strip()]
+            if recipients:
+                try:
+                    subject = f"Прогноз для {st.name} ({days} дн.)"
+                    body = f"Отчёт по прогнозу для станции {st.name} во вложении."
+                    email = EmailMessage(subject=subject, body=body, to=recipients)
+                    email.attach_file(report.file.path)
+                    email.send(fail_silently=False)
+                    msg += f" | Email: {', '.join(recipients)}"
+                except Exception as exc:
+                    report.error = str(exc)
+                    report.save(update_fields=["error"])
+                    msg += " | Email: ошибка отправки"
             if not res.get("np_ok"):
                 np_err = res.get("np_error") or "FAIL"
                 msg += f" | NP: {np_err}"
@@ -350,7 +384,8 @@ def station_forecast_run(request, pk: int):
     except Exception as e:
         messages.error(request, f"Ошибка запуска прогноза: {e}")
 
-    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?days={days}")
+    query = urlencode({"days": days, "providers": providers or [], "emails": emails_raw}, doseq=True)
+    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?{query}")
 
 
 @login_required
