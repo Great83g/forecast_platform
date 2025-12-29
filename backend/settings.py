@@ -18,7 +18,7 @@ EMAIL_HOST = "mail.care-tech.kz"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = "zhezsolar@tgs-energy.kz"
-EMAIL_HOST_PASSWORD = "Great@tcreat"
+EMAIL_HOST_PASSWORD = "Great@creat"
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # === Open-Meteo API ===
