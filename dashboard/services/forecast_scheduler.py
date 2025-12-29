@@ -25,10 +25,18 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None) -> int:
     for schedule in ForecastSchedule.objects.filter(enabled=True):
         if schedule.last_run_at and schedule.last_run_at.date() >= today:
             continue
-        if schedule.start_at and current < timezone.localtime(schedule.start_at):
-            continue
-        if current.time() < schedule.run_time:
-            continue
+
+        if schedule.start_at:
+            start_at = timezone.localtime(schedule.start_at)
+            if schedule.last_run_at is None:
+                if current < start_at:
+                    continue
+            else:
+                if current.time() < schedule.run_time:
+                    continue
+        else:
+            if current.time() < schedule.run_time:
+                continue
 
         res = run_forecast_for_station(
             schedule.station_id,
