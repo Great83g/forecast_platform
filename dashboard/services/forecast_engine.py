@@ -509,7 +509,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 @transaction.atomic
 def run_forecast_for_station(
     station_id: int,
-    days: int = 1,
+    days: int = 7,
     providers: Optional[List[str]] = None,
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
