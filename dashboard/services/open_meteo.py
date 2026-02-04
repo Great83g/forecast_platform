@@ -107,6 +107,5 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
 
     df = df.groupby("ds", as_index=False).mean(numeric_only=True)
     df["irradiation"] = pd.to_numeric(df["irradiation"], errors="coerce").fillna(0.0).clip(lower=0)
-    df.loc[df["irradiation"] < 20, "irradiation"] = 0.0
 
     return WeatherResult(ok=True, source="open_meteo", df=df)
