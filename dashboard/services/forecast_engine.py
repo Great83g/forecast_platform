@@ -724,9 +724,12 @@ def run_forecast_for_station(
     y_final_kw = y_final * 1000.0
 
     # ---- save ----
-    ts_min = feat["ds"].min()
-    ts_max = feat["ds"].max()
-    SolarForecast.objects.filter(station=st, timestamp__gte=ts_min, timestamp__lte=ts_max).delete()
+    start = timezone.datetime.combine(
+        start_date,
+        timezone.datetime.min.time(),
+    ).replace(tzinfo=now.tzinfo)
+    end = start + pd.Timedelta(days=days)
+    SolarForecast.objects.filter(station=st, timestamp__gte=start, timestamp__lt=end).delete()
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
