@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import psycopg2
 import xgboost as xgb
+import neuralprophet
 from neuralprophet import NeuralProphet, save
 
 # === Paths ===
@@ -105,7 +106,9 @@ def add_common_features(df, ds_col: str = "ds"):
     df["hour"] = df[ds_col].dt.hour
     df["month"] = df[ds_col].dt.month
     df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
     df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
 
     df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > 0)).astype(int)
     df["morning_peak_boost"] = (
@@ -124,40 +127,44 @@ def add_common_features(df, ds_col: str = "ds"):
         (df["hour"] == 6) & (df["Irradiation"] > 49)
     ).astype(int)
 
-    df["PV_Temp"] = (
-        df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000 * 20
-    )
+    if "PV_Temp" not in df.columns:
+        df["PV_Temp"] = np.nan
+    if df["PV_Temp"].isna().mean() > 0.80:
+        df["PV_Temp"] = (
+            df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000 * 20
+        )
 
-    df["y_expected"] = CAP_MW * (df["Irradiation"] / 1000) * PR_FOR_EXPECTED
-    df["y_expected"] = df["y_expected"].clip(upper=EXPECTED_UPPER)
-    df["y_expected_log"] = np.log1p(df["y_expected"] * 0.95)
+    if "Wind_Speed" not in df.columns:
+        df["Wind_Speed"] = np.nan
+
+    df["y_expected_88"] = CAP_MW * (df["Irradiation"] / 1000) * PR_FOR_EXPECTED
+    df["y_expected_88"] = df["y_expected_88"].clip(upper=EXPECTED_UPPER)
+    df["y_expected_log"] = np.log1p(df["y_expected_88"] * 0.95)
 
     return df
 
 
 # =========================
-#  NeuralProphet
+#  NeuralProphet residual
 # =========================
 def train_neuralprophet(df: pd.DataFrame):
-    print("🔧 Обучение NeuralProphet (прямо на y)...")
+    print("🔧 Обучение NeuralProphet (residual)...")
 
     df = df.copy()
     df = add_common_features(df, "ds")
     df = add_sun_geometry(df, "ds", 47.86)
 
-    df["dup_weight"] = 1
-    df.loc[df["is_morning_active"] == 1, "dup_weight"] = 8
-    df_dup = df.loc[df.index.repeat(df["dup_weight"])].copy()
-    df_dup["dup_index"] = df_dup.groupby("ds").cumcount()
-    df_dup["ds"] = df_dup["ds"] + pd.to_timedelta(df_dup["dup_index"], unit="m")
-    df_b = df_dup.drop(columns=["dup_index", "dup_weight"])
+    df["y_residual"] = df["y"] - df["y_expected_88"]
 
     features_reg = [
         "Irradiation",
         "Air_Temp",
         "PV_Temp",
+        "Wind_Speed",
         "hour_sin",
+        "hour_cos",
         "month_sin",
+        "month_cos",
         "is_clear",
         "y_expected_log",
         "morning_peak_boost",
@@ -169,7 +176,24 @@ def train_neuralprophet(df: pd.DataFrame):
         "low_sun_flag",
     ]
 
-    df_train = df_b[["ds", "y"] + features_reg].dropna().copy()
+    df_fit = df[["ds", "y_residual"] + features_reg].copy()
+    df_fit.rename(columns={"y_residual": "y"}, inplace=True)
+
+    fill_map: dict[str, float] = {}
+    for col in features_reg:
+        if col not in df_fit.columns:
+            df_fit[col] = np.nan
+        med = df_fit[col].median(skipna=True)
+        if pd.isna(med):
+            med = 0.0
+        fill_map[col] = float(med)
+
+    df_fit = df_fit.dropna(subset=["ds", "y"]).copy()
+    for col in features_reg:
+        df_fit[col] = pd.to_numeric(df_fit[col], errors="coerce").fillna(fill_map[col])
+
+    if len(df_fit) < 500:
+        raise RuntimeError(f"Too few rows for NP after cleaning: {len(df_fit)}")
 
     model = NeuralProphet(
         yearly_seasonality=False,
@@ -177,7 +201,7 @@ def train_neuralprophet(df: pd.DataFrame):
         daily_seasonality=True,
         seasonality_mode="additive",
         learning_rate=0.2,
-        epochs=400,
+        epochs=450,
         batch_size=64,
         loss_func="MSE",
         n_lags=0,
@@ -186,7 +210,7 @@ def train_neuralprophet(df: pd.DataFrame):
     for col in features_reg:
         model.add_future_regressor(col, normalize="minmax")
 
-    model.fit(df_train, freq="h")
+    model.fit(df_fit, freq="h")
     save(model, str(NP_MODEL_FILE))
 
     NP_META_FILE.write_text(
@@ -195,8 +219,10 @@ def train_neuralprophet(df: pd.DataFrame):
                 "cap_mw": CAP_MW,
                 "pr_for_expected": PR_FOR_EXPECTED,
                 "features_reg": features_reg,
-                "target": "y (MWh) = power_kw/1000",
-                "note": "NP trained on direct y from solar_hourly_kw",
+                "fill_map": fill_map,
+                "target": "y_residual = y - y_expected_88",
+                "note": "NP residual. Missing regressor values are filled using train medians.",
+                "np_version": getattr(neuralprophet, "__version__", "unknown"),
             },
             ensure_ascii=False,
             indent=2,
@@ -221,15 +247,22 @@ def train_xgb_permw(df: pd.DataFrame):
         "Irradiation",
         "Air_Temp",
         "PV_Temp",
+        "Wind_Speed",
         "hour",
         "month",
         "hour_sin",
+        "hour_cos",
         "month_sin",
+        "month_cos",
         "sun_elev_deg",
         "low_sun_flag",
     ]
 
-    df = df.dropna(subset=X_cols + ["y"]).copy()
+    for col in X_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df = df.dropna(subset=["y"]).copy()
 
     if len(df) == 0:
         raise RuntimeError("После фильтрации NaN нет данных для обучения XGBoost.")
@@ -255,6 +288,7 @@ def train_xgb_permw(df: pd.DataFrame):
                 "X_cols": X_cols,
                 "target": "y_per_MW = y / 8.8",
                 "note": "XGB per-MW trained from solar_hourly_kw",
+                "xgb_version": getattr(xgb, "__version__", "unknown"),
             },
             ensure_ascii=False,
             indent=2,

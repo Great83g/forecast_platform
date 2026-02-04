@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import requests
 from django.conf import settings
@@ -12,17 +14,19 @@ from django.utils import timezone
 from .vc_weather import WeatherResult
 
 
-def _now_local() -> datetime:
-    return timezone.localtime(timezone.now()).replace(minute=0, second=0, microsecond=0)
+def _now_local(tz_name: Optional[str] = None) -> datetime:
+    tz = ZoneInfo(tz_name) if tz_name else timezone.get_current_timezone()
+    return timezone.localtime(timezone.now(), tz).replace(minute=0, second=0, microsecond=0)
 
 
-def _normalize_timezone(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_timezone(df: pd.DataFrame, tz_name: Optional[str] = None) -> pd.DataFrame:
     df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    tz = ZoneInfo(tz_name) if tz_name else timezone.get_current_timezone()
     try:
         if getattr(df["ds"].dt, "tz", None) is None:
-            df["ds"] = df["ds"].dt.tz_localize(timezone.get_current_timezone())
+            df["ds"] = df["ds"].dt.tz_localize(tz)
         else:
-            df["ds"] = df["ds"].dt.tz_convert(timezone.get_current_timezone())
+            df["ds"] = df["ds"].dt.tz_convert(tz)
     except Exception:
         pass
     return df
@@ -36,12 +40,12 @@ def _align_values(times: list, values: Optional[list]) -> list:
     return values + [None] * (len(times) - len(values))
 
 
-def fetch_open_meteo_hourly(lat: float, lon: float, days: int) -> WeatherResult:
+def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional[str] = None) -> WeatherResult:
     """
     Возвращает почасовой прогноз Open-Meteo на N дней вперёд в датафрейме:
     ds, irradiation, air_temp, wind_speed, cloudcover, humidity, precip
     """
-    start = _now_local()
+    start = _now_local(tz_name)
     end = start + timedelta(days=days)
 
     base_url = getattr(settings, "OPEN_METEO_BASE_URL", "https://api.open-meteo.com/v1/forecast")
@@ -61,7 +65,7 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int) -> WeatherResult:
         ),
         "start_date": start.date().isoformat(),
         "end_date": end.date().isoformat(),
-        "timezone": "auto",
+        "timezone": tz_name or "auto",
     }
 
     try:
@@ -88,7 +92,7 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int) -> WeatherResult:
         }
     )
 
-    df = _normalize_timezone(df)
+    df = _normalize_timezone(df, tz_name)
     df = df.sort_values("ds").reset_index(drop=True)
     df["ds"] = df["ds"].dt.floor("h")
 

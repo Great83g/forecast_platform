@@ -31,19 +31,15 @@ XGB_EXPECTED_FEATURES = [
     "Irradiation",
     "Air_Temp",
     "PV_Temp",
+    "Wind_Speed",
     "hour",
     "month",
     "hour_sin",
+    "hour_cos",
     "month_sin",
+    "month_cos",
     "sun_elev_deg",
     "low_sun_flag",
-    "is_daylight",
-    "is_clear",
-    "morning_peak_boost",
-    "evening_penalty",
-    "is_morning_active",
-    "overdrive_flag",
-    "midday_penalty",
 ]
 
 PR_FOR_EXPECTED = 0.90
@@ -205,13 +201,14 @@ def _add_sun_geometry(df: pd.DataFrame, lat_deg: float) -> pd.DataFrame:
 
 def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> pd.DataFrame:
     """
-    Генерим фичи под XGB ожидаемый набор.
+    Генерим фичи под ожидаемый набор XGB/NP (v16 residual).
     """
     out = df.copy()
 
     # нормальные имена для XGB
     out["Irradiation"] = pd.to_numeric(out.get("irradiation"), errors="coerce").fillna(0.0)
     out["Air_Temp"] = pd.to_numeric(out.get("air_temp"), errors="coerce").fillna(0.0)
+    out["Wind_Speed"] = pd.to_numeric(out.get("wind_speed"), errors="coerce")
 
     # PV_Temp — если нет в погоде, аппроксимируем как в локальном скрипте
     out["PV_Temp"] = out["Air_Temp"] + np.maximum(out["Irradiation"] - 50, 0) / 1000 * 20
@@ -220,7 +217,9 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     out["month"] = pd.to_datetime(out["ds"]).dt.month.astype(int)
 
     out["hour_sin"] = np.sin(2 * np.pi * out["hour"] / 24.0)
+    out["hour_cos"] = np.cos(2 * np.pi * out["hour"] / 24.0)
     out["month_sin"] = np.sin(2 * np.pi * out["month"] / 12.0)
+    out["month_cos"] = np.cos(2 * np.pi * out["month"] / 12.0)
 
     # простые флаги
     out["is_daylight"] = (out["Irradiation"] > 20).astype(int)
@@ -235,6 +234,7 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
 
     # ожидаемая генерация и лог-таргет (как в обучении)
     expected_mw = (capacity_mw * (out["Irradiation"] / 1000.0) * PR_FOR_EXPECTED).clip(upper=capacity_mw * 0.95)
+    out["y_expected"] = expected_mw
     out["y_expected_log"] = np.log1p(expected_mw * 0.95)
 
     out = _add_sun_geometry(out, lat_deg)
@@ -370,6 +370,7 @@ def _predict_np(
     df_feat: pd.DataFrame,
     reg_features: Optional[List[str]] = None,
     cap_for_expected: Optional[float] = None,
+    fill_map: Optional[Dict[str, float]] = None,
 ) -> np.ndarray:
     """
     Предикт NeuralProphet:
@@ -457,13 +458,14 @@ def _predict_np(
     missing = []
     for col in reg_list:
         if col in df_feat.columns:
-            dfp[col] = df_feat[col].values
+            series = pd.to_numeric(df_feat[col], errors="coerce")
+            dfp[col] = series.fillna(float((fill_map or {}).get(col, 0.0))).values
         else:
             missing.append(col)
-            dfp[col] = 0.0
+            dfp[col] = float((fill_map or {}).get(col, 0.0))
 
     if missing:
-        logger.warning("[NP] missing regressors -> filled with 0.0: %s", missing)
+        logger.warning("[NP] missing regressors -> filled with defaults: %s", missing)
 
     fcst = model.predict(dfp)
 
@@ -513,6 +515,7 @@ def run_forecast_for_station(
 
     lat = getattr(st, "lat", None) or getattr(st, "latitude", None)
     lon = getattr(st, "lon", None) or getattr(st, "longitude", None)
+    tz_name = getattr(st, "timezone", None) or str(timezone.get_current_timezone())
 
     if lat is not None and lon is not None:
         provider_list = providers or getattr(settings, "FORECAST_WEATHER_PROVIDERS", ["visual_crossing"])
@@ -525,7 +528,10 @@ def run_forecast_for_station(
             if fetcher is None:
                 logger.warning("[FORECAST] unknown weather provider: %s", provider)
                 continue
-            wres = fetcher(float(lat), float(lon), days=days)
+            if provider == "open_meteo":
+                wres = fetcher(float(lat), float(lon), days=days, tz_name=tz_name)
+            else:
+                wres = fetcher(float(lat), float(lon), days=days)
             if wres.ok and not wres.df.empty:
                 weather_source = wres.source
                 weather_df = wres.df.copy()
@@ -640,7 +646,8 @@ def run_forecast_for_station(
                 model,
                 feat,
                 reg_features=np_meta.get("features_reg"),
-                cap_for_expected=np_meta.get("cap_mw_used"),
+                cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
+                fill_map=np_meta.get("fill_map") if isinstance(np_meta.get("fill_map"), dict) else None,
             )
             np_ok = True
         except Exception as e:
@@ -661,6 +668,7 @@ def run_forecast_for_station(
                 feat,
                 reg_features=np_meta.get("features_reg"),
                 cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
+                fill_map=np_meta.get("fill_map") if isinstance(np_meta.get("fill_map"), dict) else None,
             )
             np_ok = True
         except Exception as e:
@@ -672,7 +680,15 @@ def run_forecast_for_station(
         logger.warning("[NP] model not found: %s", np_path)
 
     # эвристика (MW)
-    y_heur = _heuristic_mw(feat, capacity_mw=capacity_mw)
+    y_heur = feat.get("y_expected")
+    if y_heur is None:
+        y_heur = _heuristic_mw(feat, capacity_mw=capacity_mw)
+    else:
+        y_heur = y_heur.to_numpy(dtype=float)
+
+    # NP теперь выдаёт residual -> приводим к полной мощности
+    if np_ok:
+        y_np = y_np + np.nan_to_num(feat.get("y_expected", 0.0))
 
     # ансамбль:
     y_final = y_heur.copy()
