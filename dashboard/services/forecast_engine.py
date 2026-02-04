@@ -171,6 +171,13 @@ def _solar_hours_from_weather(
     hmax = int(np.ceil(hours.quantile(0.9)))
     h1 = max(5, hmin - 1)
     h2 = min(20, hmax + 1)
+
+    winter_months = {11, 12, 1, 2}
+    if start_date.month in winter_months:
+        h1 = min(h1, 8)
+        h2 = max(h2, 17)
+        h1 = max(5, h1)
+        h2 = min(20, h2)
     if (h2 - h1) < 6:
         return None
     return (h1, h2)
@@ -238,6 +245,12 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     out["y_expected_log"] = np.log1p(expected_mw * 0.95)
 
     out = _add_sun_geometry(out, lat_deg)
+
+    winter_months = {11, 12, 1, 2}
+    winter_mask = (out["month"].isin(winter_months)) & (out["sun_elev_deg"] > 0)
+    out.loc[winter_mask, "Irradiation"] = out.loc[winter_mask, "Irradiation"].clip(lower=10)
+    morning_winter_mask = winter_mask & out["hour"].isin([8, 9, 10])
+    out.loc[morning_winter_mask, "Irradiation"] = out.loc[morning_winter_mask, "Irradiation"].clip(lower=20)
 
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
@@ -502,7 +515,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 @transaction.atomic
 def run_forecast_for_station(
     station_id: int,
-    days: int = 1,
+    days: int = 7,
     providers: Optional[List[str]] = None,
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
@@ -711,9 +724,12 @@ def run_forecast_for_station(
     y_final_kw = y_final * 1000.0
 
     # ---- save ----
-    ts_min = feat["ds"].min()
-    ts_max = feat["ds"].max()
-    SolarForecast.objects.filter(station=st, timestamp__gte=ts_min, timestamp__lte=ts_max).delete()
+    start = timezone.datetime.combine(
+        start_date,
+        timezone.datetime.min.time(),
+    ).replace(tzinfo=now.tzinfo)
+    end = start + pd.Timedelta(days=days)
+    SolarForecast.objects.filter(station=st, timestamp__gte=start, timestamp__lt=end).delete()
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
