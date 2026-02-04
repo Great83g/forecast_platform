@@ -49,6 +49,7 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
     start = _now_local(tz_name)
     start_date = (start + timedelta(days=1)).date()
     end_date = start_date + timedelta(days=days - 1)
+    forecast_days = days + 1
 
     base_url = getattr(settings, "OPEN_METEO_BASE_URL", "https://api.open-meteo.com/v1/forecast")
     timeout = getattr(settings, "OPEN_METEO_TIMEOUT", 45)
@@ -58,15 +59,14 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
         "hourly": ",".join(
             [
                 "temperature_2m",
-                "relativehumidity_2m",
+                "relative_humidity_2m",
                 "precipitation",
-                "cloudcover",
-                "windspeed_10m",
+                "cloud_cover",
+                "wind_speed_10m",
                 "shortwave_radiation",
             ]
         ),
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
+        "forecast_days": forecast_days,
         "timezone": tz_name or "auto",
     }
 
@@ -87,9 +87,9 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
             "ds": times,
             "irradiation": _align_values(times, hourly.get("shortwave_radiation")),
             "air_temp": _align_values(times, hourly.get("temperature_2m")),
-            "wind_speed": _align_values(times, hourly.get("windspeed_10m")),
-            "cloudcover": _align_values(times, hourly.get("cloudcover")),
-            "humidity": _align_values(times, hourly.get("relativehumidity_2m")),
+            "wind_speed": _align_values(times, hourly.get("wind_speed_10m")),
+            "cloudcover": _align_values(times, hourly.get("cloud_cover")),
+            "humidity": _align_values(times, hourly.get("relative_humidity_2m")),
             "precip": _align_values(times, hourly.get("precipitation")),
         }
     )
