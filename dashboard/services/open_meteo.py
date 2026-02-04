@@ -45,8 +45,10 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
     Возвращает почасовой прогноз Open-Meteo на N дней вперёд в датафрейме:
     ds, irradiation, air_temp, wind_speed, cloudcover, humidity, precip
     """
+    days = max(int(days), 1)
     start = _now_local(tz_name)
-    end = start + timedelta(days=days)
+    start_date = (start + timedelta(days=1)).date()
+    end_date = start_date + timedelta(days=days - 1)
 
     base_url = getattr(settings, "OPEN_METEO_BASE_URL", "https://api.open-meteo.com/v1/forecast")
     timeout = getattr(settings, "OPEN_METEO_TIMEOUT", 45)
@@ -63,8 +65,8 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
                 "shortwave_radiation",
             ]
         ),
-        "start_date": start.date().isoformat(),
-        "end_date": end.date().isoformat(),
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
         "timezone": tz_name or "auto",
     }
 
