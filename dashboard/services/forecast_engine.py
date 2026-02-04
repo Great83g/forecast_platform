@@ -249,6 +249,8 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     winter_months = {11, 12, 1, 2}
     winter_mask = (out["month"].isin(winter_months)) & (out["sun_elev_deg"] > 0)
     out.loc[winter_mask, "Irradiation"] = out.loc[winter_mask, "Irradiation"].clip(lower=10)
+    morning_winter_mask = winter_mask & out["hour"].isin([8, 9, 10])
+    out.loc[morning_winter_mask, "Irradiation"] = out.loc[morning_winter_mask, "Irradiation"].clip(lower=20)
 
     # гарантируем порядок и наличие
     for c in XGB_EXPECTED_FEATURES:
