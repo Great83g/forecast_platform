@@ -515,6 +515,7 @@ def run_forecast_for_station(
 
     lat = getattr(st, "lat", None) or getattr(st, "latitude", None)
     lon = getattr(st, "lon", None) or getattr(st, "longitude", None)
+    tz_name = getattr(st, "timezone", None) or str(timezone.get_current_timezone())
 
     if lat is not None and lon is not None:
         provider_list = providers or getattr(settings, "FORECAST_WEATHER_PROVIDERS", ["visual_crossing"])
@@ -527,7 +528,10 @@ def run_forecast_for_station(
             if fetcher is None:
                 logger.warning("[FORECAST] unknown weather provider: %s", provider)
                 continue
-            wres = fetcher(float(lat), float(lon), days=days)
+            if provider == "open_meteo":
+                wres = fetcher(float(lat), float(lon), days=days, tz_name=tz_name)
+            else:
+                wres = fetcher(float(lat), float(lon), days=days)
             if wres.ok and not wres.df.empty:
                 weather_source = wres.source
                 weather_df = wres.df.copy()
