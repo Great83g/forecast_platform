@@ -171,6 +171,13 @@ def _solar_hours_from_weather(
     hmax = int(np.ceil(hours.quantile(0.9)))
     h1 = max(5, hmin - 1)
     h2 = min(20, hmax + 1)
+
+    winter_months = {11, 12, 1, 2}
+    if start_date.month in winter_months:
+        h1 = min(h1, 8)
+        h2 = max(h2, 17)
+        h1 = max(5, h1)
+        h2 = min(20, h2)
     if (h2 - h1) < 6:
         return None
     return (h1, h2)
@@ -502,7 +509,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 @transaction.atomic
 def run_forecast_for_station(
     station_id: int,
-    days: int = 1,
+    days: int = 7,
     providers: Optional[List[str]] = None,
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
