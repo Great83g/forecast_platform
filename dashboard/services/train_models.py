@@ -119,7 +119,9 @@ def add_common_features(df: pd.DataFrame, cap_mw: float, ds_col: str = "ds") -> 
     df["month"] = df["ds"].dt.month
 
     df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
     df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
 
     df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > 0)).astype(int)
     df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 39)).astype(int)
@@ -128,7 +130,13 @@ def add_common_features(df: pd.DataFrame, cap_mw: float, ds_col: str = "ds") -> 
     df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
     df["is_morning_active"] = ((df["hour"] == 6) & (df["Irradiation"] > 49)).astype(int)
 
-    df["PV_Temp"] = df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000 * 20
+    if "PV_Temp" not in df.columns:
+        df["PV_Temp"] = np.nan
+    if df["PV_Temp"].isna().mean() > 0.80:
+        df["PV_Temp"] = df["Air_Temp"] + np.maximum(df["Irradiation"] - 50, 0) / 1000 * 20
+
+    if "Wind_Speed" not in df.columns:
+        df["Wind_Speed"] = np.nan
 
     df["y_expected"] = cap_mw * (df["Irradiation"] / 1000) * PR_FOR_EXPECTED
     df["y_expected"] = df["y_expected"].clip(upper=cap_mw * 0.95)
@@ -175,16 +183,23 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         "Irradiation",
         "Air_Temp",
         "PV_Temp",
+        "Wind_Speed",
         "hour",
         "month",
         "hour_sin",
+        "hour_cos",
         "month_sin",
+        "month_cos",
         "sun_elev_deg",
         "low_sun_flag",
     ]
 
+    for col in X_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+
     df["y_permw"] = (df["y"] / cap_mw).clip(lower=0)
-    df_xgb = df.dropna(subset=X_cols + ["y_permw"]).copy()
+    df_xgb = df.dropna(subset=["y_permw"]).copy()
 
     xgb_path: Path | None = None
     if len(df_xgb) == 0:
@@ -192,11 +207,12 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     else:
         try:
             model_xgb = xgb.XGBRegressor(
-                n_estimators=500,
-                max_depth=5,
+                n_estimators=700,
+                max_depth=6,
                 learning_rate=0.05,
                 subsample=0.9,
                 colsample_bytree=0.9,
+                reg_lambda=1.0,
                 random_state=42,
             )
             model_xgb.fit(df_xgb[X_cols], df_xgb["y_permw"])
@@ -209,6 +225,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 "X_cols": X_cols,
                 "cap_mw_used": cap_mw,
                 "target": "y_per_MW = y / cap_mw",
+                "xgb_version": getattr(xgb, "__version__", "unknown"),
             }
             meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
             meta_path.write_text(
@@ -227,20 +244,15 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             xgb_path = None
 
     # =========================================================
-    # 2) Обучение NeuralProphet на y_mw
+    # 2) Обучение NeuralProphet на residual
     # =========================================================
     np_path: Path | None = None
     try:
         df_np = df.copy()
-        df_np["dup_weight"] = 1
-        df_np.loc[df_np["is_morning_active"] == 1, "dup_weight"] = 8
-        df_dup = df_np.loc[df_np.index.repeat(df_np["dup_weight"])].copy()
-        df_dup["dup_index"] = df_dup.groupby("ds").cumcount()
-        df_dup["ds"] = df_dup["ds"] + pd.to_timedelta(df_dup["dup_index"], unit="m")
-        df_b = df_dup.drop(columns=["dup_index", "dup_weight"])
+        df_np["y_residual"] = df_np["y"] - df_np["y_expected"]
 
         print(
-            f"[TRAIN] station {station.pk}: старт обучения NP(y), строк={len(df_b)}"
+            f"[TRAIN] station {station.pk}: старт обучения NP(residual), строк={len(df_np)}"
         )
 
         m = NeuralProphet(
@@ -251,7 +263,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             daily_seasonality=True,
             seasonality_mode="additive",
             learning_rate=0.2,
-            epochs=400,
+            epochs=450,
             batch_size=64,
             loss_func="MSE",
         )
@@ -260,8 +272,11 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "Irradiation",
             "Air_Temp",
             "PV_Temp",
+            "Wind_Speed",
             "hour_sin",
+            "hour_cos",
             "month_sin",
+            "month_cos",
             "is_clear",
             "y_expected_log",
             "morning_peak_boost",
@@ -275,7 +290,26 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         for col in reg_cols:
             m.add_future_regressor(col, normalize="minmax")
 
-        df_train = df_b[["ds", "y"] + reg_cols].dropna().copy()
+        df_fit = df_np[["ds", "y_residual"] + reg_cols].copy()
+        df_fit.rename(columns={"y_residual": "y"}, inplace=True)
+
+        fill_map: dict[str, float] = {}
+        for col in reg_cols:
+            if col not in df_fit.columns:
+                df_fit[col] = np.nan
+            med = df_fit[col].median(skipna=True)
+            if pd.isna(med):
+                med = 0.0
+            fill_map[col] = float(med)
+
+        df_fit = df_fit.dropna(subset=["ds", "y"]).copy()
+        for col in reg_cols:
+            df_fit[col] = pd.to_numeric(df_fit[col], errors="coerce").fillna(fill_map[col])
+
+        if len(df_fit) < 500:
+            raise RuntimeError(f"Too few rows for NP after cleaning: {len(df_fit)}")
+
+        df_train = df_fit.copy()
         m.fit(df_train, freq="h")
 
         np_path = MODEL_DIR / f"np_model_{station.pk}.np"
@@ -284,9 +318,9 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 m.save(str(np_path))
             else:
                 np_save(m, str(np_path))
-            print(f"[TRAIN] station {station.pk}: NP(y) сохранён в {np_path}")
+            print(f"[TRAIN] station {station.pk}: NP(residual) сохранён в {np_path}")
         except Exception as e:
-            print(f"[TRAIN] station {station.pk}: ОШИБКА сохранения NP(y) -> {e}")
+            print(f"[TRAIN] station {station.pk}: ОШИБКА сохранения NP(residual) -> {e}")
             raise
 
         features_reg = reg_cols
@@ -296,8 +330,9 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "cap_mw": cap_mw,
             "pr_for_expected": PR_FOR_EXPECTED,
             "features_reg": features_reg,
-            "target": "y (MWh) = power_kw/1000",
-            "note": "NP trained on direct y from SolarRecord",
+            "fill_map": fill_map,
+            "target": "y_residual = y - y_expected",
+            "note": "NP residual. Missing regressor values are filled using train medians.",
             "np_version": getattr(neuralprophet, "__version__", "unknown"),
         }
         np_meta_path.write_text(
