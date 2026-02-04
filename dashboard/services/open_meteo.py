@@ -101,4 +101,12 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
     for c in ["irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip"]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
+    mask_date = (df["ds"].dt.date >= start_date) & (df["ds"].dt.date <= end_date)
+    df = df[mask_date].copy()
+    df = df[(df["ds"].dt.hour >= 6) & (df["ds"].dt.hour <= 20)].copy()
+
+    df = df.groupby("ds", as_index=False).mean(numeric_only=True)
+    df["irradiation"] = pd.to_numeric(df["irradiation"], errors="coerce").fillna(0.0).clip(lower=0)
+    df.loc[df["irradiation"] < 20, "irradiation"] = 0.0
+
     return WeatherResult(ok=True, source="open_meteo", df=df)
