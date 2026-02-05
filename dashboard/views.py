@@ -295,7 +295,7 @@ def station_train_models(request, pk: int):
 def station_forecast_list(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
-    days = int(request.GET.get("days", "1") or 1)
+    days = int(request.GET.get("days", "7") or 7)
     selected_providers = request.GET.getlist("providers") or getattr(
         settings,
         "FORECAST_WEATHER_PROVIDERS",
@@ -361,7 +361,7 @@ def station_forecast_list(request, pk: int):
 @login_required
 def station_forecast_run(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
-    days = int(request.GET.get("days", "1") or 1)
+    days = int(request.GET.get("days", "7") or 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
 
