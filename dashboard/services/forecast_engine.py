@@ -703,6 +703,11 @@ def run_forecast_for_station(
     if np_ok:
         y_np = y_np + np.nan_to_num(feat.get("y_expected", 0.0))
 
+    # чистим NaN до ансамбля, иначе NaN в XGB/NP зануляет итог
+    y_np = np.nan_to_num(y_np, nan=0.0)
+    y_xgb = np.nan_to_num(y_xgb, nan=0.0)
+    y_heur = np.nan_to_num(y_heur, nan=0.0)
+
     # ансамбль:
     y_final = y_heur.copy()
     if xgb_ok:
@@ -713,9 +718,9 @@ def run_forecast_for_station(
         y_final = 0.6 * y_heur + 0.4 * y_np
 
     # клип по мощности станции (MW) и перевод в кВт для сохранения
-    y_np = np.clip(np.nan_to_num(y_np, nan=0.0), 0, capacity_mw)
-    y_xgb = np.clip(np.nan_to_num(y_xgb, nan=0.0), 0, capacity_mw)
-    y_heur = np.clip(np.nan_to_num(y_heur, nan=0.0), 0, capacity_mw)
+    y_np = np.clip(y_np, 0, capacity_mw)
+    y_xgb = np.clip(y_xgb, 0, capacity_mw)
+    y_heur = np.clip(y_heur, 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
 
     y_np_kw = y_np * 1000.0
