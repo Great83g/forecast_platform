@@ -88,7 +88,7 @@ class ForecastScheduleForm(forms.Form):
     days = forms.IntegerField(
         label="Дней вперёд",
         min_value=1,
-        max_value=5,
+        max_value=7,
         widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
     )
     providers = forms.MultipleChoiceField(

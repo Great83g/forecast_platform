@@ -101,6 +101,10 @@ def build_forecast_report(
 
     if "timestamp" in df.columns and not df.empty:
         df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+        for col in ["pred_np", "pred_xgb", "pred_heur", "pred_final"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce") / 1000.0
+                df.rename(columns={col: f"{col}_mw"}, inplace=True)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
