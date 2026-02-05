@@ -295,7 +295,7 @@ def station_train_models(request, pk: int):
 def station_forecast_list(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
-    days = int(request.GET.get("days", "1") or 1)
+    days = int(request.GET.get("days", "7") or 7)
     selected_providers = request.GET.getlist("providers") or getattr(
         settings,
         "FORECAST_WEATHER_PROVIDERS",
@@ -361,7 +361,7 @@ def station_forecast_list(request, pk: int):
 @login_required
 def station_forecast_run(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
-    days = int(request.GET.get("days", "1") or 1)
+    days = int(request.GET.get("days", "7") or 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
 
@@ -489,6 +489,10 @@ def station_forecast_export(request, pk: int):
     if "timestamp" in df.columns and not df.empty:
         ts = df["timestamp"].apply(_localize_timestamp)
         df["timestamp"] = _excel_safe_datetime(ts)
+        for col in ["pred_np", "pred_xgb", "pred_heur", "pred_final"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce") / 1000.0
+                df.rename(columns={col: f"{col}_mw"}, inplace=True)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
@@ -499,5 +503,5 @@ def station_forecast_export(request, pk: int):
         out.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}.xlsx"'
+    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}_mw.xlsx"'
     return resp
