@@ -489,6 +489,10 @@ def station_forecast_export(request, pk: int):
     if "timestamp" in df.columns and not df.empty:
         ts = df["timestamp"].apply(_localize_timestamp)
         df["timestamp"] = _excel_safe_datetime(ts)
+        for col in ["pred_np", "pred_xgb", "pred_heur", "pred_final"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce") / 1000.0
+                df.rename(columns={col: f"{col}_mw"}, inplace=True)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
@@ -499,5 +503,5 @@ def station_forecast_export(request, pk: int):
         out.getvalue(),
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}.xlsx"'
+    resp["Content-Disposition"] = f'attachment; filename="forecast_station_{st.pk}_mw.xlsx"'
     return resp
