@@ -722,6 +722,16 @@ def run_forecast_for_station(
     y_xgb = np.clip(y_xgb, 0, capacity_mw)
     y_heur = np.clip(y_heur, 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
+    y_final = np.minimum(
+        y_final,
+        np.maximum.reduce(
+            [
+                y_heur,
+                y_xgb,
+                (capacity_mw * (feat["Irradiation"].to_numpy() / 1000.0) * PR_FOR_EXPECTED * 1.25),
+            ]
+        ),
+    )
 
     y_np_kw = y_np * 1000.0
     y_xgb_kw = y_xgb * 1000.0
