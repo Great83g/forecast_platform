@@ -112,7 +112,7 @@ def build_forecast_report(
     out.seek(0)
 
     stamp = timezone.localtime(timezone.now()).strftime("%Y%m%d_%H%M%S")
-    filename = f"forecast_station_{station.pk}_{stamp}.xlsx"
+    filename = f"forecast_station_{station.pk}_{stamp}_mw.xlsx"
     report = ForecastReport(
         station=station,
         days=days,
