@@ -564,6 +564,7 @@ def run_forecast_for_station(
     manual_snow_enable: bool = False,
     manual_snow_factor: Optional[float] = None,
     manual_snow_dates: Optional[List[date]] = None,
+    use_models: bool = True,
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
@@ -626,7 +627,7 @@ def run_forecast_for_station(
         except Exception:
             xgb_meta = {}
 
-    if not np_path.exists() or not xgb_path.exists():
+    if use_models and (not np_path.exists() or not xgb_path.exists()):
         try:
             from .train_models import train_models_for_station
 
@@ -667,78 +668,82 @@ def run_forecast_for_station(
     y_np = np.full(len(feat), np.nan)
     y_xgb = np.full(len(feat), np.nan)
 
-    # XGB
-    booster = None
-    if xgb_path.exists():
-        booster = _load_xgb_model(xgb_path)
-        if booster is None:
-            xgb_error = f"XGB load failed: {xgb_path}"
-            logger.warning("[XGB] load failed from %s", xgb_path)
-    elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
-        booster = _load_xgb_model(fallback_xgb_path)
-        if booster is None:
-            xgb_error = f"XGB load failed: {fallback_xgb_path}"
-            logger.warning("[XGB] load failed from %s", fallback_xgb_path)
-        if fallback_xgb_meta_path.exists():
-            try:
-                xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
-            except Exception:
-                xgb_meta = xgb_meta
-    else:
-        xgb_error = f"XGB model not found: {xgb_path}"
-        logger.warning("[XGB] model not found: %s", xgb_path)
-
-    if booster is not None:
-        try:
-            feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
-            y_xgb = _predict_xgb(booster, feat, feature_names)
-            xgb_ok = True
-        except Exception as e:
-            xgb_error = str(e)
-            xgb_ok = False
-            booster = None
-
-    # NP (FIXED)
-    if np_path.exists():
-        try:
-            model = _load_np_model(np_path)
-            logger.info("[NP] loaded from %s %s", np_path, _describe_np_model(model))
-            y_np = _predict_np(
-                model,
-                feat,
-                reg_features=np_meta.get("features_reg"),
-                cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
-                fill_map=np_meta.get("fill_map") if isinstance(np_meta.get("fill_map"), dict) else None,
-            )
-            np_ok = True
-        except Exception as e:
-            logger.exception("[NP] ERROR: %s", e)
-            np_error = str(e)
-            np_ok = False
-    elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
-        try:
-            model = _load_np_model(fallback_np_path)
-            if fallback_np_meta_path.exists():
+    if use_models:
+        # XGB
+        booster = None
+        if xgb_path.exists():
+            booster = _load_xgb_model(xgb_path)
+            if booster is None:
+                xgb_error = f"XGB load failed: {xgb_path}"
+                logger.warning("[XGB] load failed from %s", xgb_path)
+        elif abs(capacity_mw - 8.8) < 0.05 and fallback_xgb_path.exists():
+            booster = _load_xgb_model(fallback_xgb_path)
+            if booster is None:
+                xgb_error = f"XGB load failed: {fallback_xgb_path}"
+                logger.warning("[XGB] load failed from %s", fallback_xgb_path)
+            if fallback_xgb_meta_path.exists():
                 try:
-                    np_meta = json.loads(fallback_np_meta_path.read_text(encoding="utf-8"))
+                    xgb_meta = json.loads(fallback_xgb_meta_path.read_text(encoding="utf-8"))
                 except Exception:
-                    np_meta = np_meta
-            logger.info("[NP] loaded from %s %s", fallback_np_path, _describe_np_model(model))
-            y_np = _predict_np(
-                model,
-                feat,
-                reg_features=np_meta.get("features_reg"),
-                cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
-                fill_map=np_meta.get("fill_map") if isinstance(np_meta.get("fill_map"), dict) else None,
-            )
-            np_ok = True
-        except Exception as e:
-            logger.exception("[NP] ERROR: %s", e)
-            np_error = str(e)
-            np_ok = False
+                    xgb_meta = xgb_meta
+        else:
+            xgb_error = f"XGB model not found: {xgb_path}"
+            logger.warning("[XGB] model not found: %s", xgb_path)
+
+        if booster is not None:
+            try:
+                feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
+                y_xgb = _predict_xgb(booster, feat, feature_names)
+                xgb_ok = True
+            except Exception as e:
+                xgb_error = str(e)
+                xgb_ok = False
+                booster = None
+
+        # NP (FIXED)
+        if np_path.exists():
+            try:
+                model = _load_np_model(np_path)
+                logger.info("[NP] loaded from %s %s", np_path, _describe_np_model(model))
+                y_np = _predict_np(
+                    model,
+                    feat,
+                    reg_features=np_meta.get("features_reg"),
+                    cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
+                    fill_map=np_meta.get("fill_map") if isinstance(np_meta.get("fill_map"), dict) else None,
+                )
+                np_ok = True
+            except Exception as e:
+                logger.exception("[NP] ERROR: %s", e)
+                np_error = str(e)
+                np_ok = False
+        elif abs(capacity_mw - 8.8) < 0.05 and fallback_np_path.exists():
+            try:
+                model = _load_np_model(fallback_np_path)
+                if fallback_np_meta_path.exists():
+                    try:
+                        np_meta = json.loads(fallback_np_meta_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        np_meta = np_meta
+                logger.info("[NP] loaded from %s %s", fallback_np_path, _describe_np_model(model))
+                y_np = _predict_np(
+                    model,
+                    feat,
+                    reg_features=np_meta.get("features_reg"),
+                    cap_for_expected=np_meta.get("cap_mw") or np_meta.get("cap_mw_used"),
+                    fill_map=np_meta.get("fill_map") if isinstance(np_meta.get("fill_map"), dict) else None,
+                )
+                np_ok = True
+            except Exception as e:
+                logger.exception("[NP] ERROR: %s", e)
+                np_error = str(e)
+                np_ok = False
+        else:
+            np_error = f"NP model not found: {np_path}"
+            logger.warning("[NP] model not found: %s", np_path)
     else:
-        np_error = f"NP model not found: {np_path}"
-        logger.warning("[NP] model not found: %s", np_path)
+        np_error = "NP skipped: Open-Meteo only"
+        xgb_error = "XGB skipped: Open-Meteo only"
 
     # эвристика (MW)
     y_heur = feat.get("y_expected")
@@ -752,22 +757,25 @@ def run_forecast_for_station(
         y_np = y_np + np.nan_to_num(feat.get("y_expected", 0.0))
 
     # чистим NaN до ансамбля, иначе NaN в XGB/NP зануляет итог
-    y_np = np.nan_to_num(y_np, nan=0.0)
-    y_xgb = np.nan_to_num(y_xgb, nan=0.0)
+    if use_models:
+        y_np = np.nan_to_num(y_np, nan=0.0)
+        y_xgb = np.nan_to_num(y_xgb, nan=0.0)
     y_heur = np.nan_to_num(y_heur, nan=0.0)
 
     # ансамбль:
     y_final = y_heur.copy()
-    if xgb_ok:
-        y_final = 0.6 * y_heur + 0.4 * y_xgb
-    if np_ok and xgb_ok:
-        y_final = 0.2 * y_heur + 0.4 * y_xgb + 0.4 * y_np
-    elif np_ok and not xgb_ok:
-        y_final = 0.6 * y_heur + 0.4 * y_np
+    if use_models:
+        if xgb_ok:
+            y_final = 0.6 * y_heur + 0.4 * y_xgb
+        if np_ok and xgb_ok:
+            y_final = 0.2 * y_heur + 0.4 * y_xgb + 0.4 * y_np
+        elif np_ok and not xgb_ok:
+            y_final = 0.6 * y_heur + 0.4 * y_np
 
     # клип по мощности станции (MW) и перевод в кВт для сохранения
-    y_np = np.clip(y_np, 0, capacity_mw)
-    y_xgb = np.clip(y_xgb, 0, capacity_mw)
+    if use_models:
+        y_np = np.clip(y_np, 0, capacity_mw)
+        y_xgb = np.clip(y_xgb, 0, capacity_mw)
     y_heur = np.clip(y_heur, 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
     y_final = np.minimum(
@@ -831,13 +839,18 @@ def run_forecast_for_station(
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
+        pred_np_kw = None
+        pred_xgb_kw = None
+        if use_models:
+            pred_np_kw = float(y_np_kw[i]) if not np.isnan(y_np_kw[i]) else None
+            pred_xgb_kw = float(y_xgb_kw[i]) if not np.isnan(y_xgb_kw[i]) else None
         objs.append(
             SolarForecast(
                 station=st,
                 timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
                 # Сохраняем в кВт (модель работает в MW, перевели выше)
-                pred_np=float(y_np_kw[i]),
-                pred_xgb=float(y_xgb_kw[i]),
+                pred_np=pred_np_kw,
+                pred_xgb=pred_xgb_kw,
                 pred_heur=float(y_heur_kw[i]),
                 pred_final=float(y_final_kw[i]),
                 irradiation_fc=float(row.get("irradiation") or 0.0) if not pd.isna(row.get("irradiation")) else None,
