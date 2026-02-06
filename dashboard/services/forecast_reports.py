@@ -78,6 +78,14 @@ def build_forecast_report(
             "cloudcover_fc",
             "humidity_fc",
             "precip_fc",
+            "snowfall_fc",
+            "snowdepth_fc",
+            "weather_code_fc",
+            "auto_snow_flag",
+            "auto_fog_flag",
+            "auto_winter_factor",
+            "manual_snow_factor",
+            "winter_factor_applied",
             "pred_final",
         )
     )
@@ -95,6 +103,14 @@ def build_forecast_report(
                 "cloudcover_fc",
                 "humidity_fc",
                 "precip_fc",
+                "snowfall_fc",
+                "snowdepth_fc",
+                "weather_code_fc",
+                "auto_snow_flag",
+                "auto_fog_flag",
+                "auto_winter_factor",
+                "manual_snow_factor",
+                "winter_factor_applied",
                 "pred_final",
             ]
         )
