@@ -770,11 +770,13 @@ def run_forecast_for_station(
         ),
     )
 
-    winter_factor = feat.get("auto_winter_factor")
-    if winter_factor is None:
-        winter_factor = np.ones(len(feat), dtype=float)
-        feat["auto_winter_factor"] = winter_factor
-    winter_factor = np.asarray(winter_factor, dtype=float)
+    auto_winter_factor = feat.get("auto_winter_factor")
+    if auto_winter_factor is None:
+        auto_winter_factor = np.ones(len(feat), dtype=float)
+        feat["auto_winter_factor"] = auto_winter_factor
+    auto_winter_factor = np.asarray(auto_winter_factor, dtype=float)
+
+    winter_factor = np.ones(len(feat), dtype=float)
 
     manual_factor_value = 1.0
     if manual_snow_enable and manual_snow_factor is not None:
