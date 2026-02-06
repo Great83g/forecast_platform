@@ -276,6 +276,7 @@ def _compute_winter_factors(df: pd.DataFrame) -> pd.DataFrame:
     snowdepth = pd.to_numeric(out.get("snowdepth"), errors="coerce").fillna(0.0)
     snowfall = pd.to_numeric(out.get("snowfall"), errors="coerce").fillna(0.0)
     weather_code = pd.to_numeric(out.get("weather_code"), errors="coerce")
+    month = pd.to_datetime(out.get("ds"), errors="coerce").dt.month
 
     auto_snow = (
         ((snowdepth >= AUTO_SNOWDEPTH_M_THRESHOLD) | (snowfall > 0) | (weather_code.isin(list(SNOW_CODES))))
@@ -287,6 +288,16 @@ def _compute_winter_factors(df: pd.DataFrame) -> pd.DataFrame:
     out["auto_fog_flag"] = auto_fog.astype(int)
 
     factor = np.ones(len(out), dtype=float)
+    winter_months = {11, 12, 1, 2}
+    autumn_months = {9, 10}
+    factor[np.isin(month, list(winter_months))] = np.minimum(
+        factor[np.isin(month, list(winter_months))],
+        0.2,
+    )
+    factor[np.isin(month, list(autumn_months))] = np.minimum(
+        factor[np.isin(month, list(autumn_months))],
+        0.6,
+    )
     factor[out["auto_fog_flag"] == 1] = np.minimum(factor[out["auto_fog_flag"] == 1], AUTO_FOG_FACTOR)
     factor[out["auto_snow_flag"] == 1] = np.minimum(factor[out["auto_snow_flag"] == 1], AUTO_SNOW_FACTOR)
     out["auto_winter_factor"] = factor
@@ -776,7 +787,7 @@ def run_forecast_for_station(
         feat["auto_winter_factor"] = auto_winter_factor
     auto_winter_factor = np.asarray(auto_winter_factor, dtype=float)
 
-    winter_factor = np.ones(len(feat), dtype=float)
+    winter_factor = auto_winter_factor.copy()
 
     manual_factor_value = 1.0
     if manual_snow_enable and manual_snow_factor is not None:
