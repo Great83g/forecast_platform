@@ -44,6 +44,13 @@ XGB_EXPECTED_FEATURES = [
 
 PR_FOR_EXPECTED = 0.90
 
+AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
+AUTO_TEMP_MAX_FOR_SNOW = 2.0
+AUTO_SNOW_FACTOR = 0.2
+AUTO_FOG_FACTOR = 0.5
+FOG_CODES = {45, 48}
+SNOW_CODES = {71, 73, 75, 77, 85, 86}
+
 
 def _describe_np_model(model: object) -> str:
     if model is None:
@@ -216,6 +223,9 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     out["Irradiation"] = pd.to_numeric(out.get("irradiation"), errors="coerce").fillna(0.0)
     out["Air_Temp"] = pd.to_numeric(out.get("air_temp"), errors="coerce").fillna(0.0)
     out["Wind_Speed"] = pd.to_numeric(out.get("wind_speed"), errors="coerce")
+    out["snowfall"] = pd.to_numeric(out.get("snowfall"), errors="coerce")
+    out["snowdepth"] = pd.to_numeric(out.get("snowdepth"), errors="coerce")
+    out["weather_code"] = pd.to_numeric(out.get("weather_code"), errors="coerce")
 
     # PV_Temp — если нет в погоде, аппроксимируем как в локальном скрипте
     out["PV_Temp"] = out["Air_Temp"] + np.maximum(out["Irradiation"] - 50, 0) / 1000 * 20
@@ -257,6 +267,29 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
         if c not in out.columns:
             out[c] = 0.0
 
+    return out
+
+
+def _compute_winter_factors(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    snowdepth = pd.to_numeric(out.get("snowdepth"), errors="coerce").fillna(0.0)
+    snowfall = pd.to_numeric(out.get("snowfall"), errors="coerce").fillna(0.0)
+    weather_code = pd.to_numeric(out.get("weather_code"), errors="coerce")
+
+    auto_snow = (
+        ((snowdepth >= AUTO_SNOWDEPTH_M_THRESHOLD) | (snowfall > 0) | (weather_code.isin(list(SNOW_CODES))))
+        & (out["Air_Temp"] <= AUTO_TEMP_MAX_FOR_SNOW)
+    )
+    auto_fog = (weather_code.isin(list(FOG_CODES)) & (out["Air_Temp"] <= 0))
+
+    out["auto_snow_flag"] = auto_snow.astype(int)
+    out["auto_fog_flag"] = auto_fog.astype(int)
+
+    factor = np.ones(len(out), dtype=float)
+    factor[out["auto_fog_flag"] == 1] = np.minimum(factor[out["auto_fog_flag"] == 1], AUTO_FOG_FACTOR)
+    factor[out["auto_snow_flag"] == 1] = np.minimum(factor[out["auto_snow_flag"] == 1], AUTO_SNOW_FACTOR)
+    out["auto_winter_factor"] = factor
     return out
 
 
@@ -517,6 +550,9 @@ def run_forecast_for_station(
     station_id: int,
     days: int = 7,
     providers: Optional[List[str]] = None,
+    manual_snow_enable: bool = False,
+    manual_snow_factor: Optional[float] = None,
+    manual_snow_dates: Optional[List[date]] = None,
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
@@ -557,6 +593,7 @@ def run_forecast_for_station(
     merged = _merge_weather(base, weather_df)
     lat_deg = float(lat) if lat is not None else 47.86
     feat = _compute_features(merged, capacity_mw, lat_deg)
+    feat = _compute_winter_factors(feat)
 
     # ---- load models ----
     np_path = MODEL_DIR / f"np_model_{station_id}.np"
@@ -733,6 +770,39 @@ def run_forecast_for_station(
         ),
     )
 
+    winter_factor = feat.get("auto_winter_factor")
+    if winter_factor is None:
+        winter_factor = np.ones(len(feat), dtype=float)
+        feat["auto_winter_factor"] = winter_factor
+    winter_factor = np.asarray(winter_factor, dtype=float)
+
+    manual_factor_value = 1.0
+    if manual_snow_enable and manual_snow_factor is not None:
+        try:
+            manual_factor_value = float(manual_snow_factor)
+        except (TypeError, ValueError):
+            manual_factor_value = 1.0
+    manual_factor_value = float(np.clip(manual_factor_value, 0.0, 1.0))
+
+    feat["manual_snow_factor"] = manual_factor_value
+    manual_dates = manual_snow_dates or []
+    if manual_snow_enable and manual_factor_value < 1.0:
+        if manual_dates:
+            manual_mask = pd.to_datetime(feat["ds"]).dt.date.isin(manual_dates)
+            if manual_mask.any():
+                winter_factor = winter_factor.copy()
+                winter_factor[manual_mask] = manual_factor_value
+            else:
+                winter_factor = np.full(len(feat), manual_factor_value, dtype=float)
+        else:
+            winter_factor = np.full(len(feat), manual_factor_value, dtype=float)
+
+    feat["winter_factor_applied"] = winter_factor
+    y_np = y_np * winter_factor
+    y_xgb = y_xgb * winter_factor
+    y_heur = y_heur * winter_factor
+    y_final = y_final * winter_factor
+
     y_np_kw = y_np * 1000.0
     y_xgb_kw = y_xgb * 1000.0
     y_heur_kw = y_heur * 1000.0
@@ -763,6 +833,20 @@ def run_forecast_for_station(
                 cloudcover_fc=float(row.get("cloudcover") or 0.0) if not pd.isna(row.get("cloudcover")) else None,
                 humidity_fc=float(row.get("humidity") or 0.0) if not pd.isna(row.get("humidity")) else None,
                 precip_fc=float(row.get("precip") or 0.0) if not pd.isna(row.get("precip")) else None,
+                snowfall_fc=float(row.get("snowfall") or 0.0) if not pd.isna(row.get("snowfall")) else None,
+                snowdepth_fc=float(row.get("snowdepth") or 0.0) if not pd.isna(row.get("snowdepth")) else None,
+                weather_code_fc=int(row.get("weather_code")) if not pd.isna(row.get("weather_code")) else None,
+                auto_snow_flag=int(row.get("auto_snow_flag") or 0) if not pd.isna(row.get("auto_snow_flag")) else None,
+                auto_fog_flag=int(row.get("auto_fog_flag") or 0) if not pd.isna(row.get("auto_fog_flag")) else None,
+                auto_winter_factor=float(row.get("auto_winter_factor") or 1.0)
+                if not pd.isna(row.get("auto_winter_factor"))
+                else None,
+                manual_snow_factor=float(row.get("manual_snow_factor") or 1.0)
+                if not pd.isna(row.get("manual_snow_factor"))
+                else None,
+                winter_factor_applied=float(row.get("winter_factor_applied") or 1.0)
+                if not pd.isna(row.get("winter_factor_applied"))
+                else None,
             )
         )
 
