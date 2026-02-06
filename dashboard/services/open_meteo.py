@@ -43,7 +43,8 @@ def _align_values(times: list, values: Optional[list]) -> list:
 def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional[str] = None) -> WeatherResult:
     """
     Возвращает почасовой прогноз Open-Meteo на N дней вперёд в датафрейме:
-    ds, irradiation, air_temp, wind_speed, cloudcover, humidity, precip
+    ds, irradiation, air_temp, wind_speed, cloudcover, humidity, precip,
+    snowfall, snowdepth, weather_code
     """
     days = max(int(days), 1)
     start = _now_local(tz_name)
@@ -64,6 +65,9 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
                 "cloud_cover",
                 "wind_speed_10m",
                 "shortwave_radiation",
+                "snowfall",
+                "snow_depth",
+                "weather_code",
             ]
         ),
         "forecast_days": forecast_days,
@@ -91,6 +95,9 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
             "cloudcover": _align_values(times, hourly.get("cloud_cover")),
             "humidity": _align_values(times, hourly.get("relative_humidity_2m")),
             "precip": _align_values(times, hourly.get("precipitation")),
+            "snowfall": _align_values(times, hourly.get("snowfall")),
+            "snowdepth": _align_values(times, hourly.get("snow_depth")),
+            "weather_code": _align_values(times, hourly.get("weather_code")),
         }
     )
 
@@ -98,7 +105,17 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
     df = df.sort_values("ds").reset_index(drop=True)
     df["ds"] = df["ds"].dt.floor("h")
 
-    for c in ["irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip"]:
+    for c in [
+        "irradiation",
+        "air_temp",
+        "wind_speed",
+        "cloudcover",
+        "humidity",
+        "precip",
+        "snowfall",
+        "snowdepth",
+        "weather_code",
+    ]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     mask_date = (df["ds"].dt.date >= start_date) & (df["ds"].dt.date <= end_date)

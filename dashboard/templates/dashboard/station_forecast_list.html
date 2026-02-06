@@ -63,6 +63,17 @@
       </select>
       <div class="d-flex align-items-center gap-2 small">
         <div class="form-check form-check-inline m-0">
+          <input class="form-check-input" type="checkbox" name="manual_snow_enable" id="manual-snow-enable" value="1"
+                 {% if manual_snow_enable %}checked{% endif %}>
+          <label class="form-check-label" for="manual-snow-enable">Снег (ручной фактор)</label>
+        </div>
+        <input class="form-control form-control-sm" type="number" step="0.05" min="0" max="1" name="manual_snow_factor"
+               style="width: 90px;" placeholder="0.50" value="{{ manual_snow_factor }}">
+        <input class="form-control form-control-sm" type="text" name="manual_snow_dates"
+               style="width: 140px;" placeholder="2025-02-05, 2025-02-06" value="{{ manual_snow_dates }}">
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
+        <div class="form-check form-check-inline m-0">
           <input class="form-check-input" type="checkbox" name="providers" id="provider-visual-crossing" value="visual_crossing"
                  {% if 'visual_crossing' in selected_providers %}checked{% endif %}>
           <label class="form-check-label" for="provider-visual-crossing">Visual Crossing</label>
@@ -97,6 +108,8 @@
           <th class="text-end">NP, кВт</th>
           <th class="text-end">XGB, кВт</th>
           <th class="text-end">Эвристика, кВт</th>
+          <th class="text-end">Снег, м</th>
+          <th class="text-end">Фактор</th>
         </tr>
       </thead>
       <tbody>
@@ -107,9 +120,11 @@
             <td class="text-end">{{ r.pred_np_kw|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.pred_xgb_kw|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.pred_heur_kw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.snowdepth_fc|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.winter_factor_applied|default_if_none:""|floatformat:2 }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="5" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
+          <tr><td colspan="7" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
         {% endfor %}
       </tbody>
     </table>
