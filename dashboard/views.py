@@ -296,6 +296,7 @@ def station_forecast_list(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
     days = int(request.GET.get("days", "7") or 7)
+    open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
     selected_providers = request.GET.getlist("providers") or getattr(
         settings,
         "FORECAST_WEATHER_PROVIDERS",
@@ -361,6 +362,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_enable": manual_snow_enable,
             "manual_snow_factor": manual_snow_factor,
             "manual_snow_dates": manual_snow_dates,
+            "open_meteo_only": open_meteo_only,
             "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
@@ -375,6 +377,7 @@ def station_forecast_run(request, pk: int):
     days = int(request.GET.get("days", "7") or 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
+    open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
     manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
@@ -395,6 +398,8 @@ def station_forecast_run(request, pk: int):
                 manual_snow_dates.append(parsed.date())
 
     try:
+        if open_meteo_only:
+            providers = ["open_meteo"]
         res = run_forecast_for_station(
             st.pk,
             days=days,
@@ -402,9 +407,12 @@ def station_forecast_run(request, pk: int):
             manual_snow_enable=manual_snow_enable,
             manual_snow_factor=manual_snow_factor,
             manual_snow_dates=manual_snow_dates,
+            use_models=not open_meteo_only,
         )
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
+            if open_meteo_only:
+                msg += " | режим: Open-Meteo без истории"
             report = build_forecast_report(
                 station=st,
                 days=days,
@@ -436,6 +444,7 @@ def station_forecast_run(request, pk: int):
             "manual_snow_enable": "1" if manual_snow_enable else "",
             "manual_snow_factor": manual_snow_factor_raw or "",
             "manual_snow_dates": manual_snow_dates_raw,
+            "open_meteo_only": "1" if open_meteo_only else "",
         },
         doseq=True,
     )
