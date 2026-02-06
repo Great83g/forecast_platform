@@ -68,6 +68,15 @@ class SolarForecast(models.Model):
     cloudcover_fc = models.FloatField(null=True, blank=True)
     humidity_fc = models.FloatField(null=True, blank=True)
     precip_fc = models.FloatField(null=True, blank=True)
+    snowfall_fc = models.FloatField(null=True, blank=True)
+    snowdepth_fc = models.FloatField(null=True, blank=True)
+    weather_code_fc = models.IntegerField(null=True, blank=True)
+
+    auto_snow_flag = models.IntegerField(null=True, blank=True)
+    auto_fog_flag = models.IntegerField(null=True, blank=True)
+    auto_winter_factor = models.FloatField(null=True, blank=True)
+    manual_snow_factor = models.FloatField(null=True, blank=True)
+    winter_factor_applied = models.FloatField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -80,4 +89,3 @@ class SolarForecast(models.Model):
 
     def __str__(self):
         return f"Forecast {self.station.name} @ {self.timestamp}"
-

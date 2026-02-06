@@ -302,6 +302,9 @@ def station_forecast_list(request, pk: int):
         ["visual_crossing"],
     )
     email_form = ForecastEmailForm(initial={"emails": request.GET.get("emails", "")})
+    manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
+    manual_snow_factor = request.GET.get("manual_snow_factor") or ""
+    manual_snow_dates = request.GET.get("manual_snow_dates") or ""
     schedule = ForecastSchedule.objects.filter(station=st).first()
     schedule_form = ForecastScheduleForm(
         initial={
@@ -337,6 +340,11 @@ def station_forecast_list(request, pk: int):
             "pred_np_kw": f.pred_np,
             "pred_xgb_kw": f.pred_xgb,
             "pred_heur_kw": f.pred_heur,
+            "snowdepth_fc": f.snowdepth_fc,
+            "snowfall_fc": f.snowfall_fc,
+            "auto_winter_factor": f.auto_winter_factor,
+            "manual_snow_factor": f.manual_snow_factor,
+            "winter_factor_applied": f.winter_factor_applied,
         }
         for f in forecasts_raw
     ]
@@ -350,6 +358,9 @@ def station_forecast_list(request, pk: int):
             "days": days,
             "selected_providers": selected_providers,
             "email_form": email_form,
+            "manual_snow_enable": manual_snow_enable,
+            "manual_snow_factor": manual_snow_factor,
+            "manual_snow_dates": manual_snow_dates,
             "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
@@ -364,9 +375,34 @@ def station_forecast_run(request, pk: int):
     days = int(request.GET.get("days", "7") or 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
+    manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
+    manual_snow_factor_raw = request.GET.get("manual_snow_factor")
+    manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
+    manual_snow_factor = None
+    if manual_snow_factor_raw not in (None, ""):
+        try:
+            manual_snow_factor = float(manual_snow_factor_raw)
+        except ValueError:
+            manual_snow_factor = None
+    manual_snow_dates = []
+    if manual_snow_dates_raw:
+        for value in manual_snow_dates_raw.split(","):
+            value = value.strip()
+            if not value:
+                continue
+            parsed = _parse_date(value)
+            if parsed:
+                manual_snow_dates.append(parsed.date())
 
     try:
-        res = run_forecast_for_station(st.pk, days=days, providers=providers)
+        res = run_forecast_for_station(
+            st.pk,
+            days=days,
+            providers=providers,
+            manual_snow_enable=manual_snow_enable,
+            manual_snow_factor=manual_snow_factor,
+            manual_snow_dates=manual_snow_dates,
+        )
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
             report = build_forecast_report(
@@ -392,7 +428,17 @@ def station_forecast_run(request, pk: int):
     except Exception as e:
         messages.error(request, f"Ошибка запуска прогноза: {e}")
 
-    query = urlencode({"days": days, "providers": providers or [], "emails": emails_raw}, doseq=True)
+    query = urlencode(
+        {
+            "days": days,
+            "providers": providers or [],
+            "emails": emails_raw,
+            "manual_snow_enable": "1" if manual_snow_enable else "",
+            "manual_snow_factor": manual_snow_factor_raw or "",
+            "manual_snow_dates": manual_snow_dates_raw,
+        },
+        doseq=True,
+    )
     return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?{query}")
 
 
@@ -464,6 +510,14 @@ def station_forecast_export(request, pk: int):
             "cloudcover_fc",
             "humidity_fc",
             "precip_fc",
+            "snowfall_fc",
+            "snowdepth_fc",
+            "weather_code_fc",
+            "auto_snow_flag",
+            "auto_fog_flag",
+            "auto_winter_factor",
+            "manual_snow_factor",
+            "winter_factor_applied",
             "pred_final",
         )
     )
@@ -482,6 +536,14 @@ def station_forecast_export(request, pk: int):
                 "cloudcover_fc",
                 "humidity_fc",
                 "precip_fc",
+                "snowfall_fc",
+                "snowdepth_fc",
+                "weather_code_fc",
+                "auto_snow_flag",
+                "auto_fog_flag",
+                "auto_winter_factor",
+                "manual_snow_factor",
+                "winter_factor_applied",
                 "pred_final",
             ]
         )
