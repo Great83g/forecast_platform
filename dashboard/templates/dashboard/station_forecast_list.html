@@ -109,10 +109,10 @@
       <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
         <tr>
           <th>Дата/время</th>
-          <th class="text-end">Итог, кВт</th>
-          <th class="text-end">NP, кВт</th>
-          <th class="text-end">XGB, кВт</th>
-          <th class="text-end">Эвристика, кВт</th>
+          <th class="text-end">Итог, МВт</th>
+          <th class="text-end">NP, МВт</th>
+          <th class="text-end">XGB, МВт</th>
+          <th class="text-end">Эвристика, МВт</th>
           <th class="text-end">Снег, м</th>
           <th class="text-end">Фактор</th>
         </tr>
@@ -121,10 +121,10 @@
         {% for r in forecasts %}
           <tr>
             <td>{{ r.timestamp }}</td>
-            <td class="text-end">{{ r.pred_final_kw|default_if_none:""|floatformat:2 }}</td>
-            <td class="text-end">{{ r.pred_np_kw|default_if_none:""|floatformat:2 }}</td>
-            <td class="text-end">{{ r.pred_xgb_kw|default_if_none:""|floatformat:2 }}</td>
-            <td class="text-end">{{ r.pred_heur_kw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_final_mw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_np_mw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_xgb_mw|default_if_none:""|floatformat:2 }}</td>
+            <td class="text-end">{{ r.pred_heur_mw|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.snowdepth_fc|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.winter_factor_applied|default_if_none:""|floatformat:2 }}</td>
           </tr>
