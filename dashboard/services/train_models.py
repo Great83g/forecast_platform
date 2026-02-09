@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Tuple
 
 from django.conf import settings
+from django.utils.text import slugify
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -51,6 +52,13 @@ MODEL_DIR: Path = Path(settings.MODEL_DIR)
 
 # Параметры expected/PR
 PR_FOR_EXPECTED = 0.90
+
+
+def _station_model_dir(station) -> Path:
+    slug = slugify(getattr(station, "name", "")) or "station"
+    path = MODEL_DIR / f"{station.pk}_{slug}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def get_history_dataframe(station) -> pd.DataFrame:
@@ -194,8 +202,8 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     Обучаем XGB(per-MW) и NeuralProphet(y) для одной станции.
 
     Сохраняем:
-      - XGB:  xgb_model_{pk}.json + .meta.json
-      - NP:   np_model_{pk}.np   + .meta.json
+      - XGB:  <model_dir>/xgb_model.json + .meta.json
+      - NP:   <model_dir>/np_model.np   + .meta.json
 
     Возвращаем: (кол-во строк истории, путь к NP, путь к XGB)
     """
@@ -245,6 +253,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     df["y_permw"] = (df["y"] / cap_mw).clip(lower=0)
     df_xgb = df.dropna(subset=["y_permw"]).copy()
 
+    model_dir = _station_model_dir(station)
     xgb_path: Path | None = None
     if len(df_xgb) == 0:
         print(f"[TRAIN] station {station.pk}: нет строк для XGB после фильтрации")
@@ -261,7 +270,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             )
             model_xgb.fit(df_xgb[X_cols], df_xgb["y_permw"])
 
-            xgb_path = MODEL_DIR / f"xgb_model_{station.pk}.json"
+            xgb_path = model_dir / "xgb_model.json"
             model_xgb.save_model(str(xgb_path))
 
             meta_xgb = {
@@ -271,7 +280,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 "target": "y_per_MW = y / cap_mw",
                 "xgb_version": getattr(xgb, "__version__", "unknown"),
             }
-            meta_path = MODEL_DIR / f"xgb_model_{station.pk}.meta.json"
+            meta_path = model_dir / "xgb_model.meta.json"
             meta_path.write_text(
                 json.dumps(meta_xgb, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -356,7 +365,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         df_train = df_fit.copy()
         m.fit(df_train, freq="h")
 
-        np_path = MODEL_DIR / f"np_model_{station.pk}.np"
+        np_path = model_dir / "np_model.np"
         try:
             if hasattr(m, "save"):
                 m.save(str(np_path))
@@ -368,7 +377,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             raise
 
         features_reg = reg_cols
-        np_meta_path = MODEL_DIR / f"np_model_{station.pk}.meta.json"
+        np_meta_path = model_dir / "np_model.meta.json"
         np_meta = {
             "station_id": station.pk,
             "cap_mw": cap_mw,
