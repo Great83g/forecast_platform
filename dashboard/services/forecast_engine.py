@@ -66,8 +66,8 @@ PR_FOR_EXPECTED = 0.90
 
 AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
 AUTO_TEMP_MAX_FOR_SNOW = 2.0
-AUTO_SNOW_FACTOR = 0.2
-AUTO_FOG_FACTOR = 0.5
+AUTO_SNOW_FACTOR = 1.0
+AUTO_FOG_FACTOR = 1.0
 FOG_CODES = {45, 48}
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
 
@@ -318,16 +318,6 @@ def _compute_winter_factors(df: pd.DataFrame) -> pd.DataFrame:
     out["auto_fog_flag"] = auto_fog.astype(int)
 
     factor = np.ones(len(out), dtype=float)
-    winter_months = {11, 12, 1, 2}
-    autumn_months = {9, 10}
-    factor[np.isin(month, list(winter_months))] = np.minimum(
-        factor[np.isin(month, list(winter_months))],
-        0.2,
-    )
-    factor[np.isin(month, list(autumn_months))] = np.minimum(
-        factor[np.isin(month, list(autumn_months))],
-        0.6,
-    )
     factor[out["auto_fog_flag"] == 1] = np.minimum(factor[out["auto_fog_flag"] == 1], AUTO_FOG_FACTOR)
     factor[out["auto_snow_flag"] == 1] = np.minimum(factor[out["auto_snow_flag"] == 1], AUTO_SNOW_FACTOR)
     out["auto_winter_factor"] = factor

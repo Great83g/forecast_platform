@@ -136,7 +136,7 @@ class ForecastScheduleForm(forms.Form):
             }
         ),
     )
-    manual_snow_enable = forms.BooleanField(label="Снег (ручной фактор)", required=False)
+    manual_snow_enable = forms.BooleanField(label="Снег/облака (ручной фактор)", required=False)
     manual_snow_factor = forms.FloatField(
         label="Снег фактор",
         required=False,
