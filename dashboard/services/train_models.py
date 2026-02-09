@@ -16,13 +16,21 @@ from solar.models import SolarRecord
 
 
 def _capacity_mw_from_fields(station) -> float | None:
-    for name in ["capacity_mw", "capacity_ac_mw"]:
-        if hasattr(station, name) and getattr(station, name):
-            return float(getattr(station, name))
-
+    capacity_ac_kw = None
     for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
         if hasattr(station, name) and getattr(station, name):
-            return float(getattr(station, name)) / 1000.0
+            capacity_ac_kw = float(getattr(station, name))
+            break
+
+    for name in ["capacity_mw", "capacity_ac_mw"]:
+        if hasattr(station, name) and getattr(station, name):
+            capacity_mw = float(getattr(station, name))
+            if capacity_mw > 100 and capacity_ac_kw:
+                return capacity_mw / 1000.0
+            return capacity_mw
+
+    if capacity_ac_kw:
+        return capacity_ac_kw / 1000.0
 
     return None
 
@@ -116,13 +124,9 @@ def compute_cap_mw(df: pd.DataFrame) -> float:
 
 
 def station_capacity_mw(station, df: pd.DataFrame) -> float:
-    for name in ["capacity_mw", "capacity_ac_mw"]:
-        if hasattr(station, name) and getattr(station, name):
-            return float(getattr(station, name))
-
-    for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
-        if hasattr(station, name) and getattr(station, name):
-            return float(getattr(station, name)) / 1000.0
+    capacity_from_fields = _capacity_mw_from_fields(station)
+    if capacity_from_fields:
+        return capacity_from_fields
 
     return compute_cap_mw(df)
 

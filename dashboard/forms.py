@@ -74,6 +74,14 @@ class StationForm(forms.ModelForm):
                 qs = qs.exclude(pk=self.instance.pk)
             self.fields["history_source"].queryset = qs
 
+    def clean(self):
+        cleaned_data = super().clean()
+        capacity_mw = cleaned_data.get("capacity_mw")
+        capacity_ac_kw = cleaned_data.get("capacity_ac_kw")
+        if capacity_mw and capacity_ac_kw and capacity_mw > 100:
+            cleaned_data["capacity_mw"] = capacity_ac_kw / 1000.0
+        return cleaned_data
+
 
 class UploadHistoryForm(forms.Form):
     file = forms.FileField(label="CSV / Excel файл с историей")

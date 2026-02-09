@@ -70,13 +70,21 @@ def _station_capacity_mw(st: Station) -> float:
     Пытаемся достать мощность станции.
     Поддерживаем разные поля (потому что у тебя модели/миграции менялись).
     """
-    for name in ["capacity_mw", "capacity_ac_mw"]:
-        if hasattr(st, name) and getattr(st, name):
-            return float(getattr(st, name))
-
+    capacity_ac_kw = None
     for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
         if hasattr(st, name) and getattr(st, name):
-            return float(getattr(st, name)) / 1000.0
+            capacity_ac_kw = float(getattr(st, name))
+            break
+
+    for name in ["capacity_mw", "capacity_ac_mw"]:
+        if hasattr(st, name) and getattr(st, name):
+            capacity_mw = float(getattr(st, name))
+            if capacity_mw > 100 and capacity_ac_kw:
+                return capacity_mw / 1000.0
+            return capacity_mw
+
+    if capacity_ac_kw:
+        return capacity_ac_kw / 1000.0
 
     # fallback: если нет поля — пусть будет 10MW, чтобы не было микроскопии
     return 10.0
