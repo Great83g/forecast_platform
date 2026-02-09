@@ -38,10 +38,25 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None) -> int:
             if current.time() < schedule.run_time:
                 continue
 
+        manual_dates = []
+        if schedule.manual_snow_dates:
+            for value in schedule.manual_snow_dates.split(","):
+                value = value.strip()
+                if not value:
+                    continue
+                try:
+                    parsed = timezone.datetime.fromisoformat(value)
+                    manual_dates.append(parsed.date())
+                except ValueError:
+                    continue
+
         res = run_forecast_for_station(
             schedule.station_id,
             days=schedule.days,
             providers=_parse_providers(schedule.providers),
+            manual_snow_enable=schedule.manual_snow_enable,
+            manual_snow_factor=schedule.manual_snow_factor,
+            manual_snow_dates=manual_dates,
         )
         if res.get("ok"):
             report = build_forecast_report(

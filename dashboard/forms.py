@@ -136,3 +136,22 @@ class ForecastScheduleForm(forms.Form):
             }
         ),
     )
+    manual_snow_enable = forms.BooleanField(label="Снег (ручной фактор)", required=False)
+    manual_snow_factor = forms.FloatField(
+        label="Снег фактор",
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
+    )
+    manual_snow_dates = forms.CharField(
+        label="Даты снега",
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "2025-02-05, 2025-02-06",
+                "class": "form-control form-control-sm",
+                "style": "width: 160px;",
+            }
+        ),
+    )
