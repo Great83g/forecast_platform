@@ -14,6 +14,38 @@ from neuralprophet import NeuralProphet, save as np_save
 
 from solar.models import SolarRecord
 
+
+def _capacity_mw_from_fields(station) -> float | None:
+    capacity_ac_kw = None
+    for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
+        if hasattr(station, name) and getattr(station, name):
+            capacity_ac_kw = float(getattr(station, name))
+            break
+
+    for name in ["capacity_mw", "capacity_ac_mw"]:
+        if hasattr(station, name) and getattr(station, name):
+            capacity_mw = float(getattr(station, name))
+            if capacity_mw > 100 and capacity_ac_kw:
+                return capacity_mw / 1000.0
+            return capacity_mw
+
+    if capacity_ac_kw:
+        return capacity_ac_kw / 1000.0
+
+    return None
+
+
+def _history_scale_factor(target, source) -> float | None:
+    if not getattr(target, "history_scale_by_capacity", False):
+        return None
+
+    target_cap = _capacity_mw_from_fields(target)
+    source_cap = _capacity_mw_from_fields(source)
+    if not target_cap or not source_cap:
+        return None
+
+    return target_cap / source_cap
+
 # Папка с моделями (в backend.settings: MODEL_DIR = BASE_DIR / "models_cache")
 MODEL_DIR: Path = Path(settings.MODEL_DIR)
 
@@ -28,11 +60,13 @@ def get_history_dataframe(station) -> pd.DataFrame:
     Возвращает DataFrame с колонками:
       ds, Power_KW, Irradiation, Air_Temp, PV_Temp
     """
-    qs = (
-        SolarRecord.objects.filter(station=station)
-        .order_by("timestamp")
-        .values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp")
-    )
+    history_station = station
+    qs = SolarRecord.objects.filter(station=station).order_by("timestamp")
+    if not qs.exists() and getattr(station, "history_source_id", None):
+        history_station = station.history_source
+        qs = SolarRecord.objects.filter(station=history_station).order_by("timestamp")
+
+    qs = qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp")
     df = pd.DataFrame.from_records(qs)
     if df.empty:
         print(f"[TRAIN] station {station.pk}: история пуста")
@@ -49,6 +83,20 @@ def get_history_dataframe(station) -> pd.DataFrame:
         inplace=True,
     )
     df["ds"] = pd.to_datetime(df["ds"])
+
+    if history_station.pk != station.pk:
+        scale_factor = _history_scale_factor(station, history_station)
+        if scale_factor:
+            df["Power_KW"] = df["Power_KW"] * scale_factor
+            print(
+                f"[TRAIN] station {station.pk}: история взята от {history_station.pk} "
+                f"и масштабирована x{scale_factor:.3f}"
+            )
+        else:
+            print(
+                f"[TRAIN] station {station.pk}: история взята от {history_station.pk} "
+                "без масштабирования"
+            )
 
     numeric_cols = ["Power_KW", "Irradiation", "Air_Temp"]
     before = len(df)
@@ -76,13 +124,9 @@ def compute_cap_mw(df: pd.DataFrame) -> float:
 
 
 def station_capacity_mw(station, df: pd.DataFrame) -> float:
-    for name in ["capacity_mw", "capacity_ac_mw"]:
-        if hasattr(station, name) and getattr(station, name):
-            return float(getattr(station, name))
-
-    for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
-        if hasattr(station, name) and getattr(station, name):
-            return float(getattr(station, name)) / 1000.0
+    capacity_from_fields = _capacity_mw_from_fields(station)
+    if capacity_from_fields:
+        return capacity_from_fields
 
     return compute_cap_mw(df)
 
