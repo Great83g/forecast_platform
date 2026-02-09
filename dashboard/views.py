@@ -337,10 +337,10 @@ def station_forecast_list(request, pk: int):
     forecasts = [
         {
             "timestamp": _localize_timestamp(f.timestamp),
-            "pred_final_kw": f.pred_final,
-            "pred_np_kw": f.pred_np,
-            "pred_xgb_kw": f.pred_xgb,
-            "pred_heur_kw": f.pred_heur,
+            "pred_final_mw": (f.pred_final or 0.0) / 1000.0 if f.pred_final is not None else None,
+            "pred_np_mw": (f.pred_np or 0.0) / 1000.0 if f.pred_np is not None else None,
+            "pred_xgb_mw": (f.pred_xgb or 0.0) / 1000.0 if f.pred_xgb is not None else None,
+            "pred_heur_mw": (f.pred_heur or 0.0) / 1000.0 if f.pred_heur is not None else None,
             "snowdepth_fc": f.snowdepth_fc,
             "snowfall_fc": f.snowfall_fc,
             "auto_winter_factor": f.auto_winter_factor,
