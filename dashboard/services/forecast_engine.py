@@ -868,11 +868,11 @@ def run_forecast_for_station(
 
     feat["manual_snow_factor"] = manual_factor_value
     manual_dates = manual_snow_dates or []
-    if manual_snow_enable and manual_factor_value < 1.0:
+    if manual_snow_enable:
         if manual_dates:
             manual_mask = pd.to_datetime(feat["ds"]).dt.date.isin(manual_dates)
+            winter_factor = winter_factor.copy()
             if manual_mask.any():
-                winter_factor = winter_factor.copy()
                 winter_factor[manual_mask] = manual_factor_value
             else:
                 winter_factor = np.full(len(feat), manual_factor_value, dtype=float)
