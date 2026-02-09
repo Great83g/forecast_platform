@@ -26,6 +26,9 @@ class ForecastSchedule(models.Model):
     days = models.PositiveIntegerField(default=1)
     providers = models.CharField(max_length=128, blank=True)
     emails = models.TextField(blank=True)
+    manual_snow_enable = models.BooleanField(default=False)
+    manual_snow_factor = models.FloatField(default=1.0)
+    manual_snow_dates = models.TextField(blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self) -> str:
