@@ -60,6 +60,19 @@ class Station(models.Model):
         validators=[MinValueValidator(0.0), MaxValueValidator(40.0)],
     )
 
+    history_source = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="history_dependents",
+        help_text="Использовать историю другой станции при отсутствии своей.",
+    )
+    history_scale_by_capacity = models.BooleanField(
+        default=True,
+        help_text="Масштабировать историю по отношению мощностей станций.",
+    )
+
     def clean(self):
         super().clean()
         if (

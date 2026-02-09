@@ -14,6 +14,7 @@ import xgboost as xgb
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
+from django.utils.text import slugify
 
 from neuralprophet import load as np_load
 
@@ -25,6 +26,25 @@ from .vc_weather import fetch_visual_crossing_hourly
 
 MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
 logger = logging.getLogger(__name__)
+
+
+def _station_model_dir(station: Station) -> Path:
+    slug = slugify(getattr(station, "name", "")) or "station"
+    return MODEL_DIR / f"{station.pk}_{slug}"
+
+
+def _model_paths_for_station(station: Station) -> Dict[str, Path]:
+    model_dir = _station_model_dir(station)
+    return {
+        "np": model_dir / "np_model.np",
+        "np_meta": model_dir / "np_model.meta.json",
+        "xgb": model_dir / "xgb_model.json",
+        "xgb_meta": model_dir / "xgb_model.meta.json",
+        "legacy_np": MODEL_DIR / f"np_model_{station.pk}.np",
+        "legacy_np_meta": MODEL_DIR / f"np_model_{station.pk}.meta.json",
+        "legacy_xgb": MODEL_DIR / f"xgb_model_{station.pk}.json",
+        "legacy_xgb_meta": MODEL_DIR / f"xgb_model_{station.pk}.meta.json",
+    }
 
 
 XGB_EXPECTED_FEATURES = [
@@ -70,13 +90,21 @@ def _station_capacity_mw(st: Station) -> float:
     Пытаемся достать мощность станции.
     Поддерживаем разные поля (потому что у тебя модели/миграции менялись).
     """
-    for name in ["capacity_mw", "capacity_ac_mw"]:
-        if hasattr(st, name) and getattr(st, name):
-            return float(getattr(st, name))
-
+    capacity_ac_kw = None
     for name in ["capacity_ac_kw", "capacity_kw", "capacity_dc_kw"]:
         if hasattr(st, name) and getattr(st, name):
-            return float(getattr(st, name)) / 1000.0
+            capacity_ac_kw = float(getattr(st, name))
+            break
+
+    for name in ["capacity_mw", "capacity_ac_mw"]:
+        if hasattr(st, name) and getattr(st, name):
+            capacity_mw = float(getattr(st, name))
+            if capacity_mw > 100 and capacity_ac_kw:
+                return capacity_mw / 1000.0
+            return capacity_mw
+
+    if capacity_ac_kw:
+        return capacity_ac_kw / 1000.0
 
     # fallback: если нет поля — пусть будет 10MW, чтобы не было микроскопии
     return 10.0
@@ -90,6 +118,8 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
     Всегда гарантируем широкий диапазон 5-20.
     """
     qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
+    if not qs.exists() and getattr(st, "history_source_id", None):
+        qs = SolarRecord.objects.filter(station=st.history_source).order_by("-timestamp")[:14 * 24]
     if not qs.exists():
         return (9, 17)
 
@@ -608,10 +638,15 @@ def run_forecast_for_station(
     feat = _compute_winter_factors(feat)
 
     # ---- load models ----
-    np_path = MODEL_DIR / f"np_model_{station_id}.np"
-    xgb_path = MODEL_DIR / f"xgb_model_{station_id}.json"
-    np_meta_path = MODEL_DIR / f"np_model_{station_id}.meta.json"
-    xgb_meta_path = MODEL_DIR / f"xgb_model_{station_id}.meta.json"
+    paths = _model_paths_for_station(st)
+    np_path = paths["np"] if paths["np"].exists() else paths["legacy_np"]
+    xgb_path = paths["xgb"] if paths["xgb"].exists() else paths["legacy_xgb"]
+    np_meta_path = (
+        paths["np_meta"] if paths["np_meta"].exists() else paths["legacy_np_meta"]
+    )
+    xgb_meta_path = (
+        paths["xgb_meta"] if paths["xgb_meta"].exists() else paths["legacy_xgb_meta"]
+    )
 
     np_meta: Dict = {}
     if np_meta_path.exists():
@@ -639,8 +674,10 @@ def run_forecast_for_station(
             _, np_path_new, xgb_path_new = train_models_for_station(st)
             if np_path_new is not None:
                 np_path = np_path_new
+                np_meta_path = np_path.with_suffix(".meta.json")
             if xgb_path_new is not None:
                 xgb_path = xgb_path_new
+                xgb_meta_path = xgb_path.with_suffix(".meta.json")
         except Exception as exc:
             logger.exception("[MODEL] auto-train failed: %s", exc)
         else:
@@ -655,10 +692,34 @@ def run_forecast_for_station(
                 except Exception:
                     xgb_meta = {}
 
-    fallback_np_path = MODEL_DIR / "np_model_1.np"
-    fallback_np_meta_path = MODEL_DIR / "np_model_1.meta.json"
-    fallback_xgb_path = MODEL_DIR / "xgb_model_1.json"
-    fallback_xgb_meta_path = MODEL_DIR / "xgb_model_1.meta.json"
+    fallback_station = Station.objects.filter(pk=1).first()
+    if fallback_station:
+        fallback_paths = _model_paths_for_station(fallback_station)
+        fallback_np_path = (
+            fallback_paths["np"]
+            if fallback_paths["np"].exists()
+            else fallback_paths["legacy_np"]
+        )
+        fallback_np_meta_path = (
+            fallback_paths["np_meta"]
+            if fallback_paths["np_meta"].exists()
+            else fallback_paths["legacy_np_meta"]
+        )
+        fallback_xgb_path = (
+            fallback_paths["xgb"]
+            if fallback_paths["xgb"].exists()
+            else fallback_paths["legacy_xgb"]
+        )
+        fallback_xgb_meta_path = (
+            fallback_paths["xgb_meta"]
+            if fallback_paths["xgb_meta"].exists()
+            else fallback_paths["legacy_xgb_meta"]
+        )
+    else:
+        fallback_np_path = MODEL_DIR / "np_model_1.np"
+        fallback_np_meta_path = MODEL_DIR / "np_model_1.meta.json"
+        fallback_xgb_path = MODEL_DIR / "xgb_model_1.json"
+        fallback_xgb_meta_path = MODEL_DIR / "xgb_model_1.meta.json"
 
     np_ok = False
     xgb_ok = False

@@ -11,4 +11,14 @@ class OrganizationSerializer(serializers.ModelSerializer):
 class StationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station
-        fields = ["id", "name", "capacity_mw", "latitude", "longitude", "timezone", "org"]
+        fields = [
+            "id",
+            "name",
+            "capacity_mw",
+            "latitude",
+            "longitude",
+            "timezone",
+            "org",
+            "history_source",
+            "history_scale_by_capacity",
+        ]
