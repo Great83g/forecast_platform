@@ -24,6 +24,9 @@ class StationForm(forms.ModelForm):
             "tilt_deg",
             "azimuth_deg",
             "losses_total_pct",
+
+            "history_source",
+            "history_scale_by_capacity",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -46,6 +49,15 @@ class StationForm(forms.ModelForm):
         self.fields["azimuth_deg"].label = "Азимут (°), юг = 180"
         self.fields["losses_total_pct"].label = "Потери (%)"
 
+        self.fields["history_source"].label = "Источник истории"
+        self.fields["history_scale_by_capacity"].label = "Масштабировать по мощности"
+        self.fields["history_source"].help_text = (
+            "Если у станции нет своей истории, можно выбрать близкую станцию."
+        )
+        self.fields["history_scale_by_capacity"].help_text = (
+            "При включении мощность берётся пропорционально (например 1.2/8.8)."
+        )
+
         # ---------- ДЕФОЛТЫ (только при создании) ----------
         if not self.instance.pk and not self.is_bound:
             self.fields["capacity_dc_kw"].initial = 1000.0
@@ -55,6 +67,20 @@ class StationForm(forms.ModelForm):
             self.fields["azimuth_deg"].initial = 180.0
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["timezone"].initial = "Asia/Almaty"
+
+        if "history_source" in self.fields:
+            qs = Station.objects.all()
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            self.fields["history_source"].queryset = qs
+
+    def clean(self):
+        cleaned_data = super().clean()
+        capacity_mw = cleaned_data.get("capacity_mw")
+        capacity_ac_kw = cleaned_data.get("capacity_ac_kw")
+        if capacity_mw and capacity_ac_kw and capacity_mw > 100:
+            cleaned_data["capacity_mw"] = capacity_ac_kw / 1000.0
+        return cleaned_data
 
 
 class UploadHistoryForm(forms.Form):
