@@ -576,6 +576,17 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
     return p
 
 
+
+
+def _target_offsets_for_weekday_calendar(now_dt) -> List[int]:
+    weekday = now_dt.weekday()
+    if weekday == 4:  # Friday
+        return [2, 3, 4]
+    if weekday in {0, 1, 2, 3}:  # Mon-Thu
+        return [2]
+    return []
+
+
 @transaction.atomic
 def run_forecast_for_station(
     station_id: int,
@@ -585,10 +596,19 @@ def run_forecast_for_station(
     manual_snow_factor: Optional[float] = None,
     manual_snow_dates: Optional[List[date]] = None,
     use_models: bool = True,
+    horizon_mode: str = "legacy",
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
     now = timezone.localtime(timezone.now())
+
+    target_dates: Optional[set[date]] = None
+    effective_days = max(int(days or 1), 1)
+    if horizon_mode == "weekday_calendar":
+        offsets = _target_offsets_for_weekday_calendar(now)
+        if offsets:
+            target_dates = {(now + pd.Timedelta(days=offset)).date() for offset in offsets}
+            effective_days = max(offsets)
 
     # ---- погода ----
     weather_source = "fallback_zero"
@@ -610,22 +630,41 @@ def run_forecast_for_station(
                 logger.warning("[FORECAST] unknown weather provider: %s", provider)
                 continue
             if provider == "open_meteo":
-                wres = fetcher(float(lat), float(lon), days=days, tz_name=tz_name)
+                wres = fetcher(float(lat), float(lon), days=effective_days, tz_name=tz_name)
             else:
-                wres = fetcher(float(lat), float(lon), days=days)
+                wres = fetcher(float(lat), float(lon), days=effective_days)
             if wres.ok and not wres.df.empty:
                 weather_source = wres.source
                 weather_df = wres.df.copy()
                 break
 
     start_date = (now + pd.Timedelta(days=1)).date()
-    solar_hours = _solar_hours_from_weather(weather_df, start_date, days) or _solar_hours_from_history(st)
+    solar_hours = _solar_hours_from_weather(weather_df, start_date, effective_days) or _solar_hours_from_history(st)
 
-    base = _make_base_grid(days=days, solar_hours=solar_hours)
+    base = _make_base_grid(days=effective_days, solar_hours=solar_hours)
     merged = _merge_weather(base, weather_df)
     lat_deg = float(lat) if lat is not None else 47.86
     feat = _compute_features(merged, capacity_mw, lat_deg)
     feat = _compute_winter_factors(feat)
+
+    if target_dates:
+        ds_dates = pd.to_datetime(feat["ds"]).dt.date
+        feat = feat.loc[ds_dates.isin(target_dates)].copy()
+
+    if feat.empty:
+        return {
+            "ok": True,
+            "count": 0,
+            "days": effective_days,
+            "solar_hours": list(solar_hours),
+            "weather_source": weather_source,
+            "np_ok": False,
+            "xgb_ok": False,
+            "np_error": "NO_TARGET_DATES",
+            "xgb_error": "NO_TARGET_DATES",
+            "horizon_mode": horizon_mode,
+            "target_dates": sorted(str(d) for d in (target_dates or [])),
+        }
 
     # ---- load models ----
     paths = _model_paths_for_station(st)
@@ -885,8 +924,11 @@ def run_forecast_for_station(
         start_date,
         timezone.datetime.min.time(),
     ).replace(tzinfo=now.tzinfo)
-    end = start + pd.Timedelta(days=days)
-    SolarForecast.objects.filter(station=st, timestamp__gte=start, timestamp__lt=end).delete()
+    end = start + pd.Timedelta(days=effective_days)
+    if target_dates:
+        SolarForecast.objects.filter(station=st, timestamp__date__in=list(target_dates)).delete()
+    else:
+        SolarForecast.objects.filter(station=st, timestamp__gte=start, timestamp__lt=end).delete()
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
@@ -932,11 +974,14 @@ def run_forecast_for_station(
     return {
         "ok": True,
         "count": len(objs),
-        "days": days,
+        "days": effective_days,
+        "requested_days": days,
         "solar_hours": list(solar_hours),
         "weather_source": weather_source,
         "np_ok": np_ok,
         "xgb_ok": xgb_ok,
         "np_error": np_error,
         "xgb_error": xgb_error,
+        "horizon_mode": horizon_mode,
+        "target_dates": sorted(str(d) for d in (target_dates or [])),
     }

@@ -37,6 +37,10 @@
           <label class="text-muted mb-0" for="{{ schedule_form.days.id_for_label }}">Дней:</label>
           {{ schedule_form.days }}
         </div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted mb-0" for="{{ schedule_form.horizon_mode.id_for_label }}">Режим:</label>
+          {{ schedule_form.horizon_mode }}
+        </div>
         <div class="d-flex align-items-center gap-2 small">
           <span class="text-muted">Провайдеры:</span>
           {{ schedule_form.providers }}
@@ -97,6 +101,13 @@
         <input class="form-check-input" type="checkbox" name="open_meteo_only" id="open-meteo-only" value="1"
                {% if open_meteo_only %}checked{% endif %}>
         <label class="form-check-label" for="open-meteo-only">Open‑Meteo без истории (только эвристика)</label>
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
+        <label class="text-muted mb-0" for="horizon-mode">Режим:</label>
+        <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 290px;">
+          <option value="legacy" {% if horizon_mode == 'legacy' %}selected{% endif %}>Обычный (старый)</option>
+          <option value="weekday_calendar" {% if horizon_mode == 'weekday_calendar' %}selected{% endif %}>Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4</option>
+        </select>
       </div>
       <div class="d-flex align-items-center gap-2 small">
         <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>

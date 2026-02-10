@@ -24,6 +24,7 @@ class ForecastSchedule(models.Model):
     start_at = models.DateTimeField(null=True, blank=True)
     run_time = models.TimeField(default=time(6, 0))
     days = models.PositiveIntegerField(default=1)
+    horizon_mode = models.CharField(max_length=32, default="legacy")
     providers = models.CharField(max_length=128, blank=True)
     emails = models.TextField(blank=True)
     manual_snow_enable = models.BooleanField(default=False)

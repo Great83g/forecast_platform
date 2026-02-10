@@ -298,6 +298,7 @@ def station_forecast_list(request, pk: int):
 
     days = int(request.GET.get("days", "7") or 7)
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
+    horizon_mode = request.GET.get("horizon_mode") or ""
     selected_providers = request.GET.getlist("providers") or getattr(
         settings,
         "FORECAST_WEATHER_PROVIDERS",
@@ -315,6 +316,10 @@ def station_forecast_list(request, pk: int):
             manual_snow_factor = f"{schedule.manual_snow_factor:g}"
         if manual_snow_dates == "" and schedule.manual_snow_dates:
             manual_snow_dates = schedule.manual_snow_dates
+        if horizon_mode == "":
+            horizon_mode = schedule.horizon_mode or "legacy"
+    if horizon_mode == "":
+        horizon_mode = "legacy"
     schedule_form = ForecastScheduleForm(
         initial={
             "enabled": schedule.enabled if schedule else False,
@@ -325,6 +330,7 @@ def station_forecast_list(request, pk: int):
             ),
             "run_time": schedule.run_time.strftime("%H:%M") if schedule else "06:00",
             "days": schedule.days if schedule else days,
+            "horizon_mode": schedule.horizon_mode if schedule else horizon_mode,
             "providers": (schedule.providers.split(",") if schedule and schedule.providers else selected_providers),
             "emails": schedule.emails if schedule else request.GET.get("emails", ""),
             "manual_snow_enable": schedule.manual_snow_enable if schedule else manual_snow_enable,
@@ -388,6 +394,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_factor": manual_snow_factor,
             "manual_snow_dates": manual_snow_dates,
             "open_meteo_only": open_meteo_only,
+            "horizon_mode": horizon_mode,
             "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
@@ -404,6 +411,7 @@ def station_forecast_run(request, pk: int):
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
+    horizon_mode = request.GET.get("horizon_mode") or ""
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
     manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
@@ -415,6 +423,10 @@ def station_forecast_run(request, pk: int):
             manual_snow_factor_raw = f"{schedule.manual_snow_factor:g}"
         if manual_snow_dates_raw == "" and schedule.manual_snow_dates:
             manual_snow_dates_raw = schedule.manual_snow_dates
+        if horizon_mode == "":
+            horizon_mode = schedule.horizon_mode or "legacy"
+    if horizon_mode == "":
+        horizon_mode = "legacy"
     manual_snow_factor = None
     if manual_snow_factor_raw not in (None, ""):
         try:
@@ -442,6 +454,7 @@ def station_forecast_run(request, pk: int):
             manual_snow_factor=manual_snow_factor,
             manual_snow_dates=manual_snow_dates,
             use_models=not open_meteo_only,
+            horizon_mode=horizon_mode,
         )
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
@@ -479,6 +492,7 @@ def station_forecast_run(request, pk: int):
             "manual_snow_factor": manual_snow_factor_raw or "",
             "manual_snow_dates": manual_snow_dates_raw,
             "open_meteo_only": "1" if open_meteo_only else "",
+            "horizon_mode": horizon_mode,
         },
         doseq=True,
     )
@@ -504,6 +518,7 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.start_at = start_at
     schedule.run_time = form.cleaned_data["run_time"]
     schedule.days = form.cleaned_data["days"]
+    schedule.horizon_mode = form.cleaned_data.get("horizon_mode") or "legacy"
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
     schedule.emails = form.cleaned_data.get("emails", "")
     schedule.manual_snow_enable = form.cleaned_data.get("manual_snow_enable", False)
