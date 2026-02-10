@@ -1,6 +1,7 @@
 # dashboard/views.py
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime
 from io import BytesIO
 from typing import Optional
@@ -333,31 +334,45 @@ def station_forecast_list(request, pk: int):
     )
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
+    date_s = request.GET.get("date") or ""
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
+    dt_date = _parse_date(date_s)
 
     qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
     if dt_to:
         qs = qs.filter(timestamp__lte=dt_to)
+    if dt_date:
+        qs = qs.filter(timestamp__date=dt_date.date())
 
     forecasts_raw = list(qs)
 
+    daily = defaultdict(lambda: {"pred_final": 0.0, "pred_np": 0.0, "pred_xgb": 0.0, "pred_heur": 0.0})
+    for f in forecasts_raw:
+        ts = _localize_timestamp(f.timestamp)
+        if ts is None:
+            continue
+        day_key = ts.date()
+        if f.pred_final is not None:
+            daily[day_key]["pred_final"] += float(f.pred_final)
+        if f.pred_np is not None:
+            daily[day_key]["pred_np"] += float(f.pred_np)
+        if f.pred_xgb is not None:
+            daily[day_key]["pred_xgb"] += float(f.pred_xgb)
+        if f.pred_heur is not None:
+            daily[day_key]["pred_heur"] += float(f.pred_heur)
+
     forecasts = [
         {
-            "timestamp": _localize_timestamp(f.timestamp),
-            "pred_final_mw": (f.pred_final or 0.0) / 1000.0 if f.pred_final is not None else None,
-            "pred_np_mw": (f.pred_np or 0.0) / 1000.0 if f.pred_np is not None else None,
-            "pred_xgb_mw": (f.pred_xgb or 0.0) / 1000.0 if f.pred_xgb is not None else None,
-            "pred_heur_mw": (f.pred_heur or 0.0) / 1000.0 if f.pred_heur is not None else None,
-            "snowdepth_fc": f.snowdepth_fc,
-            "snowfall_fc": f.snowfall_fc,
-            "auto_winter_factor": f.auto_winter_factor,
-            "manual_snow_factor": f.manual_snow_factor,
-            "winter_factor_applied": f.winter_factor_applied,
+            "date": day,
+            "pred_final_mw": values["pred_final"] / 1000.0,
+            "pred_np_mw": values["pred_np"] / 1000.0,
+            "pred_xgb_mw": values["pred_xgb"] / 1000.0,
+            "pred_heur_mw": values["pred_heur"] / 1000.0,
         }
-        for f in forecasts_raw
+        for day, values in sorted(daily.items())
     ]
 
     return render(
@@ -376,7 +391,8 @@ def station_forecast_list(request, pk: int):
             "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
-            "count": len(forecasts),
+            "date": date_s,
+            "count": len(forecasts_raw),
         },
     )
 
@@ -508,8 +524,20 @@ def station_forecast_scheduler_tick(request):
 @login_required
 def station_forecast_clear(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
+    qs = SolarForecast.objects.filter(station=st)
+    action = request.POST.get("action") or "all"
+
+    if action == "before_date":
+        before_date = _parse_date(request.POST.get("before_date") or "")
+        if not before_date:
+            messages.error(request, "Не удалось распознать дату удаления.")
+            return redirect("dashboard:station-forecast-list", pk=st.pk)
+        deleted, _ = qs.filter(timestamp__date__lt=before_date.date()).delete()
+        messages.success(request, f"Удалено строк старого прогноза: {deleted} (до {before_date.date()}).")
+        return redirect("dashboard:station-forecast-list", pk=st.pk)
+
     SolarForecast.objects.filter(station=st).delete()
-    messages.success(request, "Прогноз очищен.")
+    messages.success(request, "Прогноз очищен полностью.")
     return redirect("dashboard:station-forecast-list", pk=st.pk)
 
 
@@ -519,14 +547,18 @@ def station_forecast_export(request, pk: int):
 
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
+    date_s = request.GET.get("date") or ""
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
+    dt_date = _parse_date(date_s)
 
     qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
     if dt_to:
         qs = qs.filter(timestamp__lte=dt_to)
+    if dt_date:
+        qs = qs.filter(timestamp__date=dt_date.date())
 
     data = list(
         qs.values(
