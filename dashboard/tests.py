@@ -61,7 +61,10 @@ class ForecastSchedulerForceRunTests(TestCase):
 
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
-    @patch("dashboard.services.forecast_scheduler.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub"})
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
     def test_force_run_ignores_time_and_last_run_limit(self, _run, _build, _send):
         now = timezone.now().replace(hour=9, minute=0, second=0, microsecond=0)
 
@@ -73,7 +76,10 @@ class ForecastSchedulerForceRunTests(TestCase):
 
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
-    @patch("dashboard.services.forecast_scheduler.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub"})
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
     def test_non_force_respects_daily_limit(self, _run, _build, _send):
         now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
 
