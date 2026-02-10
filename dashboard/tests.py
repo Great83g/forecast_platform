@@ -1,11 +1,12 @@
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
 from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import run_forecast_for_station
 from dashboard.services.forecast_scheduler import run_scheduled_forecasts
+from dashboard.views import station_forecast_scheduler_tick
 from stations.models import Organization, Station
 
 
@@ -88,3 +89,31 @@ class ForecastSchedulerForceRunTests(TestCase):
 
         self.assertEqual(first, 1)
         self.assertEqual(second, 0)
+
+
+class ForecastSchedulerTickViewTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(username="viewer", password="pass")
+
+    @patch("dashboard.views.run_scheduled_forecasts", return_value=3)
+    def test_scheduler_tick_parses_force_true(self, run_mock):
+        request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/?force=1")
+        request.user = self.user
+
+        response = station_forecast_scheduler_tick(request)
+
+        self.assertEqual(response.status_code, 200)
+        run_mock.assert_called_once_with(force=True)
+        self.assertIn(b'"force": true', response.content)
+
+    @patch("dashboard.views.run_scheduled_forecasts", return_value=0)
+    def test_scheduler_tick_defaults_force_false(self, run_mock):
+        request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/")
+        request.user = self.user
+
+        response = station_forecast_scheduler_tick(request)
+
+        self.assertEqual(response.status_code, 200)
+        run_mock.assert_called_once_with(force=False)
+        self.assertIn(b'"force": false', response.content)
