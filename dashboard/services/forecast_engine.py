@@ -651,6 +651,11 @@ def run_forecast_for_station(
         ds_dates = pd.to_datetime(feat["ds"]).dt.date
         feat = feat.loc[ds_dates.isin(target_dates)].copy()
 
+    # После фильтрации по датам индекс может быть разреженным (например, начинаться с 11),
+    # а массивы предсказаний индексируются позиционно с 0. Выравниваем индекс,
+    # чтобы избежать ошибок вида "index X is out of bounds for axis 0" при сохранении.
+    feat = feat.reset_index(drop=True)
+
     if feat.empty:
         return {
             "ok": True,
