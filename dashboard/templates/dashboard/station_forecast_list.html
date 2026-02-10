@@ -37,6 +37,10 @@
           <label class="text-muted mb-0" for="{{ schedule_form.days.id_for_label }}">Дней:</label>
           {{ schedule_form.days }}
         </div>
+        <div class="d-flex align-items-center gap-2">
+          <label class="text-muted mb-0" for="{{ schedule_form.horizon_mode.id_for_label }}">Режим:</label>
+          {{ schedule_form.horizon_mode }}
+        </div>
         <div class="d-flex align-items-center gap-2 small">
           <span class="text-muted">Провайдеры:</span>
           {{ schedule_form.providers }}
@@ -99,46 +103,67 @@
         <label class="form-check-label" for="open-meteo-only">Open‑Meteo без истории (только эвристика)</label>
       </div>
       <div class="d-flex align-items-center gap-2 small">
+        <label class="text-muted mb-0" for="horizon-mode">Режим:</label>
+        <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 290px;">
+          <option value="legacy" {% if horizon_mode == 'legacy' %}selected{% endif %}>Обычный (старый)</option>
+          <option value="weekday_calendar" {% if horizon_mode == 'weekday_calendar' %}selected{% endif %}>Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4</option>
+        </select>
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
         <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>
         {{ email_form.emails }}
       </div>
       <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
     </form>
-    <a class="btn btn-sm btn-outline-success" href="{% url 'dashboard:station-forecast-export' station.pk %}">Скачать Excel</a>
+    <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-list' station.pk %}">
+      <label class="small mb-0 text-muted">Дата:</label>
+      <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
+      <button class="btn btn-sm btn-outline-secondary" type="submit">Показать дату</button>
+      <a class="btn btn-sm btn-outline-light border" href="{% url 'dashboard:station-forecast-list' station.pk %}">Сброс</a>
+    </form>
+    <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-export' station.pk %}">
+      <label class="small mb-0 text-muted">Скачать по дате:</label>
+      <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
+      <button class="btn btn-sm btn-outline-success" type="submit">Скачать Excel</button>
+    </form>
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-inline">
       {% csrf_token %}
+      <input type="hidden" name="action" value="all">
       <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить все прогнозы этой станции?');">Очистить прогнозы</button>
+    </form>
+    <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-flex align-items-center gap-2 flex-wrap">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="before_date">
+      <label class="small mb-0 text-muted">Удалить старые до:</label>
+      <input class="form-control form-control-sm" type="date" name="before_date" style="width: 160px;" required>
+      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить старые прогнозы до выбранной даты?');">Удалить старые</button>
     </form>
   </div>
 
-  <div class="text-muted small mb-2">Всего прогнозных строк: <b>{{ count }}</b></div>
+  <div class="text-muted small mb-2">Всего прогнозных строк (почасово): <b>{{ count }}</b></div>
 
   <div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
     <table class="table table-sm table-striped mb-0">
       <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
         <tr>
-          <th>Дата/время</th>
+          <th>Дата</th>
           <th class="text-end">Итог, МВт</th>
           <th class="text-end">NP, МВт</th>
           <th class="text-end">XGB, МВт</th>
           <th class="text-end">Эвристика, МВт</th>
-          <th class="text-end">Снег, м</th>
-          <th class="text-end">Фактор</th>
         </tr>
       </thead>
       <tbody>
         {% for r in forecasts %}
           <tr>
-            <td>{{ r.timestamp }}</td>
+            <td>{{ r.date|date:"d E Y" }}</td>
             <td class="text-end">{{ r.pred_final_mw|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.pred_np_mw|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.pred_xgb_mw|default_if_none:""|floatformat:2 }}</td>
             <td class="text-end">{{ r.pred_heur_mw|default_if_none:""|floatformat:2 }}</td>
-            <td class="text-end">{{ r.snowdepth_fc|default_if_none:""|floatformat:2 }}</td>
-            <td class="text-end">{{ r.winter_factor_applied|default_if_none:""|floatformat:2 }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="7" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
+          <tr><td colspan="5" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
         {% endfor %}
       </tbody>
     </table>
