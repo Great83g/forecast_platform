@@ -317,9 +317,9 @@ def station_forecast_list(request, pk: int):
         if manual_snow_dates == "" and schedule.manual_snow_dates:
             manual_snow_dates = schedule.manual_snow_dates
         if horizon_mode == "":
-            horizon_mode = schedule.horizon_mode or "legacy"
+            horizon_mode = schedule.horizon_mode or "weekday_calendar"
     if horizon_mode == "":
-        horizon_mode = "legacy"
+        horizon_mode = "weekday_calendar"
     schedule_form = ForecastScheduleForm(
         initial={
             "enabled": schedule.enabled if schedule else False,
@@ -424,9 +424,9 @@ def station_forecast_run(request, pk: int):
         if manual_snow_dates_raw == "" and schedule.manual_snow_dates:
             manual_snow_dates_raw = schedule.manual_snow_dates
         if horizon_mode == "":
-            horizon_mode = schedule.horizon_mode or "legacy"
+            horizon_mode = schedule.horizon_mode or "weekday_calendar"
     if horizon_mode == "":
-        horizon_mode = "legacy"
+        horizon_mode = "weekday_calendar"
     manual_snow_factor = None
     if manual_snow_factor_raw not in (None, ""):
         try:
@@ -518,7 +518,7 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.start_at = start_at
     schedule.run_time = form.cleaned_data["run_time"]
     schedule.days = form.cleaned_data["days"]
-    schedule.horizon_mode = form.cleaned_data.get("horizon_mode") or "legacy"
+    schedule.horizon_mode = form.cleaned_data.get("horizon_mode") or "weekday_calendar"
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
     schedule.emails = form.cleaned_data.get("emails", "")
     schedule.manual_snow_enable = form.cleaned_data.get("manual_snow_enable", False)

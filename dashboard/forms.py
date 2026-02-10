@@ -125,7 +125,7 @@ class ForecastScheduleForm(forms.Form):
             ("weekday_calendar", "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4"),
         ],
         widget=forms.Select(attrs={"class": "form-select form-select-sm", "style": "width: 290px;"}),
-        initial="legacy",
+        initial="weekday_calendar",
     )
     providers = forms.MultipleChoiceField(
         label="Провайдеры",

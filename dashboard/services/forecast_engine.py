@@ -596,7 +596,7 @@ def run_forecast_for_station(
     manual_snow_factor: Optional[float] = None,
     manual_snow_dates: Optional[List[date]] = None,
     use_models: bool = True,
-    horizon_mode: str = "legacy",
+    horizon_mode: str = "weekday_calendar",
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)

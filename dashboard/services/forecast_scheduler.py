@@ -57,7 +57,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None) -> int:
             manual_snow_enable=schedule.manual_snow_enable,
             manual_snow_factor=schedule.manual_snow_factor,
             manual_snow_dates=manual_dates,
-            horizon_mode=schedule.horizon_mode or "legacy",
+            horizon_mode=schedule.horizon_mode or "weekday_calendar",
         )
         if res.get("ok"):
             report = build_forecast_report(
