@@ -61,13 +61,14 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
             horizon_mode=schedule.horizon_mode or "weekday_calendar",
         )
         if res.get("ok"):
+            effective_report_days = int(res.get("days") or schedule.days)
             report = build_forecast_report(
                 station=schedule.station,
-                days=schedule.days,
+                days=effective_report_days,
                 weather_source=res.get("weather_source"),
                 recipients=[schedule.emails],
             )
-            send_report_email(report, [schedule.emails], schedule.station.name, schedule.days)
+            send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days)
 
         schedule.last_run_at = current
         schedule.save(update_fields=["last_run_at"])

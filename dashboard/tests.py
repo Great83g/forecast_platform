@@ -75,6 +75,24 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertEqual(first, 1)
         self.assertEqual(second, 1)
 
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub", "days": 3},
+    )
+    def test_report_uses_effective_days_from_engine_result(self, _run, build_mock, send_mock):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        count = run_scheduled_forecasts(now=now, force=True)
+
+        self.assertEqual(count, 1)
+        build_mock.assert_called_once()
+        self.assertEqual(build_mock.call_args.kwargs["days"], 3)
+        send_mock.assert_called_once()
+        self.assertEqual(send_mock.call_args.args[3], 3)
+
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
     @patch(
