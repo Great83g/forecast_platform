@@ -17,26 +17,27 @@ def _parse_providers(value: str) -> Optional[list[str]]:
     return providers or None
 
 
-def run_scheduled_forecasts(now: Optional[timezone.datetime] = None) -> int:
+def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool = False) -> int:
     current = now or timezone.localtime(timezone.now())
     today = current.date()
     run_count = 0
 
     for schedule in ForecastSchedule.objects.filter(enabled=True):
-        if schedule.last_run_at and schedule.last_run_at.date() >= today:
-            continue
+        if not force:
+            if schedule.last_run_at and schedule.last_run_at.date() >= today:
+                continue
 
-        if schedule.start_at:
-            start_at = timezone.localtime(schedule.start_at)
-            if schedule.last_run_at is None:
-                if current < start_at:
-                    continue
+            if schedule.start_at:
+                start_at = timezone.localtime(schedule.start_at)
+                if schedule.last_run_at is None:
+                    if current < start_at:
+                        continue
+                else:
+                    if current.time() < schedule.run_time:
+                        continue
             else:
                 if current.time() < schedule.run_time:
                     continue
-        else:
-            if current.time() < schedule.run_time:
-                continue
 
         manual_dates = []
         if schedule.manual_snow_dates:
@@ -58,15 +59,18 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None) -> int:
             manual_snow_factor=schedule.manual_snow_factor,
             manual_snow_dates=manual_dates,
             horizon_mode=schedule.horizon_mode or "weekday_calendar",
+            forecast_scope="main",
         )
         if res.get("ok"):
+            effective_report_days = int(res.get("days") or schedule.days)
             report = build_forecast_report(
                 station=schedule.station,
-                days=schedule.days,
+                days=effective_report_days,
                 weather_source=res.get("weather_source"),
                 recipients=[schedule.emails],
+                forecast_scope="main",
             )
-            send_report_email(report, [schedule.emails], schedule.station.name, schedule.days)
+            send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days)
 
         schedule.last_run_at = current
         schedule.save(update_fields=["last_run_at"])

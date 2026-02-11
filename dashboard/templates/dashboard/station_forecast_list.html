@@ -10,6 +10,7 @@
   {% endif %}
 
   <h2 class="mb-2">Прогноз: {{ station.name }}</h2>
+  <div class="mb-2 small text-muted">Режим данных: <b>{% if forecast_scope == 'test' %}Тестовая база{% else %}Основная база{% endif %}</b></div>
 
   <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
@@ -110,18 +111,27 @@
         </select>
       </div>
       <div class="d-flex align-items-center gap-2 small">
+        <label class="text-muted mb-0" for="scope-mode">База:</label>
+        <select id="scope-mode" name="scope" class="form-select form-select-sm" style="width: 180px;">
+          <option value="main" {% if forecast_scope == 'main' %}selected{% endif %}>Основная</option>
+          <option value="test" {% if forecast_scope == 'test' %}selected{% endif %}>Тестовая</option>
+        </select>
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
         <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>
         {{ email_form.emails }}
       </div>
       <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
     </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-list' station.pk %}">
+      <input type="hidden" name="scope" value="{{ forecast_scope }}">
       <label class="small mb-0 text-muted">Дата:</label>
       <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
       <button class="btn btn-sm btn-outline-secondary" type="submit">Показать дату</button>
       <a class="btn btn-sm btn-outline-light border" href="{% url 'dashboard:station-forecast-list' station.pk %}">Сброс</a>
     </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-export' station.pk %}">
+      <input type="hidden" name="scope" value="{{ forecast_scope }}">
       <label class="small mb-0 text-muted">Скачать по дате:</label>
       <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
       <button class="btn btn-sm btn-outline-success" type="submit">Скачать Excel</button>
@@ -129,11 +139,13 @@
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-inline">
       {% csrf_token %}
       <input type="hidden" name="action" value="all">
+      <input type="hidden" name="scope" value="{{ forecast_scope }}">
       <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить все прогнозы этой станции?');">Очистить прогнозы</button>
     </form>
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-flex align-items-center gap-2 flex-wrap">
       {% csrf_token %}
       <input type="hidden" name="action" value="before_date">
+      <input type="hidden" name="scope" value="{{ forecast_scope }}">
       <label class="small mb-0 text-muted">Удалить старые до:</label>
       <input class="form-control form-control-sm" type="date" name="before_date" style="width: 160px;" required>
       <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить старые прогнозы до выбранной даты?');">Удалить старые</button>
@@ -178,6 +190,18 @@
       fetch("{% url 'dashboard:station-forecast-scheduler-tick' %}", {credentials: "same-origin"})
         .catch(function () {});
     }
+
+    function bindScopeSwitcher() {
+      var scopeSelect = document.getElementById("scope-mode");
+      if (!scopeSelect) return;
+      scopeSelect.addEventListener("change", function () {
+        var url = new URL(window.location.href);
+        url.searchParams.set("scope", scopeSelect.value || "main");
+        window.location.href = url.toString();
+      });
+    }
+
+    bindScopeSwitcher();
     tickScheduler();
     setInterval(tickScheduler, 60000);
   })();

@@ -69,10 +69,10 @@ def get_history_dataframe(station) -> pd.DataFrame:
       ds, Power_KW, Irradiation, Air_Temp, PV_Temp
     """
     history_station = station
-    qs = SolarRecord.objects.filter(station=station).order_by("timestamp")
+    qs = SolarRecord.objects.filter(station=station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("timestamp")
     if not qs.exists() and getattr(station, "history_source_id", None):
         history_station = station.history_source
-        qs = SolarRecord.objects.filter(station=history_station).order_by("timestamp")
+        qs = SolarRecord.objects.filter(station=history_station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("timestamp")
 
     qs = qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp")
     df = pd.DataFrame.from_records(qs)

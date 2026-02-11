@@ -117,9 +117,9 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
     - берём min/max hour
     Всегда гарантируем широкий диапазон 5-20.
     """
-    qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
+    qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("-timestamp")[:14 * 24]
     if not qs.exists() and getattr(st, "history_source_id", None):
-        qs = SolarRecord.objects.filter(station=st.history_source).order_by("-timestamp")[:14 * 24]
+        qs = SolarRecord.objects.filter(station=st.history_source, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("-timestamp")[:14 * 24]
     if not qs.exists():
         return (9, 17)
 
@@ -597,6 +597,7 @@ def run_forecast_for_station(
     manual_snow_dates: Optional[List[date]] = None,
     use_models: bool = True,
     horizon_mode: str = "weekday_calendar",
+    forecast_scope: str = "main",
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
@@ -650,6 +651,11 @@ def run_forecast_for_station(
     if target_dates:
         ds_dates = pd.to_datetime(feat["ds"]).dt.date
         feat = feat.loc[ds_dates.isin(target_dates)].copy()
+
+    # После фильтрации по датам индекс может быть разреженным (например, начинаться с 11),
+    # а массивы предсказаний индексируются позиционно с 0. Выравниваем индекс,
+    # чтобы избежать ошибок вида "index X is out of bounds for axis 0" при сохранении.
+    feat = feat.reset_index(drop=True)
 
     if feat.empty:
         return {
@@ -926,9 +932,9 @@ def run_forecast_for_station(
     ).replace(tzinfo=now.tzinfo)
     end = start + pd.Timedelta(days=effective_days)
     if target_dates:
-        SolarForecast.objects.filter(station=st, timestamp__date__in=list(target_dates)).delete()
+        SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope, timestamp__date__in=list(target_dates)).delete()
     else:
-        SolarForecast.objects.filter(station=st, timestamp__gte=start, timestamp__lt=end).delete()
+        SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope, timestamp__gte=start, timestamp__lt=end).delete()
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
@@ -941,6 +947,7 @@ def run_forecast_for_station(
             SolarForecast(
                 station=st,
                 timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
+                forecast_scope=forecast_scope,
                 # Сохраняем в кВт (модель работает в MW, перевели выше)
                 pred_np=pred_np_kw,
                 pred_xgb=pred_xgb_kw,
@@ -984,4 +991,5 @@ def run_forecast_for_station(
         "xgb_error": xgb_error,
         "horizon_mode": horizon_mode,
         "target_dates": sorted(str(d) for d in (target_dates or [])),
+        "forecast_scope": forecast_scope,
     }
