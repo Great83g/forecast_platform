@@ -67,6 +67,12 @@ def _excel_safe_datetime(series: pd.Series) -> pd.Series:
     return s
 
 
+def _normalize_forecast_scope(value: str) -> str:
+    if value == "test":
+        return "test"
+    return "main"
+
+
 def _localize_timestamp(value):
     if value is None or pd.isna(value):
         return value
@@ -308,6 +314,7 @@ def station_forecast_list(request, pk: int):
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor = request.GET.get("manual_snow_factor") or ""
     manual_snow_dates = request.GET.get("manual_snow_dates") or ""
+    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
         if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
@@ -345,7 +352,7 @@ def station_forecast_list(request, pk: int):
     dt_to = _parse_date(to_s)
     dt_date = _parse_date(date_s)
 
-    qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
+    qs = SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope).order_by("timestamp")
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
     if dt_to:
@@ -395,6 +402,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_dates": manual_snow_dates,
             "open_meteo_only": open_meteo_only,
             "horizon_mode": horizon_mode,
+            "forecast_scope": forecast_scope,
             "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
@@ -415,6 +423,7 @@ def station_forecast_run(request, pk: int):
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
     manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
+    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
         if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
@@ -455,9 +464,10 @@ def station_forecast_run(request, pk: int):
             manual_snow_dates=manual_snow_dates,
             use_models=not open_meteo_only,
             horizon_mode=horizon_mode,
+            forecast_scope=forecast_scope,
         )
         if res.get("ok"):
-            msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
+            msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}, scope={forecast_scope}"
             if open_meteo_only:
                 msg += " | режим: Open-Meteo без истории"
             report = build_forecast_report(
@@ -465,6 +475,7 @@ def station_forecast_run(request, pk: int):
                 days=days,
                 weather_source=res.get("weather_source"),
                 recipients=[emails_raw],
+                forecast_scope=forecast_scope,
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
             if send_report_email(report, [emails_raw], st.name, days):
@@ -493,6 +504,7 @@ def station_forecast_run(request, pk: int):
             "manual_snow_dates": manual_snow_dates_raw,
             "open_meteo_only": "1" if open_meteo_only else "",
             "horizon_mode": horizon_mode,
+            "scope": forecast_scope,
         },
         doseq=True,
     )
@@ -532,28 +544,30 @@ def station_forecast_schedule_update(request, pk: int):
 
 @login_required
 def station_forecast_scheduler_tick(request):
-    count = run_scheduled_forecasts()
-    return JsonResponse({"ok": True, "count": count})
+    force = request.GET.get("force") in {"1", "true", "on", "yes"}
+    count = run_scheduled_forecasts(force=force)
+    return JsonResponse({"ok": True, "count": count, "force": force})
 
 
 @login_required
 def station_forecast_clear(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
-    qs = SolarForecast.objects.filter(station=st)
+    scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
+    qs = SolarForecast.objects.filter(station=st, forecast_scope=scope)
     action = request.POST.get("action") or "all"
 
     if action == "before_date":
         before_date = _parse_date(request.POST.get("before_date") or "")
         if not before_date:
             messages.error(request, "Не удалось распознать дату удаления.")
-            return redirect("dashboard:station-forecast-list", pk=st.pk)
+            return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
         deleted, _ = qs.filter(timestamp__date__lt=before_date.date()).delete()
         messages.success(request, f"Удалено строк старого прогноза: {deleted} (до {before_date.date()}).")
-        return redirect("dashboard:station-forecast-list", pk=st.pk)
+        return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
 
-    SolarForecast.objects.filter(station=st).delete()
+    qs.delete()
     messages.success(request, "Прогноз очищен полностью.")
-    return redirect("dashboard:station-forecast-list", pk=st.pk)
+    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
 
 
 @login_required
@@ -566,8 +580,9 @@ def station_forecast_export(request, pk: int):
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
     dt_date = _parse_date(date_s)
+    scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
 
-    qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
+    qs = SolarForecast.objects.filter(station=st, forecast_scope=scope).order_by("timestamp")
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
     if dt_to:
