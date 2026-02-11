@@ -73,6 +73,12 @@ def _normalize_forecast_scope(value: str) -> str:
     return "main"
 
 
+def _normalize_history_scope(value: str) -> str:
+    if value == "test":
+        return "test"
+    return "main"
+
+
 def _localize_timestamp(value):
     if value is None or pd.isna(value):
         return value
@@ -137,22 +143,23 @@ def station_detail(request, pk: int):
 @login_required
 def station_upload(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
+    history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
 
     if request.method == "POST":
         if request.POST.get("action") == "clear":
-            SolarRecord.objects.filter(station=st).delete()
+            SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
             messages.success(request, "История очищена.")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         form = UploadHistoryForm(request.POST, request.FILES)
         if not form.is_valid():
             messages.error(request, "Ошибка формы загрузки.")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         f = request.FILES.get("file")
         if not f:
             messages.error(request, "Файл не выбран.")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         try:
             if f.name.lower().endswith(".csv"):
@@ -161,7 +168,7 @@ def station_upload(request, pk: int):
                 df = pd.read_excel(f)
         except Exception as e:
             messages.error(request, f"Не удалось прочитать файл: {e}")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         # нормализуем названия колонок: убираем пробелы и приводим к нижнему регистру
         df.columns = [str(c).strip().lower() for c in df.columns]
@@ -172,7 +179,7 @@ def station_upload(request, pk: int):
 
         if not col_ts or not col_y:
             messages.error(request, "Нужны колонки timestamp/ds и power_kw/y (регистр не важен).")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         df[col_ts] = pd.to_datetime(df[col_ts], errors="coerce")
         df[col_y] = pd.to_numeric(df[col_y], errors="coerce")
@@ -185,13 +192,14 @@ def station_upload(request, pk: int):
         df = df.dropna(subset=[col_ts]).sort_values(col_ts).reset_index(drop=True)
 
         # полностью заменяем историю
-        SolarRecord.objects.filter(station=st).delete()
+        SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
 
         objs = []
         for _, r in df.iterrows():
             objs.append(
                 SolarRecord(
                     station=st,
+                    history_scope=history_scope,
                     timestamp=r[col_ts].to_pydatetime(),
                     power_kw=float(r[col_y]) if pd.notna(r[col_y]) else None,
                     irradiation=float(r["irradiation"]) if "irradiation" in df.columns and pd.notna(r.get("irradiation")) else None,
@@ -202,7 +210,7 @@ def station_upload(request, pk: int):
 
         SolarRecord.objects.bulk_create(objs, batch_size=1000)
         messages.success(request, f"История загружена: {len(objs)} строк.")
-        return redirect("dashboard:station-upload", pk=pk)
+        return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
     # GET + показ истории
     form = UploadHistoryForm()
@@ -211,7 +219,7 @@ def station_upload(request, pk: int):
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
 
-    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
     total_count = qs.count()
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
@@ -230,6 +238,7 @@ def station_upload(request, pk: int):
             "to_date": to_s,
             "total_count": total_count,
             "history_count": len(history),
+            "history_scope": history_scope,
         },
     )
 
@@ -238,7 +247,8 @@ def station_upload(request, pk: int):
 def station_export_history(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
-    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    history_scope = _normalize_history_scope(request.GET.get("history_scope") or "main")
+    qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
     data = list(qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp"))
     df = pd.DataFrame(data)
 

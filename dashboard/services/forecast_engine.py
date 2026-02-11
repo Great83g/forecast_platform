@@ -117,9 +117,9 @@ def _solar_hours_from_history(st: Station) -> Tuple[int, int]:
     - берём min/max hour
     Всегда гарантируем широкий диапазон 5-20.
     """
-    qs = SolarRecord.objects.filter(station=st).order_by("-timestamp")[:14 * 24]
+    qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("-timestamp")[:14 * 24]
     if not qs.exists() and getattr(st, "history_source_id", None):
-        qs = SolarRecord.objects.filter(station=st.history_source).order_by("-timestamp")[:14 * 24]
+        qs = SolarRecord.objects.filter(station=st.history_source, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("-timestamp")[:14 * 24]
     if not qs.exists():
         return (9, 17)
 

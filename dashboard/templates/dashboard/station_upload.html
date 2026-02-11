@@ -2,6 +2,7 @@
 {% block content %}
 
 <h2 class="mb-2">История: {{ station.name }}</h2>
+<div class="mb-2 small text-muted">Режим истории: <b>{% if history_scope == 'test' %}Тестовая база{% else %}Основная база{% endif %}</b></div>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
   <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
@@ -9,6 +10,13 @@
 </div>
 
 <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+  <div>
+    <label class="form-label mb-0 small">База истории</label>
+    <select class="form-select form-select-sm" name="history_scope" id="history-scope-select" style="min-width: 170px;">
+      <option value="main" {% if history_scope == 'main' %}selected{% endif %}>Основная</option>
+      <option value="test" {% if history_scope == 'test' %}selected{% endif %}>Тестовая</option>
+    </select>
+  </div>
   <div>
     <label class="form-label mb-0 small">С даты</label>
     <input type="date" name="from" value="{{ from_date }}" class="form-control form-control-sm">
@@ -23,7 +31,7 @@
 
   <div class="ms-auto d-flex gap-2">
     <a class="btn btn-sm btn-success"
-       href="{% url 'dashboard:station-export-history' station.pk %}?from={{ from_date }}&to={{ to_date }}">
+       href="{% url 'dashboard:station-export-history' station.pk %}?history_scope={{ history_scope }}&from={{ from_date }}&to={{ to_date }}">
       Скачать Excel
     </a>
   </div>
@@ -32,6 +40,7 @@
 <form method="post" class="mb-3">
   {% csrf_token %}
   <input type="hidden" name="action" value="clear">
+  <input type="hidden" name="history_scope" value="{{ history_scope }}">
   <button type="submit" class="btn btn-sm btn-outline-danger"
           onclick="return confirm('Точно очистить всю историю станции?');">
     Очистить историю
@@ -44,6 +53,7 @@
     <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
       {% csrf_token %}
       <input type="hidden" name="action" value="upload">
+      <input type="hidden" name="history_scope" value="{{ history_scope }}">
       <input type="file" name="file" class="form-control form-control-sm" style="max-width: 420px;">
       <button type="submit" class="btn btn-primary btn-sm">Загрузить</button>
     </form>
