@@ -95,3 +95,17 @@
 </div>
 
 {% endblock %}
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    var scopeSelect = document.getElementById("history-scope-select");
+    if (!scopeSelect) return;
+    scopeSelect.addEventListener("change", function () {
+      var url = new URL(window.location.href);
+      url.searchParams.set("history_scope", scopeSelect.value || "main");
+      window.location.href = url.toString();
+    });
+  })();
+</script>
+{% endblock %}
