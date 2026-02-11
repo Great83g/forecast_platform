@@ -190,6 +190,18 @@
       fetch("{% url 'dashboard:station-forecast-scheduler-tick' %}", {credentials: "same-origin"})
         .catch(function () {});
     }
+
+    function bindScopeSwitcher() {
+      var scopeSelect = document.getElementById("scope-mode");
+      if (!scopeSelect) return;
+      scopeSelect.addEventListener("change", function () {
+        var url = new URL(window.location.href);
+        url.searchParams.set("scope", scopeSelect.value || "main");
+        window.location.href = url.toString();
+      });
+    }
+
+    bindScopeSwitcher();
     tickScheduler();
     setInterval(tickScheduler, 60000);
   })();
