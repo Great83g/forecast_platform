@@ -7,6 +7,13 @@ SolarStation = Station
 
 
 class SolarRecord(models.Model):
+    HISTORY_SCOPE_MAIN = "main"
+    HISTORY_SCOPE_TEST = "test"
+    HISTORY_SCOPE_CHOICES = [
+        (HISTORY_SCOPE_MAIN, "Основная база"),
+        (HISTORY_SCOPE_TEST, "Тестовая база"),
+    ]
+
     """
     Исторические данные станции:
     - timestamp: момент времени
@@ -21,6 +28,7 @@ class SolarRecord(models.Model):
         related_name="records",
     )
     timestamp = models.DateTimeField()
+    history_scope = models.CharField(max_length=16, choices=HISTORY_SCOPE_CHOICES, default=HISTORY_SCOPE_MAIN)
 
     irradiation = models.FloatField(null=True, blank=True)
     air_temp = models.FloatField(null=True, blank=True)
@@ -30,14 +38,22 @@ class SolarRecord(models.Model):
     class Meta:
         ordering = ["timestamp"]
         indexes = [
+            models.Index(fields=["station", "history_scope", "timestamp"]),
             models.Index(fields=["station", "timestamp"]),
         ]
 
     def __str__(self):
-        return f"{self.station.name} @ {self.timestamp}"
+        return f"{self.station.name} [{self.history_scope}] @ {self.timestamp}"
 
 
 class SolarForecast(models.Model):
+    SCOPE_MAIN = "main"
+    SCOPE_TEST = "test"
+    SCOPE_CHOICES = [
+        (SCOPE_MAIN, "Основная база"),
+        (SCOPE_TEST, "Тестовая база"),
+    ]
+
     """
     Прогноз выработки станции на конкретный час:
     - pred_np: прогноз NeuralProphet (может быть None)
@@ -54,6 +70,7 @@ class SolarForecast(models.Model):
         related_name="forecasts",
     )
     timestamp = models.DateTimeField()
+    forecast_scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default=SCOPE_MAIN)
 
     # прогноз генерации (кВт)
     pred_np = models.FloatField(null=True, blank=True)
@@ -83,9 +100,10 @@ class SolarForecast(models.Model):
     class Meta:
         ordering = ["timestamp"]
         indexes = [
+            models.Index(fields=["station", "forecast_scope", "timestamp"]),
             models.Index(fields=["station", "timestamp"]),
         ]
-        unique_together = ("station", "timestamp")
+        unique_together = ("station", "forecast_scope", "timestamp")
 
     def __str__(self):
-        return f"Forecast {self.station.name} @ {self.timestamp}"
+        return f"Forecast {self.station.name} [{self.forecast_scope}] @ {self.timestamp}"

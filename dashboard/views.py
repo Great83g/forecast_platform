@@ -67,6 +67,18 @@ def _excel_safe_datetime(series: pd.Series) -> pd.Series:
     return s
 
 
+def _normalize_forecast_scope(value: str) -> str:
+    if value == "test":
+        return "test"
+    return "main"
+
+
+def _normalize_history_scope(value: str) -> str:
+    if value == "test":
+        return "test"
+    return "main"
+
+
 def _localize_timestamp(value):
     if value is None or pd.isna(value):
         return value
@@ -131,22 +143,23 @@ def station_detail(request, pk: int):
 @login_required
 def station_upload(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
+    history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
 
     if request.method == "POST":
         if request.POST.get("action") == "clear":
-            SolarRecord.objects.filter(station=st).delete()
+            SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
             messages.success(request, "История очищена.")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         form = UploadHistoryForm(request.POST, request.FILES)
         if not form.is_valid():
             messages.error(request, "Ошибка формы загрузки.")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         f = request.FILES.get("file")
         if not f:
             messages.error(request, "Файл не выбран.")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         try:
             if f.name.lower().endswith(".csv"):
@@ -155,7 +168,7 @@ def station_upload(request, pk: int):
                 df = pd.read_excel(f)
         except Exception as e:
             messages.error(request, f"Не удалось прочитать файл: {e}")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         # нормализуем названия колонок: убираем пробелы и приводим к нижнему регистру
         df.columns = [str(c).strip().lower() for c in df.columns]
@@ -166,7 +179,7 @@ def station_upload(request, pk: int):
 
         if not col_ts or not col_y:
             messages.error(request, "Нужны колонки timestamp/ds и power_kw/y (регистр не важен).")
-            return redirect("dashboard:station-upload", pk=pk)
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         df[col_ts] = pd.to_datetime(df[col_ts], errors="coerce")
         df[col_y] = pd.to_numeric(df[col_y], errors="coerce")
@@ -179,13 +192,14 @@ def station_upload(request, pk: int):
         df = df.dropna(subset=[col_ts]).sort_values(col_ts).reset_index(drop=True)
 
         # полностью заменяем историю
-        SolarRecord.objects.filter(station=st).delete()
+        SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
 
         objs = []
         for _, r in df.iterrows():
             objs.append(
                 SolarRecord(
                     station=st,
+                    history_scope=history_scope,
                     timestamp=r[col_ts].to_pydatetime(),
                     power_kw=float(r[col_y]) if pd.notna(r[col_y]) else None,
                     irradiation=float(r["irradiation"]) if "irradiation" in df.columns and pd.notna(r.get("irradiation")) else None,
@@ -196,7 +210,7 @@ def station_upload(request, pk: int):
 
         SolarRecord.objects.bulk_create(objs, batch_size=1000)
         messages.success(request, f"История загружена: {len(objs)} строк.")
-        return redirect("dashboard:station-upload", pk=pk)
+        return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
     # GET + показ истории
     form = UploadHistoryForm()
@@ -205,7 +219,7 @@ def station_upload(request, pk: int):
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
 
-    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
     total_count = qs.count()
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
@@ -224,6 +238,7 @@ def station_upload(request, pk: int):
             "to_date": to_s,
             "total_count": total_count,
             "history_count": len(history),
+            "history_scope": history_scope,
         },
     )
 
@@ -232,7 +247,8 @@ def station_upload(request, pk: int):
 def station_export_history(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
 
-    qs = SolarRecord.objects.filter(station=st).order_by("timestamp")
+    history_scope = _normalize_history_scope(request.GET.get("history_scope") or "main")
+    qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
     data = list(qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp"))
     df = pd.DataFrame(data)
 
@@ -308,6 +324,7 @@ def station_forecast_list(request, pk: int):
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor = request.GET.get("manual_snow_factor") or ""
     manual_snow_dates = request.GET.get("manual_snow_dates") or ""
+    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
         if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
@@ -345,7 +362,7 @@ def station_forecast_list(request, pk: int):
     dt_to = _parse_date(to_s)
     dt_date = _parse_date(date_s)
 
-    qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
+    qs = SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope).order_by("timestamp")
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
     if dt_to:
@@ -395,6 +412,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_dates": manual_snow_dates,
             "open_meteo_only": open_meteo_only,
             "horizon_mode": horizon_mode,
+            "forecast_scope": forecast_scope,
             "schedule_form": schedule_form,
             "from": from_s,
             "to": to_s,
@@ -415,6 +433,7 @@ def station_forecast_run(request, pk: int):
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
     manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
+    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
         if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
@@ -455,9 +474,10 @@ def station_forecast_run(request, pk: int):
             manual_snow_dates=manual_snow_dates,
             use_models=not open_meteo_only,
             horizon_mode=horizon_mode,
+            forecast_scope=forecast_scope,
         )
         if res.get("ok"):
-            msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}"
+            msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}, scope={forecast_scope}"
             if open_meteo_only:
                 msg += " | режим: Open-Meteo без истории"
             report = build_forecast_report(
@@ -465,6 +485,7 @@ def station_forecast_run(request, pk: int):
                 days=days,
                 weather_source=res.get("weather_source"),
                 recipients=[emails_raw],
+                forecast_scope=forecast_scope,
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
             if send_report_email(report, [emails_raw], st.name, days):
@@ -493,6 +514,7 @@ def station_forecast_run(request, pk: int):
             "manual_snow_dates": manual_snow_dates_raw,
             "open_meteo_only": "1" if open_meteo_only else "",
             "horizon_mode": horizon_mode,
+            "scope": forecast_scope,
         },
         doseq=True,
     )
@@ -532,28 +554,30 @@ def station_forecast_schedule_update(request, pk: int):
 
 @login_required
 def station_forecast_scheduler_tick(request):
-    count = run_scheduled_forecasts()
-    return JsonResponse({"ok": True, "count": count})
+    force = request.GET.get("force") in {"1", "true", "on", "yes"}
+    count = run_scheduled_forecasts(force=force)
+    return JsonResponse({"ok": True, "count": count, "force": force})
 
 
 @login_required
 def station_forecast_clear(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
-    qs = SolarForecast.objects.filter(station=st)
+    scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
+    qs = SolarForecast.objects.filter(station=st, forecast_scope=scope)
     action = request.POST.get("action") or "all"
 
     if action == "before_date":
         before_date = _parse_date(request.POST.get("before_date") or "")
         if not before_date:
             messages.error(request, "Не удалось распознать дату удаления.")
-            return redirect("dashboard:station-forecast-list", pk=st.pk)
+            return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
         deleted, _ = qs.filter(timestamp__date__lt=before_date.date()).delete()
         messages.success(request, f"Удалено строк старого прогноза: {deleted} (до {before_date.date()}).")
-        return redirect("dashboard:station-forecast-list", pk=st.pk)
+        return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
 
-    SolarForecast.objects.filter(station=st).delete()
+    qs.delete()
     messages.success(request, "Прогноз очищен полностью.")
-    return redirect("dashboard:station-forecast-list", pk=st.pk)
+    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
 
 
 @login_required
@@ -566,8 +590,9 @@ def station_forecast_export(request, pk: int):
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
     dt_date = _parse_date(date_s)
+    scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
 
-    qs = SolarForecast.objects.filter(station=st).order_by("timestamp")
+    qs = SolarForecast.objects.filter(station=st, forecast_scope=scope).order_by("timestamp")
     if dt_from:
         qs = qs.filter(timestamp__gte=dt_from)
     if dt_to:
