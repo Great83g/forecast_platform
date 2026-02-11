@@ -532,8 +532,9 @@ def station_forecast_schedule_update(request, pk: int):
 
 @login_required
 def station_forecast_scheduler_tick(request):
-    count = run_scheduled_forecasts()
-    return JsonResponse({"ok": True, "count": count})
+    force = request.GET.get("force") in {"1", "true", "on", "yes"}
+    count = run_scheduled_forecasts(force=force)
+    return JsonResponse({"ok": True, "count": count, "force": force})
 
 
 @login_required
