@@ -597,6 +597,7 @@ def run_forecast_for_station(
     manual_snow_dates: Optional[List[date]] = None,
     use_models: bool = True,
     horizon_mode: str = "weekday_calendar",
+    forecast_scope: str = "main",
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
@@ -931,9 +932,9 @@ def run_forecast_for_station(
     ).replace(tzinfo=now.tzinfo)
     end = start + pd.Timedelta(days=effective_days)
     if target_dates:
-        SolarForecast.objects.filter(station=st, timestamp__date__in=list(target_dates)).delete()
+        SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope, timestamp__date__in=list(target_dates)).delete()
     else:
-        SolarForecast.objects.filter(station=st, timestamp__gte=start, timestamp__lt=end).delete()
+        SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope, timestamp__gte=start, timestamp__lt=end).delete()
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
@@ -946,6 +947,7 @@ def run_forecast_for_station(
             SolarForecast(
                 station=st,
                 timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
+                forecast_scope=forecast_scope,
                 # Сохраняем в кВт (модель работает в MW, перевели выше)
                 pred_np=pred_np_kw,
                 pred_xgb=pred_xgb_kw,
@@ -989,4 +991,5 @@ def run_forecast_for_station(
         "xgb_error": xgb_error,
         "horizon_mode": horizon_mode,
         "target_dates": sorted(str(d) for d in (target_dates or [])),
+        "forecast_scope": forecast_scope,
     }

@@ -59,10 +59,12 @@ def build_forecast_report(
     days: int,
     weather_source: str,
     recipients: Optional[Iterable[str]] = None,
+    forecast_scope: str = "main",
 ) -> ForecastReport:
     start, end = _forecast_date_range(days)
     qs = SolarForecast.objects.filter(
         station=station,
+        forecast_scope=forecast_scope,
         timestamp__gte=start,
         timestamp__lt=end,
     ).order_by("timestamp")

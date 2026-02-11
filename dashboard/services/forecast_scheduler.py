@@ -59,6 +59,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
             manual_snow_factor=schedule.manual_snow_factor,
             manual_snow_dates=manual_dates,
             horizon_mode=schedule.horizon_mode or "weekday_calendar",
+            forecast_scope="main",
         )
         if res.get("ok"):
             effective_report_days = int(res.get("days") or schedule.days)
@@ -67,6 +68,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 days=effective_report_days,
                 weather_source=res.get("weather_source"),
                 recipients=[schedule.emails],
+                forecast_scope="main",
             )
             send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days)
 
