@@ -1,3 +1,5 @@
+import secrets
+
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -41,6 +43,54 @@ class OrganizationMember(models.Model):
 
     def __str__(self):
         return f"{self.user.username} -> {self.organization.name} ({self.role})"
+
+
+
+
+class OrganizationInvitation(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_ACCEPTED = "accepted"
+    STATUS_CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_ACCEPTED, "Accepted"),
+        (STATUS_CANCELLED, "Cancelled"),
+    ]
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invitations")
+    invited_email = models.EmailField()
+    role = models.CharField(max_length=16, choices=OrganizationMember.ROLE_CHOICES, default=OrganizationMember.ROLE_VIEWER)
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    invited_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_org_invitations")
+    accepted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="accepted_org_invitations",
+    )
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["organization", "status"]),
+            models.Index(fields=["invited_email", "status"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(32)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self) -> bool:
+        return self.expires_at < timezone.now()
+
+    def __str__(self):
+        return f"Invite {self.invited_email} -> {self.organization.name} ({self.status})"
 
 
 class Station(models.Model):

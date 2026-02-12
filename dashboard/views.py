@@ -253,7 +253,7 @@ def station_detail(request, pk: int):
 
 @login_required
 def station_plan_fact_export(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
