@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
+from django.utils import timezone
 
 
 def create_owner_memberships(apps, schema_editor):
