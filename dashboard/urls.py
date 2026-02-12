@@ -9,6 +9,7 @@ urlpatterns = [
     path("station/create/", views.station_create, name="station-create"),
     path("station/<int:pk>/edit/", views.station_edit, name="station-edit"),
     path("station/<int:pk>/", views.station_detail, name="station-detail"),
+    path("station/<int:pk>/plan-fact/export/", views.station_plan_fact_export, name="station-plan-fact-export"),
 
     # История + загрузка + экспорт
     path("station/<int:pk>/upload/", views.station_upload, name="station-upload"),
