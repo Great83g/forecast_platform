@@ -1,5 +1,6 @@
 from django import forms
-from stations.models import Station
+
+from stations.models import Organization, Station
 
 
 class StationForm(forms.ModelForm):
@@ -30,6 +31,7 @@ class StationForm(forms.ModelForm):
         ]
 
     def __init__(self, *args, **kwargs):
+        user = kwargs.pop("user", None)
         super().__init__(*args, **kwargs)
 
         # ---------- ЛЕЙБЛЫ ----------
@@ -68,8 +70,13 @@ class StationForm(forms.ModelForm):
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["timezone"].initial = "Asia/Almaty"
 
+        if "org" in self.fields and user is not None:
+            self.fields["org"].queryset = Organization.objects.filter(memberships__user=user).distinct()
+
         if "history_source" in self.fields:
             qs = Station.objects.all()
+            if user is not None:
+                qs = qs.filter(org__memberships__user=user).distinct()
             if self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
             self.fields["history_source"].queryset = qs

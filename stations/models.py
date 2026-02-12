@@ -2,14 +2,45 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 
 class Organization(models.Model):
     name = models.CharField(max_length=200)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="organizations")
+    created_at = models.DateTimeField(auto_now_add=True)
+    trial_ends_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    def is_trial_active(self) -> bool:
+        return bool(self.trial_ends_at and self.trial_ends_at >= timezone.now())
 
     def __str__(self):
         return self.name
+
+
+class OrganizationMember(models.Model):
+    ROLE_OWNER = "owner"
+    ROLE_ADMIN = "admin"
+    ROLE_ANALYST = "analyst"
+    ROLE_VIEWER = "viewer"
+    ROLE_CHOICES = [
+        (ROLE_OWNER, "Owner"),
+        (ROLE_ADMIN, "Admin"),
+        (ROLE_ANALYST, "Analyst"),
+        (ROLE_VIEWER, "Viewer"),
+    ]
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="organization_memberships")
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_VIEWER)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("organization", "user")
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.organization.name} ({self.role})"
 
 
 class Station(models.Model):

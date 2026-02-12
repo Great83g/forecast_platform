@@ -47,8 +47,8 @@ class UploadHistoryView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
     serializer_class = HistoryUploadSerializer
 
-    def post(self, request, pk: int, *args, **kwargs):
-        station = get_object_or_404(Station, pk=pk)
+    def post(self, request, station_id: int, *args, **kwargs):
+        station = get_object_or_404(Station.objects.filter(org__memberships__user=request.user).distinct(), pk=station_id)
 
         # сериализатор просто валидирует наличие файла
         serializer = self.get_serializer(data=request.data)
@@ -121,7 +121,7 @@ class UploadHistoryView(GenericAPIView):
                         "irradiation": row["Irradiation"],
                         "air_temp": row["Air_Temp"],
                         "pv_temp": row["PV_Temp"],
-                        "power_kw": row["Power_KW"],
+                        "power_kw": row["Power_kW"],
                     },
                 )
                 created += 1
