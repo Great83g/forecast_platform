@@ -49,6 +49,17 @@ def _parse_date(s: str) -> Optional[datetime]:
     return None
 
 
+
+
+def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
+    if value is None:
+        return None
+    if end_of_day:
+        value = value.replace(hour=23, minute=59, second=59, microsecond=999999)
+    if timezone.is_naive(value):
+        return timezone.make_aware(value, timezone.get_current_timezone())
+    return timezone.localtime(value, timezone.get_current_timezone())
+
 def _excel_safe_datetime(series: pd.Series) -> pd.Series:
     """
     Excel не поддерживает tz-aware datetime.
@@ -173,11 +184,8 @@ def station_detail(request, pk: int):
         date_from = default_from.isoformat()
         date_to = default_to.isoformat()
 
-    dt_from = _parse_date(date_from)
-    dt_to = _parse_date(date_to)
-
-    if dt_to:
-        dt_to = dt_to.replace(hour=23, minute=59, second=59)
+    dt_from = _aware_datetime(_parse_date(date_from))
+    dt_to = _aware_datetime(_parse_date(date_to), end_of_day=True)
 
     history_qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
     forecast_qs = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_MAIN)
@@ -245,6 +253,12 @@ def station_detail(request, pk: int):
 
 @login_required
 def station_plan_fact_export(request, pk: int):
+    st = get_object_or_404(Station, pk=pk)
+
+    date_from = request.GET.get("date_from") or ""
+    date_to = request.GET.get("date_to") or ""
+    dt_from = _aware_datetime(_parse_date(date_from))
+    dt_to = _aware_datetime(_parse_date(date_to), end_of_day=True)
     st = _get_station_or_404(request.user, pk)
 
     date_from = request.GET.get("date_from") or ""
