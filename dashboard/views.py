@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Optional
 
 import pandas as pd
+from django.db.models import Avg
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
@@ -151,7 +152,132 @@ def station_edit(request, pk: int):
 @login_required
 def station_detail(request, pk: int):
     st = get_object_or_404(Station, pk=pk)
-    return render(request, "dashboard/station_detail.html", {"station": st})
+
+    date_from = request.GET.get("date_from") or ""
+    date_to = request.GET.get("date_to") or ""
+
+    if not date_from and not date_to:
+        now_local = timezone.localtime()
+        default_from = (now_local - timedelta(days=30)).date()
+        default_to = now_local.date()
+        date_from = default_from.isoformat()
+        date_to = default_to.isoformat()
+
+    dt_from = _parse_date(date_from)
+    dt_to = _parse_date(date_to)
+
+    if dt_to:
+        dt_to = dt_to.replace(hour=23, minute=59, second=59)
+
+    history_qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
+    forecast_qs = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_MAIN)
+
+    if dt_from:
+        history_qs = history_qs.filter(timestamp__gte=dt_from)
+        forecast_qs = forecast_qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        history_qs = history_qs.filter(timestamp__lte=dt_to)
+        forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
+
+    history_rows = (
+        history_qs.values("timestamp")
+        .annotate(power_kw=Avg("power_kw"))
+        .order_by("timestamp")
+    )
+    forecast_rows = (
+        forecast_qs.values("timestamp")
+        .annotate(pred_final=Avg("pred_final"))
+        .order_by("timestamp")
+    )
+
+    history_map = {
+        row["timestamp"]: float(row["power_kw"])
+        for row in history_rows
+        if row.get("power_kw") is not None
+    }
+    forecast_map = {
+        row["timestamp"]: float(row["pred_final"])
+        for row in forecast_rows
+        if row.get("pred_final") is not None
+    }
+
+    merged_points = []
+    labels = []
+    fact_series = []
+    plan_series = []
+    for ts in sorted(set(history_map.keys()) | set(forecast_map.keys())):
+        fact_kw = history_map.get(ts)
+        plan_kw = forecast_map.get(ts)
+        merged_points.append(
+            {
+                "timestamp": ts,
+                "fact_mw": (fact_kw / 1000.0) if fact_kw is not None else None,
+                "plan_mw": (plan_kw / 1000.0) if plan_kw is not None else None,
+            }
+        )
+        labels.append(timezone.localtime(ts).strftime("%d.%m %H:%M") if timezone.is_aware(ts) else ts.strftime("%d.%m %H:%M"))
+        fact_series.append(round(fact_kw / 1000.0, 4) if fact_kw is not None else None)
+        plan_series.append(round(plan_kw / 1000.0, 4) if plan_kw is not None else None)
+
+    context = {
+        "station": st,
+        "date_from": date_from,
+        "date_to": date_to,
+        "labels": labels,
+        "fact_series": fact_series,
+        "plan_series": plan_series,
+        "points_count": len(merged_points),
+        "comparison_rows": merged_points[:200],
+        "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
+    }
+    return render(request, "dashboard/station_detail.html", context)
+
+
+@login_required
+def station_plan_fact_export(request, pk: int):
+    st = get_object_or_404(Station, pk=pk)
+
+    date_from = request.GET.get("date_from") or ""
+    date_to = request.GET.get("date_to") or ""
+    dt_from = _parse_date(date_from)
+    dt_to = _parse_date(date_to)
+    if dt_to:
+        dt_to = dt_to.replace(hour=23, minute=59, second=59)
+
+    history_qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
+    forecast_qs = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_MAIN)
+    if dt_from:
+        history_qs = history_qs.filter(timestamp__gte=dt_from)
+        forecast_qs = forecast_qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        history_qs = history_qs.filter(timestamp__lte=dt_to)
+        forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
+
+    history_df = pd.DataFrame(list(history_qs.values("timestamp").annotate(fact_kw=Avg("power_kw")).order_by("timestamp")))
+    forecast_df = pd.DataFrame(list(forecast_qs.values("timestamp").annotate(plan_kw=Avg("pred_final")).order_by("timestamp")))
+
+    if history_df.empty:
+        history_df = pd.DataFrame(columns=["timestamp", "fact_kw"])
+    if forecast_df.empty:
+        forecast_df = pd.DataFrame(columns=["timestamp", "plan_kw"])
+
+    df = history_df.merge(forecast_df, on="timestamp", how="outer").sort_values("timestamp")
+    if not df.empty:
+        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+    df["fact_mw"] = (df.get("fact_kw") / 1000.0).round(4)
+    df["plan_mw"] = (df.get("plan_kw") / 1000.0).round(4)
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="plan_fact")
+    out.seek(0)
+
+    response = HttpResponse(
+        out.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="plan_fact_station_{st.pk}.xlsx"'
+    return response
 
 
 # ----------------------------
