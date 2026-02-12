@@ -1,15 +1,15 @@
 # stations/urls.py
 
 from django.urls import path
-from .views import (
-    OrganizationListCreateView,
-    StationListCreateView,
-)
-from solar.views import UploadHistoryView  # класс из solar.views
+
+from solar.views import UploadHistoryView
+
+from .views import OrganizationListCreateView, OrganizationMemberListCreateView, StationListCreateView
 
 urlpatterns = [
     # список / создание организаций
     path("orgs/", OrganizationListCreateView.as_view(), name="org-list-create"),
+    path("orgs/<int:org_id>/members/", OrganizationMemberListCreateView.as_view(), name="org-members-list-create"),
 
     # список / создание станций
     path("stations/", StationListCreateView.as_view(), name="station-list-create"),
@@ -21,4 +21,3 @@ urlpatterns = [
         name="upload_history",
     ),
 ]
-
