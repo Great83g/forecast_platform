@@ -1,12 +1,13 @@
 from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
+import pandas as pd
 from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import run_forecast_for_station
 from dashboard.services.forecast_scheduler import run_scheduled_forecasts
-from dashboard.views import station_forecast_scheduler_tick
+from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from stations.models import Organization, Station
 
 
@@ -150,3 +151,15 @@ class ForecastSchedulerTickViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
+
+
+class HistoryDatetimeParsingTests(TestCase):
+    def test_prefers_day_first_for_ambiguous_dates(self):
+        series = pd.Series(["01/03/2026 10:00:00", "02/03/2026 09:00:00"])
+
+        parsed = _parse_history_datetime(series)
+
+        self.assertEqual(parsed.iloc[0].month, 3)
+        self.assertEqual(parsed.iloc[0].day, 1)
+        self.assertEqual(parsed.iloc[1].month, 3)
+        self.assertEqual(parsed.iloc[1].day, 2)

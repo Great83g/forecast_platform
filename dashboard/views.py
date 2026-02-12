@@ -67,6 +67,23 @@ def _excel_safe_datetime(series: pd.Series) -> pd.Series:
     return s
 
 
+def _parse_history_datetime(series: pd.Series) -> pd.Series:
+    """
+    Нормализует даты из истории с приоритетом day-first форматов.
+
+    Это защищает от неверной интерпретации дат вида 01/03/2026
+    (как 3 января вместо 1 марта) при загрузке CSV/XLSX.
+    """
+    parsed = pd.to_datetime(series, errors="coerce", dayfirst=True)
+
+    # fallback для форматов, которые лучше читаются без dayfirst
+    missing = parsed.isna()
+    if missing.any():
+        parsed.loc[missing] = pd.to_datetime(series[missing], errors="coerce")
+
+    return parsed
+
+
 def _normalize_forecast_scope(value: str) -> str:
     if value == "test":
         return "test"
@@ -181,7 +198,7 @@ def station_upload(request, pk: int):
             messages.error(request, "Нужны колонки timestamp/ds и power_kw/y (регистр не важен).")
             return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
-        df[col_ts] = pd.to_datetime(df[col_ts], errors="coerce")
+        df[col_ts] = _parse_history_datetime(df[col_ts])
         df[col_y] = pd.to_numeric(df[col_y], errors="coerce")
 
         # опциональные колонки
