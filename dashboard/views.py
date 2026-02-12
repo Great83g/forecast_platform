@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Optional
 
@@ -155,6 +155,14 @@ def station_detail(request, pk: int):
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
+
+    if not date_from and not date_to:
+        now_local = timezone.localtime()
+        default_from = (now_local - timedelta(days=30)).date()
+        default_to = now_local.date()
+        date_from = default_from.isoformat()
+        date_to = default_to.isoformat()
+
     dt_from = _parse_date(date_from)
     dt_to = _parse_date(date_to)
 

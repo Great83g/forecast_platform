@@ -29,14 +29,14 @@
         <a class="btn btn-outline-success btn-sm" href="{% url 'dashboard:station-plan-fact-export' station.pk %}?{{ export_query }}">Скачать Excel</a>
       </div>
     </form>
-    <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b></div>
+    <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию за последний месяц)</div>
   </div>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
     <h6 class="card-title">График план / факт (МВт)</h6>
-    <canvas id="planFactChart" height="90"></canvas>
+    <div style="height: 360px;"><canvas id="planFactChart"></canvas></div>
   </div>
 </div>
 
@@ -88,10 +88,18 @@
         ]
       },
       options: {
+        responsive: true,
         maintainAspectRatio: false,
+        animation: false,
         scales: {
           y: {title: {display: true, text: "МВт"}},
-          x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: 16}}
+          x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: 24}}
+        },
+        plugins: {
+          decimation: {
+            enabled: true,
+            algorithm: "lttb"
+          }
         }
       }
     });
