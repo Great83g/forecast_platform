@@ -8,14 +8,52 @@ from django.utils import timezone
 
 
 class Organization(models.Model):
+    SUBSCRIPTION_TRIALING = "trialing"
+    SUBSCRIPTION_ACTIVE = "active"
+    SUBSCRIPTION_PAST_DUE = "past_due"
+    SUBSCRIPTION_CANCELED = "canceled"
+    SUBSCRIPTION_CHOICES = [
+        (SUBSCRIPTION_TRIALING, "Trialing"),
+        (SUBSCRIPTION_ACTIVE, "Active"),
+        (SUBSCRIPTION_PAST_DUE, "Past due"),
+        (SUBSCRIPTION_CANCELED, "Canceled"),
+    ]
+
     name = models.CharField(max_length=200)
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="organizations")
     created_at = models.DateTimeField(auto_now_add=True)
     trial_ends_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    subscription_status = models.CharField(
+        max_length=16,
+        choices=SUBSCRIPTION_CHOICES,
+        default=SUBSCRIPTION_TRIALING,
+    )
 
     def is_trial_active(self) -> bool:
         return bool(self.trial_ends_at and self.trial_ends_at >= timezone.now())
+
+    def can_write(self) -> bool:
+        if not self.is_active:
+            return False
+        if self.subscription_status == self.SUBSCRIPTION_ACTIVE:
+            return True
+        if self.subscription_status == self.SUBSCRIPTION_TRIALING:
+            return self.is_trial_active()
+        return False
+
+    def write_access_reason(self) -> str:
+        if not self.is_active:
+            return "Организация деактивирована."
+        if self.subscription_status == self.SUBSCRIPTION_ACTIVE:
+            return ""
+        if self.subscription_status == self.SUBSCRIPTION_TRIALING and not self.is_trial_active():
+            return "Пробный период завершён. Обновите тариф, чтобы продолжить запись данных."
+        if self.subscription_status == self.SUBSCRIPTION_PAST_DUE:
+            return "Есть задолженность по подписке. Погасите счёт, чтобы разблокировать запись данных."
+        if self.subscription_status == self.SUBSCRIPTION_CANCELED:
+            return "Подписка отменена. Обновите тариф, чтобы продолжить запись данных."
+        return "Запись данных недоступна для текущего состояния подписки."
 
     def __str__(self):
         return self.name

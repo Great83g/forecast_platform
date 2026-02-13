@@ -7,8 +7,8 @@ from .models import Organization, OrganizationInvitation, OrganizationMember, St
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ["id", "name", "created_at", "trial_ends_at", "is_active"]
-        read_only_fields = ["created_at", "trial_ends_at", "is_active"]
+        fields = ["id", "name", "created_at", "trial_ends_at", "is_active", "subscription_status"]
+        read_only_fields = ["created_at", "trial_ends_at", "is_active", "subscription_status"]
 
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
