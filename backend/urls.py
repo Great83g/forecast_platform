@@ -18,10 +18,13 @@ urlpatterns = [
     # dashboard
     path("dashboard/", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
 
+    # API
+    path("api/accounts/", include("accounts.urls")),
+    path("api/", include("stations.urls")),
+
     # корень -> дашборд
     path("", RedirectView.as_view(pattern_name="dashboard:station-list", permanent=False)),
 ]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
