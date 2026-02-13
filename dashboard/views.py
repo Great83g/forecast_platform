@@ -194,6 +194,8 @@ def station_edit(request, pk: int):
     if request.method == "POST":
         form = StationForm(request.POST, instance=st, user=request.user)
         if form.is_valid():
+            if not _ensure_station_write_access(request, st):
+                return redirect("dashboard:station-detail", pk=st.pk)
             form.save()
             messages.success(request, "Станция обновлена.")
             return redirect("dashboard:station-detail", pk=st.pk)
