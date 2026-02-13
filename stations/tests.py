@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -150,3 +151,77 @@ class TrialEnforcementTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(OrganizationInvitation.objects.filter(organization=self.org).exists())
+
+
+class InvitationManagementTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="owner2", email="owner2@example.com", password="pass12345")
+        self.org = Organization.objects.create(name="Org B", owner=self.owner, trial_ends_at=timezone.now() + timedelta(days=1))
+        OrganizationMember.objects.create(organization=self.org, user=self.owner, role=OrganizationMember.ROLE_OWNER)
+
+    @patch("stations.views.send_mail")
+    def test_invitation_create_sends_email(self, send_mail_mock):
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            f"/api/orgs/{self.org.id}/invitations/",
+            {"invited_email": "notify@example.com", "role": OrganizationMember.ROLE_VIEWER},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        send_mail_mock.assert_called_once()
+
+    def test_invitation_throttle_blocks_after_limit(self):
+        self.client.force_authenticate(self.owner)
+        for i in range(10):
+            OrganizationInvitation.objects.create(
+                organization=self.org,
+                invited_email=f"u{i}@example.com",
+                role=OrganizationMember.ROLE_VIEWER,
+                invited_by=self.owner,
+                expires_at=timezone.now() + timedelta(days=2),
+            )
+
+        response = self.client.post(
+            f"/api/orgs/{self.org.id}/invitations/",
+            {"invited_email": "blocked@example.com", "role": OrganizationMember.ROLE_VIEWER},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("stations.views.send_mail")
+    def test_owner_can_resend_and_revoke_invitation(self, send_mail_mock):
+        invitation = OrganizationInvitation.objects.create(
+            organization=self.org,
+            invited_email="resend@example.com",
+            role=OrganizationMember.ROLE_VIEWER,
+            invited_by=self.owner,
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        self.client.force_authenticate(self.owner)
+
+        resend = self.client.post(f"/api/orgs/{self.org.id}/invitations/{invitation.id}/resend/", {}, format="json")
+        self.assertEqual(resend.status_code, status.HTTP_200_OK)
+        self.assertEqual(resend.data["status"], "resent")
+        send_mail_mock.assert_called_once()
+
+        revoke = self.client.post(f"/api/orgs/{self.org.id}/invitations/{invitation.id}/revoke/", {}, format="json")
+        self.assertEqual(revoke.status_code, status.HTTP_200_OK)
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.status, OrganizationInvitation.STATUS_CANCELLED)
+
+
+class BillingWriteAccessTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="billing", email="billing@example.com", password="pass12345")
+        self.org = Organization.objects.create(
+            name="Billing Org",
+            owner=self.owner,
+            trial_ends_at=timezone.now() + timedelta(days=3),
+            subscription_status=Organization.SUBSCRIPTION_PAST_DUE,
+        )
+        OrganizationMember.objects.create(organization=self.org, user=self.owner, role=OrganizationMember.ROLE_OWNER)
+
+    def test_station_create_blocked_when_subscription_past_due(self):
+        self.client.force_authenticate(self.owner)
+        response = self.client.post("/api/stations/", {"name": "Past Due", "org": self.org.id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
