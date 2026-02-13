@@ -20,3 +20,6 @@ __pycache__/
 # ML/runtime artifacts
 lightning_logs/
 media/forecast_reports/
+
+lightning_logs/
+media/forecast_reports/
