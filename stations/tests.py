@@ -225,3 +225,41 @@ class BillingWriteAccessTests(APITestCase):
         self.client.force_authenticate(self.owner)
         response = self.client.post("/api/stations/", {"name": "Past Due", "org": self.org.id}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class OrganizationBillingModelTests(APITestCase):
+    def test_can_write_rules_for_subscription_statuses(self):
+        owner = User.objects.create_user(username="owner3", email="owner3@example.com", password="pass12345")
+        base_kwargs = {"name": "Rules Org", "owner": owner, "is_active": True}
+
+        trial_active = Organization.objects.create(
+            **base_kwargs,
+            name="Trial active",
+            subscription_status=Organization.SUBSCRIPTION_TRIALING,
+            trial_ends_at=timezone.now() + timedelta(days=1),
+        )
+        self.assertTrue(trial_active.can_write())
+
+        trial_expired = Organization.objects.create(
+            **base_kwargs,
+            name="Trial expired",
+            subscription_status=Organization.SUBSCRIPTION_TRIALING,
+            trial_ends_at=timezone.now() - timedelta(days=1),
+        )
+        self.assertFalse(trial_expired.can_write())
+
+        active = Organization.objects.create(
+            **base_kwargs,
+            name="Active",
+            subscription_status=Organization.SUBSCRIPTION_ACTIVE,
+            trial_ends_at=timezone.now() - timedelta(days=100),
+        )
+        self.assertTrue(active.can_write())
+
+        past_due = Organization.objects.create(
+            **base_kwargs,
+            name="Past due",
+            subscription_status=Organization.SUBSCRIPTION_PAST_DUE,
+            trial_ends_at=timezone.now() + timedelta(days=1),
+        )
+        self.assertFalse(past_due.can_write())

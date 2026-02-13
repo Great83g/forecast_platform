@@ -482,6 +482,8 @@ def station_train(request, pk: int):
     Страница обучения (GET) + запуск обучения (POST).
     """
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
 
     if request.method == "POST":
         if train_models_for_station is None:
