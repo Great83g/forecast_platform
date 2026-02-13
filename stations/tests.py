@@ -114,3 +114,39 @@ class InvitationFlowTests(APITestCase):
                 role=OrganizationMember.ROLE_ADMIN,
             ).exists()
         )
+
+
+class TrialEnforcementTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="trialowner", email="trialowner@example.com", password="pass12345")
+        self.org = Organization.objects.create(
+            name="Expired Org",
+            owner=self.owner,
+            trial_ends_at=timezone.now() - timedelta(days=1),
+            is_active=True,
+        )
+        OrganizationMember.objects.create(
+            organization=self.org,
+            user=self.owner,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+
+    def test_station_create_blocked_when_trial_expired(self):
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            "/api/stations/",
+            {"name": "Blocked Station", "org": self.org.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Station.objects.filter(org=self.org, name="Blocked Station").exists())
+
+    def test_invitation_create_blocked_when_trial_expired(self):
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            f"/api/orgs/{self.org.id}/invitations/",
+            {"invited_email": "new.user@example.com", "role": OrganizationMember.ROLE_VIEWER},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(OrganizationInvitation.objects.filter(organization=self.org).exists())

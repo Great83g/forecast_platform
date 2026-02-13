@@ -22,6 +22,12 @@ def _get_actor_membership_or_403(org, user):
         raise PermissionDenied("Только owner/admin могут выполнять это действие.")
     return membership
 
+def _ensure_org_write_access_or_403(org):
+    if not org.is_active:
+        raise PermissionDenied("Организация деактивирована.")
+    if org.trial_ends_at and org.trial_ends_at < timezone.now():
+        raise PermissionDenied("Тестовый период завершён. Оформите подписку для записи данных.")
+
 
 class OrganizationListCreateView(generics.ListCreateAPIView):
     serializer_class = OrganizationSerializer
@@ -57,6 +63,7 @@ class OrganizationMemberListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         org = self._organization()
         _get_actor_membership_or_403(org, self.request.user)
+        _ensure_org_write_access_or_403(org)
         serializer.save(organization=org)
 
 
@@ -75,6 +82,7 @@ class OrganizationInvitationListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         org = self._organization()
         _get_actor_membership_or_403(org, self.request.user)
+        _ensure_org_write_access_or_403(org)
 
         invited_email = serializer.validated_data["invited_email"].lower()
         role = serializer.validated_data["role"]
@@ -126,6 +134,7 @@ class StationListCreateView(generics.ListCreateAPIView):
         org = serializer.validated_data["org"]
         if not OrganizationMember.objects.filter(organization=org, user=self.request.user).exists():
             raise PermissionDenied("Вы не состоите в этой организации.")
+        _ensure_org_write_access_or_403(org)
         serializer.save()
 
 # Create your views here.
