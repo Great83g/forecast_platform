@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.conf import settings
 from urllib.parse import urlencode
 
-from stations.models import Station
+from stations.models import Organization, OrganizationMember, Station
 from solar.models import SolarRecord, SolarForecast
 
 from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
@@ -129,13 +129,41 @@ def _get_station_or_404(user, pk: int):
 
 
 
+
+
+def _station_write_denied_message(station):
+    org = station.org
+    if hasattr(org, "write_access_reason"):
+        return org.write_access_reason()
+    return "Запись данных временно недоступна."
+
+
+def _ensure_station_write_access(request, station):
+    org = station.org
+    if hasattr(org, "can_write") and org.can_write():
+        return True
+    messages.error(request, _station_write_denied_message(station))
+    return False
+
 # ----------------------------
 # stations
 # ----------------------------
 @login_required
 def station_list(request):
-    stations = _station_queryset_for_user(request.user).order_by("id")
-    return render(request, "dashboard/station_list.html", {"stations": stations})
+    stations = _station_queryset_for_user(request.user).select_related("org").order_by("id")
+    org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
+    onboarding_items = [
+        "Добавьте первую станцию",
+        "Загрузите исторические данные",
+        "Запустите прогноз и проверьте отчёт",
+        "Пригласите коллег в организацию",
+    ]
+    blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
+    return render(
+        request,
+        "dashboard/station_list.html",
+        {"stations": stations, "onboarding_items": onboarding_items, "blocked_orgs": blocked_orgs},
+    )
 
 
 @login_required
@@ -143,6 +171,10 @@ def station_create(request):
     if request.method == "POST":
         form = StationForm(request.POST, user=request.user)
         if form.is_valid():
+            org = form.cleaned_data.get("org")
+            if org is not None and hasattr(org, "can_write") and not org.can_write():
+                messages.error(request, org.write_access_reason())
+                return render(request, "dashboard/station_create.html", {"form": form})
             st = form.save()
             messages.success(request, "Станция создана.")
             return redirect("dashboard:station-detail", pk=st.pk)
@@ -156,6 +188,8 @@ def station_create(request):
 @login_required
 def station_edit(request, pk: int):
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
 
     if request.method == "POST":
         form = StationForm(request.POST, instance=st, user=request.user)
@@ -310,6 +344,8 @@ def station_plan_fact_export(request, pk: int):
 @login_required
 def station_upload(request, pk: int):
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
     history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
 
     if request.method == "POST":
@@ -444,6 +480,8 @@ def station_train(request, pk: int):
     Страница обучения (GET) + запуск обучения (POST).
     """
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
 
     if request.method == "POST":
         if train_models_for_station is None:
@@ -592,6 +630,8 @@ def station_forecast_list(request, pk: int):
 @login_required
 def station_forecast_run(request, pk: int):
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
     days = int(request.GET.get("days", "7") or 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
@@ -691,6 +731,8 @@ def station_forecast_run(request, pk: int):
 @login_required
 def station_forecast_schedule_update(request, pk: int):
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
     if request.method != "POST":
         return redirect("dashboard:station-forecast-list", pk=st.pk)
 
@@ -729,6 +771,8 @@ def station_forecast_scheduler_tick(request):
 @login_required
 def station_forecast_clear(request, pk: int):
     st = _get_station_or_404(request.user, pk)
+    if not _ensure_station_write_access(request, st):
+        return redirect("dashboard:station-detail", pk=st.pk)
     scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
     qs = SolarForecast.objects.filter(station=st, forecast_scope=scope)
     action = request.POST.get("action") or "all"

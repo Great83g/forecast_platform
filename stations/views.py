@@ -1,8 +1,10 @@
 from datetime import timedelta
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
@@ -16,17 +18,38 @@ from .serializers import (
 )
 
 
+INVITATION_THROTTLE_LIMIT_PER_HOUR = 10
+
+
 def _get_actor_membership_or_403(org, user):
     membership = get_object_or_404(OrganizationMember, organization=org, user=user)
     if membership.role not in {OrganizationMember.ROLE_OWNER, OrganizationMember.ROLE_ADMIN}:
         raise PermissionDenied("Только owner/admin могут выполнять это действие.")
     return membership
 
+
+
 def _ensure_org_write_access_or_403(org):
-    if not org.is_active:
-        raise PermissionDenied("Организация деактивирована.")
-    if org.trial_ends_at and org.trial_ends_at < timezone.now():
-        raise PermissionDenied("Тестовый период завершён. Оформите подписку для записи данных.")
+    if org.can_write():
+        return
+    raise PermissionDenied(org.write_access_reason())
+
+
+def _send_invitation_email(invitation):
+    base_url = getattr(settings, "PORTAL_BASE_URL", "")
+    accept_url = f"{base_url.rstrip('/')}/org/invitations/accept/{invitation.token}" if base_url else invitation.token
+    body = (
+        f"Вас пригласили в организацию '{invitation.organization.name}' с ролью '{invitation.role}'.\n"
+        f"Ссылка для принятия приглашения: {accept_url}\n"
+        f"Срок действия: {invitation.expires_at:%Y-%m-%d %H:%M}."
+    )
+    send_mail(
+        subject=f"Приглашение в организацию {invitation.organization.name}",
+        message=body,
+        from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+        recipient_list=[invitation.invited_email],
+        fail_silently=True,
+    )
 
 
 class OrganizationListCreateView(generics.ListCreateAPIView):
@@ -40,6 +63,7 @@ class OrganizationListCreateView(generics.ListCreateAPIView):
         organization = serializer.save(
             owner=self.request.user,
             trial_ends_at=timezone.now() + timedelta(days=7),
+            subscription_status=Organization.SUBSCRIPTION_TRIALING,
         )
         OrganizationMember.objects.get_or_create(
             organization=organization,
@@ -84,6 +108,15 @@ class OrganizationInvitationListCreateView(generics.ListCreateAPIView):
         _get_actor_membership_or_403(org, self.request.user)
         _ensure_org_write_access_or_403(org)
 
+        window_start = timezone.now() - timedelta(hours=1)
+        recent_invites_count = OrganizationInvitation.objects.filter(
+            organization=org,
+            invited_by=self.request.user,
+            created_at__gte=window_start,
+        ).count()
+        if recent_invites_count >= INVITATION_THROTTLE_LIMIT_PER_HOUR:
+            raise PermissionDenied("Слишком много приглашений за последний час. Попробуйте позже.")
+
         invited_email = serializer.validated_data["invited_email"].lower()
         role = serializer.validated_data["role"]
 
@@ -96,13 +129,14 @@ class OrganizationInvitationListCreateView(generics.ListCreateAPIView):
             status=OrganizationInvitation.STATUS_PENDING,
         ).update(status=OrganizationInvitation.STATUS_CANCELLED)
 
-        serializer.save(
+        invitation = serializer.save(
             organization=org,
             invited_email=invited_email,
             role=role,
             invited_by=self.request.user,
             expires_at=timezone.now() + timedelta(days=7),
         )
+        _send_invitation_email(invitation)
 
 
 class OrganizationInvitationAcceptView(generics.GenericAPIView):
@@ -121,6 +155,41 @@ class OrganizationInvitationAcceptView(generics.GenericAPIView):
                 "accepted_at": invitation.accepted_at,
             }
         )
+
+
+class OrganizationInvitationResendView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, org_id, invitation_id, *args, **kwargs):
+        org = get_object_or_404(Organization.objects.filter(memberships__user=request.user).distinct(), pk=org_id)
+        _get_actor_membership_or_403(org, request.user)
+        _ensure_org_write_access_or_403(org)
+
+        invitation = get_object_or_404(OrganizationInvitation, pk=invitation_id, organization=org)
+        if invitation.status != OrganizationInvitation.STATUS_PENDING:
+            raise PermissionDenied("Можно переотправить только pending-приглашение.")
+
+        invitation.expires_at = timezone.now() + timedelta(days=7)
+        invitation.save(update_fields=["expires_at"])
+        _send_invitation_email(invitation)
+        return Response({"status": "resent", "invitation_id": invitation.id})
+
+
+class OrganizationInvitationRevokeView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, org_id, invitation_id, *args, **kwargs):
+        org = get_object_or_404(Organization.objects.filter(memberships__user=request.user).distinct(), pk=org_id)
+        _get_actor_membership_or_403(org, request.user)
+        _ensure_org_write_access_or_403(org)
+
+        invitation = get_object_or_404(OrganizationInvitation, pk=invitation_id, organization=org)
+        if invitation.status != OrganizationInvitation.STATUS_PENDING:
+            return Response({"status": invitation.status}, status=status.HTTP_200_OK)
+
+        invitation.status = OrganizationInvitation.STATUS_CANCELLED
+        invitation.save(update_fields=["status"])
+        return Response({"status": "cancelled", "invitation_id": invitation.id})
 
 
 class StationListCreateView(generics.ListCreateAPIView):
