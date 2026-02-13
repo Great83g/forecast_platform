@@ -107,51 +107,61 @@ def _localize_timestamp(value):
     except Exception:
         return value
 
+def _station_queryset_for_user(user):
+    if user.is_superuser:
+        return Station.objects.all()
+    return Station.objects.filter(org__memberships__user=user).distinct()
+
+
+def _get_station_or_404(user, pk: int):
+    return get_object_or_404(_station_queryset_for_user(user), pk=pk)
+
+
 
 # ----------------------------
 # stations
 # ----------------------------
 @login_required
 def station_list(request):
-    stations = Station.objects.all().order_by("id")
+    stations = _station_queryset_for_user(request.user).order_by("id")
     return render(request, "dashboard/station_list.html", {"stations": stations})
 
 
 @login_required
 def station_create(request):
     if request.method == "POST":
-        form = StationForm(request.POST)
+        form = StationForm(request.POST, user=request.user)
         if form.is_valid():
             st = form.save()
             messages.success(request, "Станция создана.")
             return redirect("dashboard:station-detail", pk=st.pk)
         messages.error(request, "Ошибка в форме станции.")
     else:
-        form = StationForm()
+        form = StationForm(user=request.user)
 
     return render(request, "dashboard/station_create.html", {"form": form})
 
 
 @login_required
 def station_edit(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     if request.method == "POST":
-        form = StationForm(request.POST, instance=st)
+        form = StationForm(request.POST, instance=st, user=request.user)
         if form.is_valid():
             form.save()
             messages.success(request, "Станция обновлена.")
             return redirect("dashboard:station-detail", pk=st.pk)
         messages.error(request, "Ошибка в форме станции.")
     else:
-        form = StationForm(instance=st)
+        form = StationForm(instance=st, user=request.user)
 
     return render(request, "dashboard/station_edit.html", {"station": st, "form": form})
 
 
 @login_required
 def station_detail(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
@@ -235,7 +245,7 @@ def station_detail(request, pk: int):
 
 @login_required
 def station_plan_fact_export(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
@@ -285,7 +295,7 @@ def station_plan_fact_export(request, pk: int):
 # ----------------------------
 @login_required
 def station_upload(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
     history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
 
     if request.method == "POST":
@@ -388,7 +398,7 @@ def station_upload(request, pk: int):
 
 @login_required
 def station_export_history(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     history_scope = _normalize_history_scope(request.GET.get("history_scope") or "main")
     qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
@@ -419,7 +429,7 @@ def station_train(request, pk: int):
     """
     Страница обучения (GET) + запуск обучения (POST).
     """
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     if request.method == "POST":
         if train_models_for_station is None:
@@ -453,7 +463,7 @@ def station_train_models(request, pk: int):
 # ----------------------------
 @login_required
 def station_forecast_list(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     days = int(request.GET.get("days", "7") or 7)
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
@@ -567,7 +577,7 @@ def station_forecast_list(request, pk: int):
 
 @login_required
 def station_forecast_run(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
     days = int(request.GET.get("days", "7") or 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
@@ -666,7 +676,7 @@ def station_forecast_run(request, pk: int):
 
 @login_required
 def station_forecast_schedule_update(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
     if request.method != "POST":
         return redirect("dashboard:station-forecast-list", pk=st.pk)
 
@@ -704,7 +714,7 @@ def station_forecast_scheduler_tick(request):
 
 @login_required
 def station_forecast_clear(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
     scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
     qs = SolarForecast.objects.filter(station=st, forecast_scope=scope)
     action = request.POST.get("action") or "all"
@@ -725,7 +735,7 @@ def station_forecast_clear(request, pk: int):
 
 @login_required
 def station_forecast_export(request, pk: int):
-    st = get_object_or_404(Station, pk=pk)
+    st = _get_station_or_404(request.user, pk)
 
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
