@@ -95,3 +95,18 @@ class StationSerializer(serializers.ModelSerializer):
             "history_source",
             "history_scale_by_capacity",
         ]
+
+    def validate(self, attrs):
+        org = attrs.get("org") or getattr(self.instance, "org", None)
+        request = self.context.get("request")
+        if org is None or request is None:
+            return attrs
+
+        if not OrganizationMember.objects.filter(organization=org, user=request.user).exists():
+            raise serializers.ValidationError({"org": "Вы не состоите в этой организации."})
+
+        history_source = attrs.get("history_source")
+        if history_source and history_source.org_id != org.id:
+            raise serializers.ValidationError({"history_source": "Источник истории должен быть из той же организации."})
+
+        return attrs

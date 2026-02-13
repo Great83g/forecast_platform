@@ -122,4 +122,10 @@ class StationListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return Station.objects.filter(org__memberships__user=self.request.user).distinct()
 
+    def perform_create(self, serializer):
+        org = serializer.validated_data["org"]
+        if not OrganizationMember.objects.filter(organization=org, user=self.request.user).exists():
+            raise PermissionDenied("Вы не состоите в этой организации.")
+        serializer.save()
+
 # Create your views here.
