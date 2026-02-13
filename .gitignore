@@ -16,3 +16,7 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+
+# ML/runtime artifacts
+lightning_logs/
+media/forecast_reports/
