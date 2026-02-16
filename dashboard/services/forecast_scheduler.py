@@ -17,6 +17,15 @@ def _parse_providers(value: str) -> Optional[list[str]]:
     return providers or None
 
 
+def _normalize_schedule_providers(value: str) -> tuple[Optional[list[str]], bool]:
+    providers = _parse_providers(value) or []
+    open_meteo_only = "open_meteo_only" in providers
+    providers = [p for p in providers if p != "open_meteo_only"]
+    if open_meteo_only:
+        providers = ["open_meteo"]
+    return (providers or None, open_meteo_only)
+
+
 def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool = False) -> int:
     current = now or timezone.localtime(timezone.now())
     today = current.date()
@@ -51,13 +60,16 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 except ValueError:
                     continue
 
+        providers, open_meteo_only = _normalize_schedule_providers(schedule.providers)
+
         res = run_forecast_for_station(
             schedule.station_id,
             days=schedule.days,
-            providers=_parse_providers(schedule.providers),
+            providers=providers,
             manual_snow_enable=schedule.manual_snow_enable,
             manual_snow_factor=schedule.manual_snow_factor,
             manual_snow_dates=manual_dates,
+            use_models=not open_meteo_only,
             horizon_mode=schedule.horizon_mode or "weekday_calendar",
             forecast_scope="main",
         )

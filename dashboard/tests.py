@@ -5,8 +5,8 @@ import pandas as pd
 from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
-from dashboard.services.forecast_engine import run_forecast_for_station
-from dashboard.services.forecast_scheduler import run_scheduled_forecasts
+from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
+from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from stations.models import Organization, Station
 
@@ -40,6 +40,47 @@ class ForecastEngineIndexRegressionTests(TestCase):
 
         self.assertTrue(result["ok"])
         self.assertGreater(result["count"], 0)
+
+
+class ForecastEngineWeekdayCalendarTests(TestCase):
+    def test_friday_offsets_cover_exactly_three_next_days(self):
+        friday = timezone.datetime(2026, 2, 13, 9, 0)
+
+        offsets = _target_offsets_for_weekday_calendar(friday)
+
+        self.assertEqual(offsets, [1, 2, 3])
+
+    def test_weekday_mode_report_days_do_not_depend_on_requested_days(self):
+        user = User.objects.create_user(username="daysmode", password="pass")
+        org = Organization.objects.create(name="Days Mode Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Days Mode Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+
+        with patch("dashboard.services.forecast_engine._target_offsets_for_weekday_calendar", return_value=[1, 2, 3]):
+            result_days_1 = run_forecast_for_station(
+                station_id=station.pk,
+                days=1,
+                use_models=False,
+                horizon_mode="weekday_calendar",
+            )
+            result_days_7 = run_forecast_for_station(
+                station_id=station.pk,
+                days=7,
+                use_models=False,
+                horizon_mode="weekday_calendar",
+            )
+
+        self.assertTrue(result_days_1["ok"])
+        self.assertTrue(result_days_7["ok"])
+        self.assertEqual(result_days_1["days"], 3)
+        self.assertEqual(result_days_7["days"], 3)
 
 
 class ForecastSchedulerForceRunTests(TestCase):
@@ -123,6 +164,31 @@ class ForecastSchedulerForceRunTests(TestCase):
 
         self.assertEqual(first, 1)
         self.assertEqual(second, 0)
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub", "days": 3},
+    )
+    def test_schedule_open_meteo_only_disables_models(self, run_mock, _build, _send):
+        self.schedule.providers = "visual_crossing,open_meteo_only"
+        self.schedule.save(update_fields=["providers"])
+
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+        count = run_scheduled_forecasts(now=now, force=True)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["open_meteo"])
+        self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+
+class ForecastSchedulerProviderNormalizationTests(TestCase):
+    def test_open_meteo_only_provider_marker_forces_open_meteo_and_heuristic(self):
+        providers, open_meteo_only = _normalize_schedule_providers("visual_crossing,open_meteo_only")
+
+        self.assertEqual(providers, ["open_meteo"])
+        self.assertTrue(open_meteo_only)
 
 
 class ForecastSchedulerTickViewTests(TestCase):

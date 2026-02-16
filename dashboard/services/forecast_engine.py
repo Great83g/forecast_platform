@@ -581,7 +581,7 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def _target_offsets_for_weekday_calendar(now_dt) -> List[int]:
     weekday = now_dt.weekday()
     if weekday == 4:  # Friday
-        return [2, 3, 4]
+        return [1, 2, 3]
     if weekday in {0, 1, 2, 3}:  # Mon-Thu
         return [2]
     return []
@@ -652,6 +652,8 @@ def run_forecast_for_station(
         ds_dates = pd.to_datetime(feat["ds"]).dt.date
         feat = feat.loc[ds_dates.isin(target_dates)].copy()
 
+    report_days = len(target_dates) if target_dates else effective_days
+
     # После фильтрации по датам индекс может быть разреженным (например, начинаться с 11),
     # а массивы предсказаний индексируются позиционно с 0. Выравниваем индекс,
     # чтобы избежать ошибок вида "index X is out of bounds for axis 0" при сохранении.
@@ -661,7 +663,7 @@ def run_forecast_for_station(
         return {
             "ok": True,
             "count": 0,
-            "days": effective_days,
+            "days": report_days,
             "solar_hours": list(solar_hours),
             "weather_source": weather_source,
             "np_ok": False,
@@ -981,7 +983,7 @@ def run_forecast_for_station(
     return {
         "ok": True,
         "count": len(objs),
-        "days": effective_days,
+        "days": report_days,
         "requested_days": days,
         "solar_hours": list(solar_hours),
         "weather_source": weather_source,
