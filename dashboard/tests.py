@@ -5,7 +5,7 @@ import pandas as pd
 from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
-from dashboard.services.forecast_engine import run_forecast_for_station
+from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
 from dashboard.services.forecast_scheduler import run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from stations.models import Organization, Station
@@ -40,6 +40,47 @@ class ForecastEngineIndexRegressionTests(TestCase):
 
         self.assertTrue(result["ok"])
         self.assertGreater(result["count"], 0)
+
+
+class ForecastEngineWeekdayCalendarTests(TestCase):
+    def test_friday_offsets_cover_exactly_three_next_days(self):
+        friday = timezone.datetime(2026, 2, 13, 9, 0)
+
+        offsets = _target_offsets_for_weekday_calendar(friday)
+
+        self.assertEqual(offsets, [1, 2, 3])
+
+    def test_weekday_mode_report_days_do_not_depend_on_requested_days(self):
+        user = User.objects.create_user(username="daysmode", password="pass")
+        org = Organization.objects.create(name="Days Mode Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Days Mode Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+
+        with patch("dashboard.services.forecast_engine._target_offsets_for_weekday_calendar", return_value=[1, 2, 3]):
+            result_days_1 = run_forecast_for_station(
+                station_id=station.pk,
+                days=1,
+                use_models=False,
+                horizon_mode="weekday_calendar",
+            )
+            result_days_7 = run_forecast_for_station(
+                station_id=station.pk,
+                days=7,
+                use_models=False,
+                horizon_mode="weekday_calendar",
+            )
+
+        self.assertTrue(result_days_1["ok"])
+        self.assertTrue(result_days_7["ok"])
+        self.assertEqual(result_days_1["days"], 3)
+        self.assertEqual(result_days_7["days"], 3)
 
 
 class ForecastSchedulerForceRunTests(TestCase):
