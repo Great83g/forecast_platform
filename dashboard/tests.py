@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
-from dashboard.services.forecast_scheduler import run_scheduled_forecasts
+from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from stations.models import Organization, Station
 
@@ -164,6 +164,31 @@ class ForecastSchedulerForceRunTests(TestCase):
 
         self.assertEqual(first, 1)
         self.assertEqual(second, 0)
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub", "days": 3},
+    )
+    def test_schedule_open_meteo_only_disables_models(self, run_mock, _build, _send):
+        self.schedule.providers = "visual_crossing,open_meteo_only"
+        self.schedule.save(update_fields=["providers"])
+
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+        count = run_scheduled_forecasts(now=now, force=True)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["open_meteo"])
+        self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+
+class ForecastSchedulerProviderNormalizationTests(TestCase):
+    def test_open_meteo_only_provider_marker_forces_open_meteo_and_heuristic(self):
+        providers, open_meteo_only = _normalize_schedule_providers("visual_crossing,open_meteo_only")
+
+        self.assertEqual(providers, ["open_meteo"])
+        self.assertTrue(open_meteo_only)
 
 
 class ForecastSchedulerTickViewTests(TestCase):
