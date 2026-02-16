@@ -24,7 +24,8 @@
           <button class="btn btn-outline-light btn-sm" type="submit">Выйти</button>
         </form>
       {% else %}
-        <a class="btn btn-outline-light btn-sm" href="{% url 'login' %}">Войти</a>
+        <a class="btn btn-outline-light btn-sm me-2" href="{% url 'login' %}">Войти</a>
+        <a class="btn btn-primary btn-sm" href="{% url 'register' %}">Регистрация</a>
       {% endif %}
     </div>
   </div>
