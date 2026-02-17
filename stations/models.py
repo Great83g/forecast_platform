@@ -191,6 +191,18 @@ class Station(models.Model):
         default=True,
         help_text="Масштабировать историю по отношению мощностей станций.",
     )
+    sort_order = models.PositiveIntegerField(default=0, db_index=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk is None and self.sort_order == 0:
+            last_order = (
+                Station.objects.filter(org=self.org)
+                .aggregate(models.Max("sort_order"))
+                .get("sort_order__max")
+                or 0
+            )
+            self.sort_order = last_order + 1
+        super().save(*args, **kwargs)
 
     def clean(self):
         super().clean()
