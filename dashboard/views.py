@@ -700,6 +700,7 @@ def station_forecast_run(request, pk: int):
                 weather_source=res.get("weather_source"),
                 recipients=[emails_raw],
                 forecast_scope=forecast_scope,
+                target_dates=res.get("target_dates") or [],
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
             if send_report_email(report, [emails_raw], st.name, days):

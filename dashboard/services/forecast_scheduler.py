@@ -81,6 +81,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 weather_source=res.get("weather_source"),
                 recipients=[schedule.emails],
                 forecast_scope="main",
+                target_dates=res.get("target_dates") or [],
             )
             send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days)
 

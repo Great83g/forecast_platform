@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from datetime import date
 from typing import Iterable, List, Optional
 
 import pandas as pd
@@ -60,14 +61,27 @@ def build_forecast_report(
     weather_source: str,
     recipients: Optional[Iterable[str]] = None,
     forecast_scope: str = "main",
+    target_dates: Optional[Iterable[date | str]] = None,
 ) -> ForecastReport:
-    start, end = _forecast_date_range(days)
-    qs = SolarForecast.objects.filter(
-        station=station,
-        forecast_scope=forecast_scope,
-        timestamp__gte=start,
-        timestamp__lt=end,
-    ).order_by("timestamp")
+    qs = SolarForecast.objects.filter(station=station, forecast_scope=forecast_scope)
+    normalized_dates: List[date] = []
+    for value in target_dates or []:
+        if isinstance(value, date):
+            normalized_dates.append(value)
+            continue
+        try:
+            parsed = timezone.datetime.fromisoformat(str(value)).date()
+            normalized_dates.append(parsed)
+        except (TypeError, ValueError):
+            continue
+
+    if normalized_dates:
+        qs = qs.filter(timestamp__date__in=normalized_dates)
+    else:
+        start, end = _forecast_date_range(days)
+        qs = qs.filter(timestamp__gte=start, timestamp__lt=end)
+
+    qs = qs.order_by("timestamp")
     data = list(
         qs.values(
             "timestamp",
