@@ -860,6 +860,12 @@ def run_forecast_for_station(
         y_xgb = np.nan_to_num(y_xgb, nan=0.0)
     y_heur = np.nan_to_num(y_heur, nan=0.0)
 
+    # КЛЮЧЕВО: ограничиваем модельные предсказания ДО ансамбля.
+    # Иначе отрицательный NP/XGB может занулить ранние утренние часы в y_final.
+    if use_models:
+        y_np = np.clip(y_np, 0, capacity_mw)
+        y_xgb = np.clip(y_xgb, 0, capacity_mw)
+
     # ансамбль:
     y_final = y_heur.copy()
     if use_models:
@@ -871,9 +877,6 @@ def run_forecast_for_station(
             y_final = 0.6 * y_heur + 0.4 * y_np
 
     # клип по мощности станции (MW) и перевод в кВт для сохранения
-    if use_models:
-        y_np = np.clip(y_np, 0, capacity_mw)
-        y_xgb = np.clip(y_xgb, 0, capacity_mw)
     y_heur = np.clip(y_heur, 0, capacity_mw)
     y_final = np.clip(np.nan_to_num(y_final, nan=0.0), 0, capacity_mw)
     y_final = np.minimum(
