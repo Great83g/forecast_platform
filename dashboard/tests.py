@@ -233,3 +233,45 @@ class HistoryDatetimeParsingTests(TestCase):
         self.assertEqual(parsed.iloc[0].day, 1)
         self.assertEqual(parsed.iloc[1].month, 3)
         self.assertEqual(parsed.iloc[1].day, 2)
+
+
+class StationOrderingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="order", password="pass")
+        self.org = Organization.objects.create(name="Order Org", owner=self.user)
+        self.client.login(username="order", password="pass")
+
+        self.station_a = Station.objects.create(org=self.org, name="A")
+        self.station_b = Station.objects.create(org=self.org, name="B")
+        self.station_c = Station.objects.create(org=self.org, name="C")
+
+    def test_station_list_sorted_by_sort_order(self):
+        names = list(
+            Station.objects.filter(org=self.org)
+            .order_by("sort_order", "id")
+            .values_list("name", flat=True)
+        )
+        self.assertEqual(names, ["A", "B", "C"])
+
+    def test_move_station_down_swaps_with_next_station(self):
+        response = self.client.post(f"/dashboard/station/{self.station_a.pk}/move/down/")
+
+        self.assertEqual(response.status_code, 302)
+        names = list(
+            Station.objects.filter(org=self.org)
+            .order_by("sort_order", "id")
+            .values_list("name", flat=True)
+        )
+        self.assertEqual(names, ["B", "A", "C"])
+
+    def test_move_station_up_swaps_with_previous_station(self):
+        response = self.client.post(f"/dashboard/station/{self.station_c.pk}/move/up/")
+
+        self.assertEqual(response.status_code, 302)
+        names = list(
+            Station.objects.filter(org=self.org)
+            .order_by("sort_order", "id")
+            .values_list("name", flat=True)
+        )
+        self.assertEqual(names, ["A", "C", "B"])
+

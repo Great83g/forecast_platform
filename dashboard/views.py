@@ -150,7 +150,7 @@ def _ensure_station_write_access(request, station):
 # ----------------------------
 @login_required
 def station_list(request):
-    stations = _station_queryset_for_user(request.user).select_related("org").order_by("id")
+    stations = _station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id")
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
     onboarding_items = [
         "Добавьте первую станцию",
@@ -165,6 +165,37 @@ def station_list(request):
         {"stations": stations, "onboarding_items": onboarding_items, "blocked_orgs": blocked_orgs},
     )
 
+
+@login_required
+def station_move(request, pk: int, direction: str):
+    if request.method != "POST":
+        return redirect("dashboard:station-list")
+
+    st = _get_station_or_404(request.user, pk)
+
+    if direction not in {"up", "down"}:
+        messages.error(request, "Неизвестное направление перемещения.")
+        return redirect("dashboard:station-list")
+
+    siblings = list(
+        _station_queryset_for_user(request.user)
+        .filter(org=st.org)
+        .order_by("sort_order", "id")
+        .only("id", "sort_order")
+    )
+    current_idx = next((i for i, item in enumerate(siblings) if item.id == st.id), None)
+    if current_idx is None:
+        return redirect("dashboard:station-list")
+
+    target_idx = current_idx - 1 if direction == "up" else current_idx + 1
+    if target_idx < 0 or target_idx >= len(siblings):
+        return redirect("dashboard:station-list")
+
+    target = siblings[target_idx]
+    Station.objects.filter(id=st.id).update(sort_order=target.sort_order)
+    Station.objects.filter(id=target.id).update(sort_order=st.sort_order)
+
+    return redirect("dashboard:station-list")
 
 @login_required
 def station_create(request):

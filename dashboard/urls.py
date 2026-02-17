@@ -8,6 +8,7 @@ urlpatterns = [
 
     path("station/create/", views.station_create, name="station-create"),
     path("station/<int:pk>/edit/", views.station_edit, name="station-edit"),
+    path("station/<int:pk>/move/<str:direction>/", views.station_move, name="station-move"),
     path("station/<int:pk>/", views.station_detail, name="station-detail"),
     path("station/<int:pk>/plan-fact/export/", views.station_plan_fact_export, name="station-plan-fact-export"),
 

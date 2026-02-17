@@ -56,7 +56,17 @@
           </div>
         </div>
 
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <form method="post" action="{% url 'dashboard:station-move' st.pk 'up' %}" class="m-0">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Поднять выше">↑</button>
+          </form>
+
+          <form method="post" action="{% url 'dashboard:station-move' st.pk 'down' %}" class="m-0">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Опустить ниже">↓</button>
+          </form>
+
           <a class="btn btn-outline-primary btn-sm" href="{% url 'dashboard:station-detail' st.pk %}">
             График / Детали
           </a>
