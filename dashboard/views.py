@@ -655,6 +655,11 @@ def station_forecast_run(request, pk: int):
             horizon_mode = schedule.horizon_mode or "weekday_calendar"
     if horizon_mode == "":
         horizon_mode = "weekday_calendar"
+    if (not open_meteo_only) and schedule and schedule.providers:
+        schedule_providers = [p.strip() for p in schedule.providers.split(",") if p.strip()]
+        if "open_meteo_only" in schedule_providers:
+            open_meteo_only = True
+            providers = ["open_meteo"]
     manual_snow_factor = None
     if manual_snow_factor_raw not in (None, ""):
         try:
@@ -695,6 +700,7 @@ def station_forecast_run(request, pk: int):
                 weather_source=res.get("weather_source"),
                 recipients=[emails_raw],
                 forecast_scope=forecast_scope,
+                target_dates=res.get("target_dates") or [],
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
             if send_report_email(report, [emails_raw], st.name, days):
