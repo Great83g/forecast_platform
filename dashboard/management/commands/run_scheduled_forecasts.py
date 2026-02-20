@@ -1,16 +1,39 @@
 from __future__ import annotations
 
+import importlib
+import logging
+
 from django.core.management.base import BaseCommand
 
 from dashboard.services.forecast_scheduler import run_scheduled_forecasts
 from dashboard.services.history_autofill import run_auto_history_updates
 
 
+logger = logging.getLogger(__name__)
+
+
+def _run_auto_history_updates_safe(stdout, style) -> int:
+    try:
+        module = importlib.import_module("dashboard.services.history_autofill")
+        run_auto_history_updates = getattr(module, "run_auto_history_updates")
+        return int(run_auto_history_updates() or 0)
+    except Exception as exc:
+        logger.exception("Auto history update failed")
+        stdout.write(
+            style.WARNING(
+                "Auto history skipped due to error. "
+                f"Please check share path/migrations. Details: {exc}"
+            )
+        )
+        return 0
+
+
 class Command(BaseCommand):
     help = "Run scheduled forecasts configured in the portal."
 
     def handle(self, *args, **options):
-        updated_rows = run_auto_history_updates()
+        updated_rows = _run_auto_history_updates_safe(self.stdout, self.style)
+
         forecast_count = run_scheduled_forecasts()
         self.stdout.write(self.style.SUCCESS(f"Auto history rows upserted: {updated_rows}"))
         self.stdout.write(self.style.SUCCESS(f"Scheduled forecasts executed: {forecast_count}"))
