@@ -183,6 +183,16 @@ def _merge_one_day(meteo_hourly: pd.DataFrame, plant_hourly: pd.DataFrame) -> pd
     ].copy()
 
 
+def _safe_collect_day(folder: Path, date_key: str, meteo_file: Path, plant_file: Path) -> Optional[pd.DataFrame]:
+    try:
+        meteo_hourly = read_meteo_hourly(meteo_file)
+        plant_hourly = read_plant_report_hourly(plant_file)
+        return _merge_one_day(meteo_hourly, plant_hourly)
+    except Exception:
+        logger.exception("Auto-history: skip date=%s folder=%s", date_key, folder)
+        return None
+
+
 def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
     meteo_files = sorted(folder.glob("D222*.csv.gz"))
     plant_files = [p for p in sorted(folder.glob("*.xlsx")) if is_fusionsolar_report_xlsx(p)]
@@ -210,12 +220,9 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
 
     rows: list[pd.DataFrame] = []
     for d in common_dates:
-        try:
-            meteo_hourly = read_meteo_hourly(meteo_by_date[d])
-            plant_hourly = read_plant_report_hourly(plant_by_date[d])
-            rows.append(_merge_one_day(meteo_hourly, plant_hourly))
-        except Exception:
-            logger.exception("Auto-history: skip date=%s folder=%s", d, folder)
+        day_df = _safe_collect_day(folder, d, meteo_by_date[d], plant_by_date[d])
+        if day_df is not None:
+            rows.append(day_df)
 
     if not rows:
         return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "pv_temp", "power_kw"])
@@ -276,16 +283,21 @@ def upsert_station_history_from_share(station: Station) -> int:
     return len(create_objs) + len(update_objs)
 
 
+def _safe_upsert_station(station: Station) -> int:
+    try:
+        return upsert_station_history_from_share(station)
+    except Exception:
+        logger.exception(
+            "Auto-history failed for station_id=%s name=%s folder=%s",
+            station.pk,
+            station.name,
+            station.auto_history_folder,
+        )
+        return 0
+
+
 def run_auto_history_updates() -> int:
     updated_rows = 0
     for station in Station.objects.filter(auto_history_enabled=True):
-        try:
-            updated_rows += upsert_station_history_from_share(station)
-        except Exception:
-            logger.exception(
-                "Auto-history failed for station_id=%s name=%s folder=%s",
-                station.pk,
-                station.name,
-                station.auto_history_folder,
-            )
+        updated_rows += _safe_upsert_station(station)
     return updated_rows
