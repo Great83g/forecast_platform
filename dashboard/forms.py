@@ -28,6 +28,8 @@ class StationForm(forms.ModelForm):
 
             "history_source",
             "history_scale_by_capacity",
+            "auto_history_enabled",
+            "auto_history_folder",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -53,11 +55,19 @@ class StationForm(forms.ModelForm):
 
         self.fields["history_source"].label = "Источник истории"
         self.fields["history_scale_by_capacity"].label = "Масштабировать по мощности"
+        self.fields["auto_history_enabled"].label = "Автозаполнение истории"
+        self.fields["auto_history_folder"].label = "Папка автоимпорта"
         self.fields["history_source"].help_text = (
             "Если у станции нет своей истории, можно выбрать близкую станцию."
         )
         self.fields["history_scale_by_capacity"].help_text = (
             "При включении мощность берётся пропорционально (например 1.2/8.8)."
+        )
+        self.fields["auto_history_enabled"].help_text = (
+            "Если включено — при запуске планировщика история автоматически обновится из папки ниже."
+        )
+        self.fields["auto_history_folder"].help_text = (
+            "Например: /mnt/share (SMB/CIFS шары с D222*.csv.gz и Plant Report/reportSPP .xlsx)."
         )
 
         # ---------- ДЕФОЛТЫ (только при создании) ----------
@@ -69,6 +79,7 @@ class StationForm(forms.ModelForm):
             self.fields["azimuth_deg"].initial = 180.0
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["timezone"].initial = "Asia/Almaty"
+            self.fields["auto_history_folder"].initial = "/mnt/share"
 
         if "org" in self.fields and user is not None:
             org_qs = Organization.objects.all() if user.is_superuser else Organization.objects.filter(memberships__user=user).distinct()

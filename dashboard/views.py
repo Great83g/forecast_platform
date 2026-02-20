@@ -326,14 +326,6 @@ def station_plan_fact_export(request, pk: int):
     date_to = request.GET.get("date_to") or ""
     dt_from = _aware_datetime(_parse_date(date_from))
     dt_to = _aware_datetime(_parse_date(date_to), end_of_day=True)
-    st = _get_station_or_404(request.user, pk)
-
-    date_from = request.GET.get("date_from") or ""
-    date_to = request.GET.get("date_to") or ""
-    dt_from = _parse_date(date_from)
-    dt_to = _parse_date(date_to)
-    if dt_to:
-        dt_to = dt_to.replace(hour=23, minute=59, second=59)
 
     history_qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
     forecast_qs = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_MAIN)
@@ -355,8 +347,11 @@ def station_plan_fact_export(request, pk: int):
     df = history_df.merge(forecast_df, on="timestamp", how="outer").sort_values("timestamp")
     if not df.empty:
         df["timestamp"] = _excel_safe_datetime(df["timestamp"])
-    df["fact_mw"] = (df.get("fact_kw") / 1000.0).round(4)
-    df["plan_mw"] = (df.get("plan_kw") / 1000.0).round(4)
+
+    fact_kw = pd.to_numeric(df.get("fact_kw"), errors="coerce")
+    plan_kw = pd.to_numeric(df.get("plan_kw"), errors="coerce")
+    df["fact_mw"] = (fact_kw / 1000.0).round(4)
+    df["plan_mw"] = (plan_kw / 1000.0).round(4)
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as writer:

@@ -8,6 +8,8 @@ from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
+
+from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from stations.models import Organization, Station
 
 
@@ -275,3 +277,49 @@ class StationOrderingTests(TestCase):
         )
         self.assertEqual(names, ["A", "C", "B"])
 
+
+
+class RunScheduledForecastsCommandTests(TestCase):
+    @patch("dashboard.management.commands.run_scheduled_forecasts.importlib.import_module")
+    def test_auto_history_safe_helper_returns_zero_on_import_error(self, import_module_mock):
+        import_module_mock.side_effect = RuntimeError("boom")
+
+        class DummyStyle:
+            @staticmethod
+            def WARNING(value):
+                return value
+
+        class DummyStdout:
+            def __init__(self):
+                self.messages = []
+
+            def write(self, message):
+                self.messages.append(message)
+
+        stdout = DummyStdout()
+        result = _run_auto_history_updates_safe(stdout, DummyStyle)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any("Auto history skipped due to error" in m for m in stdout.messages))
+
+    @patch("dashboard.management.commands.run_scheduled_forecasts.importlib.import_module")
+    def test_auto_history_safe_helper_returns_rows_on_success(self, import_module_mock):
+        class DummyModule:
+            @staticmethod
+            def run_auto_history_updates():
+                return 7
+
+        import_module_mock.return_value = DummyModule
+
+        class DummyStyle:
+            @staticmethod
+            def WARNING(value):
+                return value
+
+        class DummyStdout:
+            def write(self, message):
+                return None
+
+        result = _run_auto_history_updates_safe(DummyStdout(), DummyStyle)
+
+        self.assertEqual(result, 7)
