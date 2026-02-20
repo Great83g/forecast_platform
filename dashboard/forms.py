@@ -71,11 +71,12 @@ class StationForm(forms.ModelForm):
             self.fields["timezone"].initial = "Asia/Almaty"
 
         if "org" in self.fields and user is not None:
-            self.fields["org"].queryset = Organization.objects.filter(memberships__user=user).distinct()
+            org_qs = Organization.objects.all() if user.is_superuser else Organization.objects.filter(memberships__user=user).distinct()
+            self.fields["org"].queryset = org_qs
 
         if "history_source" in self.fields:
             qs = Station.objects.all()
-            if user is not None:
+            if user is not None and not user.is_superuser:
                 qs = qs.filter(org__memberships__user=user).distinct()
             if self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
