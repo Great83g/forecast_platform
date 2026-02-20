@@ -6,6 +6,7 @@ import logging
 from django.core.management.base import BaseCommand
 
 from dashboard.services.forecast_scheduler import run_scheduled_forecasts
+from dashboard.services.history_autofill import run_auto_history_updates
 
 
 logger = logging.getLogger(__name__)
