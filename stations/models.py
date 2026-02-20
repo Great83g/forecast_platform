@@ -191,6 +191,15 @@ class Station(models.Model):
         default=True,
         help_text="Масштабировать историю по отношению мощностей станций.",
     )
+    auto_history_enabled = models.BooleanField(
+        default=False,
+        help_text="Автоматически подтягивать историю из общей папки.",
+    )
+    auto_history_folder = models.CharField(
+        max_length=500,
+        default="/mnt/share",
+        help_text="Путь к папке с D222*.csv.gz и FusionSolar .xlsx отчетами.",
+    )
     sort_order = models.PositiveIntegerField(default=0, db_index=True)
 
     def save(self, *args, **kwargs):
