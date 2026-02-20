@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import importlib
+import logging
 from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Optional
@@ -27,6 +29,8 @@ from .services.forecast_engine import run_forecast_for_station
 from .services.forecast_reports import build_forecast_report, send_report_email
 from .services.forecast_scheduler import run_scheduled_forecasts
 from .models import ForecastSchedule
+
+logger = logging.getLogger(__name__)
 
 # train service (может быть/не быть — не валим портал)
 try:
@@ -216,6 +220,21 @@ def station_create(request):
     return render(request, "dashboard/station_create.html", {"form": form})
 
 
+
+
+def _run_station_auto_history_fill_safe(station: Station) -> int:
+    if not getattr(station, "auto_history_enabled", False):
+        return 0
+
+    try:
+        module = importlib.import_module("dashboard.services.history_autofill")
+        upsert = getattr(module, "upsert_station_history_from_share")
+        return int(upsert(station) or 0)
+    except Exception:
+        logger.exception("Auto history fill on station save failed station_id=%s", station.pk)
+        return 0
+
+
 @login_required
 def station_edit(request, pk: int):
     st = _get_station_or_404(request.user, pk)
@@ -227,7 +246,13 @@ def station_edit(request, pk: int):
         if form.is_valid():
             if not _ensure_station_write_access(request, st):
                 return redirect("dashboard:station-detail", pk=st.pk)
-            form.save()
+            st = form.save()
+            imported_rows = _run_station_auto_history_fill_safe(st)
+            if st.auto_history_enabled:
+                if imported_rows > 0:
+                    messages.success(request, f"Автоистория обновлена: {imported_rows} строк.")
+                else:
+                    messages.warning(request, "Автоистория включена, но новых строк не найдено. Проверьте /mnt/share и имена файлов.")
             messages.success(request, "Станция обновлена.")
             return redirect("dashboard:station-detail", pk=st.pk)
         messages.error(request, "Ошибка в форме станции.")

@@ -28,6 +28,25 @@ def _run_auto_history_updates_safe(stdout, style) -> int:
         return 0
 
 
+logger = logging.getLogger(__name__)
+
+
+def _run_auto_history_updates_safe(stdout, style) -> int:
+    try:
+        module = importlib.import_module("dashboard.services.history_autofill")
+        run_auto_history_updates = getattr(module, "run_auto_history_updates")
+        return int(run_auto_history_updates() or 0)
+    except Exception as exc:
+        logger.exception("Auto history update failed")
+        stdout.write(
+            style.WARNING(
+                "Auto history skipped due to error. "
+                f"Please check share path/migrations. Details: {exc}"
+            )
+        )
+        return 0
+
+
 class Command(BaseCommand):
     help = "Run scheduled forecasts configured in the portal."
 
