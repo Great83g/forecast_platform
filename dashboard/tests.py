@@ -9,8 +9,26 @@ from dashboard.services.forecast_engine import _target_offsets_for_weekday_calen
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 
+from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from stations.models import Organization, Station
+
+
+class StationFormAutoHistoryFolderInitialTests(TestCase):
+    def test_edit_form_shows_station_specific_folder_when_model_has_default_share(self):
+        user = User.objects.create_user(username="folder-form", password="pass")
+        org = Organization.objects.create(name="Folder Form Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share",
+        )
+
+        form = StationForm(instance=station, user=user)
+
+        self.assertEqual(form["auto_history_folder"].value(), f"/mnt/share/org_{org.id}/SES_8.8_MW")
+
 
 
 class ForecastEngineIndexRegressionTests(TestCase):
