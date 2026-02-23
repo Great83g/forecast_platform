@@ -5,6 +5,7 @@ from stations.models import Station
 
 class Command(BaseCommand):
     help = "Create missing auto-history import folders for stations."
+    requires_system_checks = []
 
     def add_arguments(self, parser):
         parser.add_argument(
