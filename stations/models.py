@@ -243,13 +243,14 @@ class Station(models.Model):
             return base_folder
         return f"{base_folder}/{'/'.join(path_parts)}"
 
-    def ensure_import_folder(self):
+    def ensure_import_folder(self) -> bool:
         folder = (self.auto_history_folder or "").strip()
         if not folder:
-            return
+            return False
 
         try:
             Path(folder).mkdir(parents=True, exist_ok=True)
+            return Path(folder).exists()
         except OSError:
             logger.warning(
                 "Cannot create auto-history folder station_id=%s folder=%s",
@@ -257,6 +258,7 @@ class Station(models.Model):
                 folder,
                 exc_info=True,
             )
+            return False
 
     def save(self, *args, **kwargs):
         if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
@@ -280,8 +282,8 @@ class Station(models.Model):
 
         count = 0
         for station in qs.iterator():
-            station.ensure_import_folder()
-            count += 1
+            if station.ensure_import_folder():
+                count += 1
         return count
 
 

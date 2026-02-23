@@ -18,4 +18,4 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         station_ids = options.get("station_ids") or None
         processed = Station.ensure_all_import_folders(station_ids=station_ids)
-        self.stdout.write(self.style.SUCCESS(f"Import folders ensured for stations: {processed}"))
+        self.stdout.write(self.style.SUCCESS(f"Import folders ensured (created/existing) for stations: {processed}"))

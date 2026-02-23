@@ -105,6 +105,20 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertNotEqual(station_a.auto_history_folder, station_b.auto_history_folder)
 
 
+
+    def test_ensure_import_folder_returns_false_on_permission_error(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES Err",
+            capacity_mw=1.2,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        with patch("stations.models.Path.mkdir", side_effect=PermissionError("denied")):
+            ok = station.ensure_import_folder()
+
+        self.assertFalse(ok)
+
     def test_management_command_creates_folder_for_existing_station(self):
         station = Station.objects.create(
             org=self.org,
