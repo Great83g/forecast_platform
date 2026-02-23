@@ -97,7 +97,10 @@ class StationSerializer(serializers.ModelSerializer):
             "auto_history_enabled",
             "auto_history_folder",
             "auto_history_script",
+            "auto_history_run_time",
+            "auto_history_last_run_date",
         ]
+        read_only_fields = ["auto_history_last_run_date"]
 
     def validate(self, attrs):
         org = attrs.get("org") or getattr(self.instance, "org", None)

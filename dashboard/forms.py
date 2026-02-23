@@ -31,6 +31,7 @@ class StationForm(forms.ModelForm):
             "auto_history_enabled",
             "auto_history_folder",
             "auto_history_script",
+            "auto_history_run_time",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -59,6 +60,7 @@ class StationForm(forms.ModelForm):
         self.fields["auto_history_enabled"].label = "Автозаполнение истории"
         self.fields["auto_history_folder"].label = "Папка автоимпорта"
         self.fields["auto_history_script"].label = "Скрипт автоистории"
+        self.fields["auto_history_run_time"].label = "Время автопроверки"
         self.fields["history_source"].help_text = (
             "Если у станции нет своей истории, можно выбрать близкую станцию."
         )
@@ -82,6 +84,10 @@ class StationForm(forms.ModelForm):
             "placeholder",
             "ses_8_8mw  или  dashboard.services.history_scripts.ses_8_8mw:build_history_dataframe",
         )
+        self.fields["auto_history_run_time"].help_text = (
+            "Ежедневно в это время станция будет проверяться на новые файлы истории."
+        )
+        self.fields["auto_history_run_time"].widget = forms.TimeInput(attrs={"type": "time"})
 
         # ---------- ДЕФОЛТЫ (только при создании) ----------
         if not self.instance.pk and not self.is_bound:

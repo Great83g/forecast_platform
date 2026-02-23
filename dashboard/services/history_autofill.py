@@ -186,10 +186,30 @@ def _merge_one_day(meteo_hourly: pd.DataFrame, plant_hourly: pd.DataFrame) -> pd
     ].copy()
 
 
-def _safe_collect_day(folder: Path, date_key: str, meteo_file: Path, plant_file: Path) -> Optional[pd.DataFrame]:
+def _merge_plant_reports_for_day(plant_files: list[Path]) -> pd.DataFrame:
+    rows: list[pd.DataFrame] = []
+    for pf in plant_files:
+        hourly = read_plant_report_hourly(pf)
+        if not hourly.empty:
+            rows.append(hourly)
+
+    if not rows:
+        return pd.DataFrame(columns=["ds", "power_kw"])
+
+    merged = pd.concat(rows, ignore_index=True)
+    merged["power_kw"] = pd.to_numeric(merged["power_kw"], errors="coerce")
+    return (
+        merged.groupby("ds", as_index=False)["power_kw"]
+        .sum(min_count=1)
+        .sort_values("ds")
+        .reset_index(drop=True)
+    )
+
+
+def _safe_collect_day(folder: Path, date_key: str, meteo_file: Path, plant_files: list[Path]) -> Optional[pd.DataFrame]:
     try:
         meteo_hourly = read_meteo_hourly(meteo_file)
-        plant_hourly = read_plant_report_hourly(plant_file)
+        plant_hourly = _merge_plant_reports_for_day(plant_files)
         return _merge_one_day(meteo_hourly, plant_hourly)
     except Exception:
         logger.exception("Auto-history: skip date=%s folder=%s", date_key, folder)
@@ -209,7 +229,7 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
         if d:
             plant_by_date_multi.setdefault(d, []).append(p)
 
-    plant_by_date = {d: pick_best_report_for_date(lst) for d, lst in plant_by_date_multi.items()}
+    plant_by_date = plant_by_date_multi
 
     meteo_by_date: dict[str, Path] = {}
     for m in meteo_files:
@@ -358,8 +378,30 @@ def _safe_upsert_station(station: Station) -> int:
         return 0
 
 
+
+def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
+    run_time = getattr(station, "auto_history_run_time", None)
+    if run_time is None:
+        return True
+
+    if now_local.time().replace(second=0, microsecond=0) < run_time.replace(second=0, microsecond=0):
+        return False
+
+    return getattr(station, "auto_history_last_run_date", None) != now_local.date()
+
+
+def _mark_station_auto_history_checked(station: Station, check_date):
+    if getattr(station, "auto_history_last_run_date", None) == check_date:
+        return
+    station.auto_history_last_run_date = check_date
+    station.save(update_fields=["auto_history_last_run_date"])
+
 def run_auto_history_updates() -> int:
     updated_rows = 0
+    now_local = timezone.localtime()
     for station in Station.objects.filter(auto_history_enabled=True):
+        if not _is_station_due_for_auto_history(station, now_local):
+            continue
         updated_rows += _safe_upsert_station(station)
+        _mark_station_auto_history_checked(station, now_local.date())
     return updated_rows

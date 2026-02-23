@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
@@ -10,7 +12,7 @@ from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
-from dashboard.services.history_autofill import upsert_station_history_from_share
+from dashboard.services.history_autofill import collect_share_history_dataframe, run_auto_history_updates, upsert_station_history_from_share
 
 from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
@@ -104,6 +106,65 @@ class StationAutoHistoryCustomScriptTests(TestCase):
 
         with self.assertRaises(ValueError):
             upsert_station_history_from_share(self.station)
+
+
+
+class StationAutoHistoryScheduleTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="autohistory-time", password="pass")
+        org = Organization.objects.create(name="AutoHistory Time Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Timed Script Station",
+            capacity_mw=1.0,
+            auto_history_enabled=True,
+            auto_history_script="dashboard.tests:build_custom_history_dataframe",
+            auto_history_run_time=time(6, 0),
+        )
+
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_skips_before_station_time(self, localtime_mock):
+        localtime_mock.return_value = timezone.datetime(2026, 2, 20, 5, 30, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 0)
+
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_runs_once_per_day(self, localtime_mock):
+        localtime_mock.return_value = timezone.datetime(2026, 2, 20, 6, 30, tzinfo=timezone.get_current_timezone())
+
+        first_rows = run_auto_history_updates()
+        second_rows = run_auto_history_updates()
+
+        self.assertEqual(first_rows, 1)
+        self.assertEqual(second_rows, 0)
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
+
+
+class StationAutoHistoryMergeSameDateTests(TestCase):
+    @patch("dashboard.services.history_autofill.read_meteo_hourly")
+    @patch("dashboard.services.history_autofill.read_plant_report_hourly")
+    def test_collect_share_history_merges_two_reports_for_same_date(self, plant_mock, meteo_mock):
+        meteo_mock.return_value = pd.DataFrame(
+            [{"ds": pd.Timestamp("2026-02-17 10:00:00"), "irradiation": 500, "air_temp": 20, "pv_temp": 25}]
+        )
+        plant_mock.side_effect = [
+            pd.DataFrame([{"ds": pd.Timestamp("2026-02-17 10:00:00"), "power_kw": 100.0}]),
+            pd.DataFrame([{"ds": pd.Timestamp("2026-02-17 10:00:00"), "power_kw": 30.0}]),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "D222152_20260217_0000.csv.gz").write_text("x")
+            (folder / "Plant Report_SPP 1.2 MW_17-02-2026_part1.xlsx").write_text("x")
+            (folder / "Plant Report_SPP 1.2 MW_17-02-2026_part2.xlsx").write_text("x")
+
+            out = collect_share_history_dataframe(folder)
+
+        self.assertEqual(len(out), 1)
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 130.0)
 
 
 
