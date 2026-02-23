@@ -2,6 +2,8 @@ import secrets
 
 from django.db import models
 from django.contrib.auth.models import User
+import re
+
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -202,7 +204,18 @@ class Station(models.Model):
     )
     sort_order = models.PositiveIntegerField(default=0, db_index=True)
 
+    @staticmethod
+    def _build_auto_history_folder(station_name: str) -> str:
+        base_folder = "/mnt/share"
+        normalized_name = re.sub(r"[\\/]+", "_", (station_name or "").strip())
+        normalized_name = re.sub(r"\s+", "_", normalized_name).strip("._")
+        if not normalized_name:
+            return base_folder
+        return f"{base_folder}/{normalized_name}"
+
     def save(self, *args, **kwargs):
+        if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
+            self.auto_history_folder = self._build_auto_history_folder(self.name)
         if self.pk is None and self.sort_order == 0:
             last_order = (
                 Station.objects.filter(org=self.org)
