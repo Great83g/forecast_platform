@@ -1,5 +1,7 @@
+import logging
 import secrets
 from datetime import time
+from pathlib import Path
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -8,6 +10,9 @@ import re
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+
+
+logger = logging.getLogger(__name__)
 
 
 class Organization(models.Model):
@@ -238,6 +243,21 @@ class Station(models.Model):
             return base_folder
         return f"{base_folder}/{'/'.join(path_parts)}"
 
+    def _ensure_auto_history_folder_exists(self):
+        folder = (self.auto_history_folder or "").strip()
+        if not folder:
+            return
+
+        try:
+            Path(folder).mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logger.warning(
+                "Cannot create auto-history folder station_id=%s folder=%s",
+                self.pk,
+                folder,
+                exc_info=True,
+            )
+
     def save(self, *args, **kwargs):
         if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
             self.auto_history_folder = self._build_auto_history_folder(self.name, self.org_id)
@@ -250,6 +270,7 @@ class Station(models.Model):
             )
             self.sort_order = last_order + 1
         super().save(*args, **kwargs)
+        self._ensure_auto_history_folder_exists()
 
     def clean(self):
         super().clean()

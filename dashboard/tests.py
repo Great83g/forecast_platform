@@ -101,8 +101,6 @@ class StationAutoHistoryCustomScriptTests(TestCase):
 
     def test_invalid_custom_script_format_raises(self):
         self.station.auto_history_script = ":build_history_dataframe"
-    def test_invalid_custom_script_format_raises(self):
-        self.station.auto_history_script = "bad-path"
 
         with self.assertRaises(ValueError):
             upsert_station_history_from_share(self.station)
