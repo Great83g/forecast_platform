@@ -247,6 +247,16 @@ def station_edit(request, pk: int):
             if not _ensure_station_write_access(request, st):
                 return redirect("dashboard:station-detail", pk=st.pk)
             st = form.save()
+            if not st.ensure_import_folder():
+                details = getattr(st, "_last_import_folder_error", "")
+                details_text = f" Детали: {details}" if details else ""
+                messages.warning(
+                    request,
+                    f"Не удалось проверить/создать папку автоимпорта: {st.auto_history_folder}. "
+                    "Проверьте права на /mnt/share для пользователя сервиса."
+                    f"{details_text}",
+                )
+
             imported_rows = _run_station_auto_history_fill_safe(st)
             if st.auto_history_enabled:
                 if imported_rows > 0:

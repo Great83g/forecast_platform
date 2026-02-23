@@ -1,4 +1,8 @@
+import logging
+import os
 import secrets
+from datetime import time
+from pathlib import Path
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -7,6 +11,9 @@ import re
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+
+
+logger = logging.getLogger(__name__)
 
 
 class Organization(models.Model):
@@ -202,6 +209,25 @@ class Station(models.Model):
         default="/mnt/share",
         help_text="Путь к папке с D222*.csv.gz и FusionSolar .xlsx отчетами.",
     )
+    auto_history_script = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Индивидуальный скрипт для автоистории. Формат: "
+            "python.module:function_name (оставьте пустым для стандартного обработчика)."
+        ),
+    )
+    auto_history_run_time = models.TimeField(
+        default=time(6, 0),
+        help_text="Ежедневное время запуска автообновления истории для станции.",
+    )
+    auto_history_last_run_date = models.DateField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Служебное поле: дата последней автопроверки истории.",
+    )
     sort_order = models.PositiveIntegerField(default=0, db_index=True)
 
     @staticmethod
@@ -218,6 +244,39 @@ class Station(models.Model):
             return base_folder
         return f"{base_folder}/{'/'.join(path_parts)}"
 
+    def ensure_import_folder(self) -> bool:
+        folder = (self.auto_history_folder or "").strip()
+        if not folder:
+            self._last_import_folder_error = "Папка автоимпорта не задана."
+            return False
+
+        target = Path(folder)
+        parent = target.parent
+
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                self._last_import_folder_error = ""
+                return True
+
+            self._last_import_folder_error = f"Папка не появилась после создания: {folder}"
+            return False
+        except OSError as exc:
+            parent_exists = parent.exists()
+            parent_writable = os.access(parent, os.W_OK | os.X_OK) if parent_exists else False
+            self._last_import_folder_error = (
+                f"{exc.__class__.__name__}: {exc}. "
+                f"parent={parent} exists={parent_exists} writable={parent_writable}"
+            )
+            logger.warning(
+                "Cannot create auto-history folder station_id=%s folder=%s error=%s",
+                self.pk,
+                folder,
+                self._last_import_folder_error,
+                exc_info=True,
+            )
+            return False
+
     def save(self, *args, **kwargs):
         if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
             self.auto_history_folder = self._build_auto_history_folder(self.name, self.org_id)
@@ -230,6 +289,20 @@ class Station(models.Model):
             )
             self.sort_order = last_order + 1
         super().save(*args, **kwargs)
+        self.ensure_import_folder()
+
+    @classmethod
+    def ensure_all_import_folders(cls, station_ids: list[int] | None = None) -> int:
+        qs = cls.objects.all().only("id", "auto_history_folder")
+        if station_ids:
+            qs = qs.filter(id__in=station_ids)
+
+        count = 0
+        for station in qs.iterator():
+            if station.ensure_import_folder():
+                count += 1
+        return count
+
 
     def clean(self):
         super().clean()
