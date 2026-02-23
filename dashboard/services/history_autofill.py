@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import re
 from pathlib import Path
@@ -232,12 +233,37 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
     return _clean_round_filter(out)
 
 
+def _load_station_history_builder(station: Station):
+    script_path = (getattr(station, "auto_history_script", "") or "").strip()
+    if not script_path:
+        return None
+
+    module_path, sep, attr_name = script_path.partition(":")
+    if not sep or not module_path or not attr_name:
+        raise ValueError(
+            f"Invalid auto_history_script format for station_id={station.pk}: {script_path}. "
+            "Expected python.module:function_name"
+        )
+
+    module = importlib.import_module(module_path)
+    builder = getattr(module, attr_name)
+    if not callable(builder):
+        raise TypeError(f"Custom history builder is not callable: {script_path}")
+    return builder
+
+
 def upsert_station_history_from_share(station: Station) -> int:
     folder = Path(station.auto_history_folder or "/mnt/share")
     if not folder.exists():
         return 0
 
-    df = collect_share_history_dataframe(folder)
+    custom_builder = _load_station_history_builder(station)
+    if custom_builder is not None:
+        df = custom_builder(station)
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Custom auto-history builder must return pandas.DataFrame")
+    else:
+        df = collect_share_history_dataframe(folder)
     if df.empty:
         return 0
 
