@@ -1,4 +1,5 @@
 import secrets
+from datetime import time
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -201,6 +202,25 @@ class Station(models.Model):
         max_length=500,
         default="/mnt/share",
         help_text="Путь к папке с D222*.csv.gz и FusionSolar .xlsx отчетами.",
+    )
+    auto_history_script = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Индивидуальный скрипт для автоистории. Формат: "
+            "python.module:function_name (оставьте пустым для стандартного обработчика)."
+        ),
+    )
+    auto_history_run_time = models.TimeField(
+        default=time(6, 0),
+        help_text="Ежедневное время запуска автообновления истории для станции.",
+    )
+    auto_history_last_run_date = models.DateField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Служебное поле: дата последней автопроверки истории.",
     )
     sort_order = models.PositiveIntegerField(default=0, db_index=True)
 
