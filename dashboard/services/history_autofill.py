@@ -308,8 +308,29 @@ def _load_station_history_builder(station: Station):
     return builder
 
 
+
+
+def _resolve_station_share_folder(station: Station, share_root: Optional[Path] = None) -> Path:
+    folder = Path(getattr(station, "auto_history_folder", "") or "/mnt/share")
+    if folder.exists():
+        return folder
+
+    base = share_root or Path("/mnt/share")
+    folder_str = str(folder)
+    base_prefix = f"{str(base).rstrip('/')}/"
+    if folder_str.startswith(base_prefix) and base.exists():
+        logger.warning(
+            "Auto-history folder missing for station_id=%s folder=%s, fallback to shared root=%s",
+            getattr(station, "pk", None),
+            folder,
+            base,
+        )
+        return base
+
+    return folder
+
 def upsert_station_history_from_share(station: Station) -> int:
-    folder = Path(station.auto_history_folder or "/mnt/share")
+    folder = _resolve_station_share_folder(station)
     if not folder.exists():
         return 0
 

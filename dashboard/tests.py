@@ -1,4 +1,5 @@
 from datetime import time
+from types import SimpleNamespace
 
 from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase
@@ -12,7 +13,12 @@ from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
-from dashboard.services.history_autofill import collect_share_history_dataframe, run_auto_history_updates, upsert_station_history_from_share
+from dashboard.services.history_autofill import (
+    _resolve_station_share_folder,
+    collect_share_history_dataframe,
+    run_auto_history_updates,
+    upsert_station_history_from_share,
+)
 
 from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
@@ -50,6 +56,27 @@ class StationFormAutoHistoryFolderInitialTests(TestCase):
         form = StationForm(instance=station, user=user)
 
         self.assertEqual(form["auto_history_folder"].value(), f"/mnt/share/org_{org.id}/SES_8.8_MW")
+
+
+
+class StationAutoHistoryFolderFallbackTests(TestCase):
+    def test_missing_station_subfolder_falls_back_to_share_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            station = SimpleNamespace(auto_history_folder=str(base / "org_1" / "SES_1.2_MW"), pk=42)
+
+            resolved = _resolve_station_share_folder(station, share_root=base)
+
+            self.assertEqual(resolved, base)
+
+    def test_non_share_path_does_not_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            station = SimpleNamespace(auto_history_folder=str(base / "other" / "path"), pk=43)
+
+            resolved = _resolve_station_share_folder(station, share_root=base / "share")
+
+            self.assertEqual(resolved, Path(station.auto_history_folder))
 
 
 
