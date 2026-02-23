@@ -1,4 +1,6 @@
 from datetime import timedelta
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -64,6 +66,21 @@ class StationAutoHistoryFolderTests(APITestCase):
         )
 
         self.assertEqual(station.auto_history_folder, f"/mnt/share/org_{self.org.id}/SES_1.2_MW")
+
+
+    def test_default_auto_history_folder_is_created_on_save(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = Path(tmp) / f"org_{self.org.id}" / "SES_1.2_MW"
+            with patch.object(Station, "_build_auto_history_folder", return_value=str(expected)):
+                station = Station.objects.create(
+                    org=self.org,
+                    name="SES 1.2 MW",
+                    capacity_mw=1.2,
+                    auto_history_folder="/mnt/share",
+                )
+
+            self.assertEqual(station.auto_history_folder, str(expected))
+            self.assertTrue(expected.exists())
 
     def test_custom_auto_history_folder_is_preserved(self):
         station = Station.objects.create(
