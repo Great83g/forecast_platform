@@ -27,7 +27,7 @@ class StationFormAutoHistoryFolderInitialTests(TestCase):
 
         form = StationForm(instance=station, user=user)
 
-        self.assertEqual(form["auto_history_folder"].value(), "/mnt/share/SES_8.8_MW")
+        self.assertEqual(form["auto_history_folder"].value(), f"/mnt/share/org_{org.id}/SES_8.8_MW")
 
 
 
