@@ -270,15 +270,27 @@ class Station(models.Model):
             parent_owner = "?"
             parent_group = "?"
             parent_mode = "?"
+            nearest_existing_parent = parent
             if parent_exists:
                 parent_stat = parent.stat()
                 parent_owner = str(parent_stat.st_uid)
                 parent_group = str(parent_stat.st_gid)
                 parent_mode = stat.filemode(parent_stat.st_mode)
+            else:
+                for candidate in parent.parents:
+                    if candidate.exists():
+                        nearest_existing_parent = candidate
+                        parent_stat = candidate.stat()
+                        parent_owner = str(parent_stat.st_uid)
+                        parent_group = str(parent_stat.st_gid)
+                        parent_mode = stat.filemode(parent_stat.st_mode)
+                        parent_writable = os.access(candidate, os.W_OK | os.X_OK)
+                        break
 
             self._last_import_folder_error = (
                 f"{exc.__class__.__name__}: {exc}. "
                 f"parent={parent} exists={parent_exists} writable={parent_writable} "
+                f"nearest_existing_parent={nearest_existing_parent} "
                 f"process_uid={process_uid} process_gid={process_gid} "
                 f"parent_uid={parent_owner} parent_gid={parent_group} parent_mode={parent_mode}"
             )
