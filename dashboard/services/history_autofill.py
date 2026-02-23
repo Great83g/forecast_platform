@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import importlib
+import importlib.util
 import logging
 import re
 from pathlib import Path
@@ -183,10 +186,30 @@ def _merge_one_day(meteo_hourly: pd.DataFrame, plant_hourly: pd.DataFrame) -> pd
     ].copy()
 
 
-def _safe_collect_day(folder: Path, date_key: str, meteo_file: Path, plant_file: Path) -> Optional[pd.DataFrame]:
+def _merge_plant_reports_for_day(plant_files: list[Path]) -> pd.DataFrame:
+    rows: list[pd.DataFrame] = []
+    for pf in plant_files:
+        hourly = read_plant_report_hourly(pf)
+        if not hourly.empty:
+            rows.append(hourly)
+
+    if not rows:
+        return pd.DataFrame(columns=["ds", "power_kw"])
+
+    merged = pd.concat(rows, ignore_index=True)
+    merged["power_kw"] = pd.to_numeric(merged["power_kw"], errors="coerce")
+    return (
+        merged.groupby("ds", as_index=False)["power_kw"]
+        .sum(min_count=1)
+        .sort_values("ds")
+        .reset_index(drop=True)
+    )
+
+
+def _safe_collect_day(folder: Path, date_key: str, meteo_file: Path, plant_files: list[Path]) -> Optional[pd.DataFrame]:
     try:
         meteo_hourly = read_meteo_hourly(meteo_file)
-        plant_hourly = read_plant_report_hourly(plant_file)
+        plant_hourly = _merge_plant_reports_for_day(plant_files)
         return _merge_one_day(meteo_hourly, plant_hourly)
     except Exception:
         logger.exception("Auto-history: skip date=%s folder=%s", date_key, folder)
@@ -206,7 +229,7 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
         if d:
             plant_by_date_multi.setdefault(d, []).append(p)
 
-    plant_by_date = {d: pick_best_report_for_date(lst) for d, lst in plant_by_date_multi.items()}
+    plant_by_date = plant_by_date_multi
 
     meteo_by_date: dict[str, Path] = {}
     for m in meteo_files:
@@ -232,12 +255,71 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
     return _clean_round_filter(out)
 
 
+def _load_module_from_file(file_path: str):
+    file_obj = Path(file_path)
+    if not file_obj.exists() or file_obj.suffix.lower() != ".py":
+        raise ValueError(f"Custom history file not found or not a .py file: {file_path}")
+
+    module_name = f"custom_history_{hashlib.md5(str(file_obj).encode('utf-8')).hexdigest()}"
+    spec = importlib.util.spec_from_file_location(module_name, str(file_obj))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module from file: {file_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_station_history_builder(station: Station):
+    raw_value = (getattr(station, "auto_history_script", "") or "").strip()
+    if not raw_value:
+        return None
+
+    if ":" in raw_value:
+        module_target, _, attr_name = raw_value.partition(":")
+    else:
+        module_target = f"dashboard.services.history_scripts.{raw_value}"
+        attr_name = "build_history_dataframe"
+
+    module_target = module_target.strip()
+    attr_name = attr_name.strip()
+
+    if not module_target or not attr_name:
+        raise ValueError(
+            f"Invalid auto_history_script format for station_id={station.pk}: {raw_value}. "
+            "Use one of: module_name | python.module:function | /path/to/file.py:function"
+        )
+
+    try:
+        if module_target.endswith('.py') or '/' in module_target:
+            module = _load_module_from_file(module_target)
+        else:
+            module = importlib.import_module(module_target)
+
+        builder = getattr(module, attr_name)
+    except Exception as exc:
+        raise ValueError(
+            f"Cannot load auto_history_script for station_id={station.pk}: {raw_value}. "
+            "Check path/module and function name."
+        ) from exc
+
+    if not callable(builder):
+        raise TypeError(f"Custom history builder is not callable: {raw_value}")
+    return builder
+
+
 def upsert_station_history_from_share(station: Station) -> int:
     folder = Path(station.auto_history_folder or "/mnt/share")
     if not folder.exists():
         return 0
 
-    df = collect_share_history_dataframe(folder)
+    custom_builder = _load_station_history_builder(station)
+    if custom_builder is not None:
+        df = custom_builder(station)
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Custom auto-history builder must return pandas.DataFrame")
+    else:
+        df = collect_share_history_dataframe(folder)
     if df.empty:
         return 0
 
@@ -296,8 +378,30 @@ def _safe_upsert_station(station: Station) -> int:
         return 0
 
 
+
+def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
+    run_time = getattr(station, "auto_history_run_time", None)
+    if run_time is None:
+        return True
+
+    if now_local.time().replace(second=0, microsecond=0) < run_time.replace(second=0, microsecond=0):
+        return False
+
+    return getattr(station, "auto_history_last_run_date", None) != now_local.date()
+
+
+def _mark_station_auto_history_checked(station: Station, check_date):
+    if getattr(station, "auto_history_last_run_date", None) == check_date:
+        return
+    station.auto_history_last_run_date = check_date
+    station.save(update_fields=["auto_history_last_run_date"])
+
 def run_auto_history_updates() -> int:
     updated_rows = 0
+    now_local = timezone.localtime()
     for station in Station.objects.filter(auto_history_enabled=True):
+        if not _is_station_due_for_auto_history(station, now_local):
+            continue
         updated_rows += _safe_upsert_station(station)
+        _mark_station_auto_history_checked(station, now_local.date())
     return updated_rows
