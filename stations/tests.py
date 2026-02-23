@@ -119,6 +119,7 @@ class StationAutoHistoryFolderTests(APITestCase):
 
         self.assertFalse(ok)
         self.assertIn("PermissionError", station._last_import_folder_error)
+        self.assertIn("process_uid=", station._last_import_folder_error)
 
     def test_management_command_creates_folder_for_existing_station(self):
         station = Station.objects.create(

@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+import stat
 from datetime import time
 from pathlib import Path
 
@@ -264,9 +265,22 @@ class Station(models.Model):
         except OSError as exc:
             parent_exists = parent.exists()
             parent_writable = os.access(parent, os.W_OK | os.X_OK) if parent_exists else False
+            process_uid = os.geteuid()
+            process_gid = os.getegid()
+            parent_owner = "?"
+            parent_group = "?"
+            parent_mode = "?"
+            if parent_exists:
+                parent_stat = parent.stat()
+                parent_owner = str(parent_stat.st_uid)
+                parent_group = str(parent_stat.st_gid)
+                parent_mode = stat.filemode(parent_stat.st_mode)
+
             self._last_import_folder_error = (
                 f"{exc.__class__.__name__}: {exc}. "
-                f"parent={parent} exists={parent_exists} writable={parent_writable}"
+                f"parent={parent} exists={parent_exists} writable={parent_writable} "
+                f"process_uid={process_uid} process_gid={process_gid} "
+                f"parent_uid={parent_owner} parent_gid={parent_group} parent_mode={parent_mode}"
             )
             logger.warning(
                 "Cannot create auto-history folder station_id=%s folder=%s error=%s",
