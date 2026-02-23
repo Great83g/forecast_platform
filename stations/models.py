@@ -1,4 +1,5 @@
 import logging
+import os
 import secrets
 from datetime import time
 from pathlib import Path
@@ -246,16 +247,32 @@ class Station(models.Model):
     def ensure_import_folder(self) -> bool:
         folder = (self.auto_history_folder or "").strip()
         if not folder:
+            self._last_import_folder_error = "Папка автоимпорта не задана."
             return False
 
+        target = Path(folder)
+        parent = target.parent
+
         try:
-            Path(folder).mkdir(parents=True, exist_ok=True)
-            return Path(folder).exists()
-        except OSError:
+            target.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                self._last_import_folder_error = ""
+                return True
+
+            self._last_import_folder_error = f"Папка не появилась после создания: {folder}"
+            return False
+        except OSError as exc:
+            parent_exists = parent.exists()
+            parent_writable = os.access(parent, os.W_OK | os.X_OK) if parent_exists else False
+            self._last_import_folder_error = (
+                f"{exc.__class__.__name__}: {exc}. "
+                f"parent={parent} exists={parent_exists} writable={parent_writable}"
+            )
             logger.warning(
-                "Cannot create auto-history folder station_id=%s folder=%s",
+                "Cannot create auto-history folder station_id=%s folder=%s error=%s",
                 self.pk,
                 folder,
+                self._last_import_folder_error,
                 exc_info=True,
             )
             return False
