@@ -80,6 +80,10 @@ class StationForm(forms.ModelForm):
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["timezone"].initial = "Asia/Almaty"
             self.fields["auto_history_folder"].initial = "/mnt/share"
+        if self.instance.pk and not self.is_bound:
+            folder = (self.instance.auto_history_folder or "").rstrip("/")
+            if folder == "/mnt/share":
+                self.fields["auto_history_folder"].initial = Station._build_auto_history_folder(self.instance.name)
 
         if "org" in self.fields and user is not None:
             org_qs = Organization.objects.all() if user.is_superuser else Organization.objects.filter(memberships__user=user).distinct()
