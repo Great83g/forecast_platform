@@ -75,6 +75,20 @@ class StationAutoHistoryFolderTests(APITestCase):
 
         self.assertEqual(station.auto_history_folder, "/mnt/share/custom-folder")
 
+    def test_existing_station_with_default_folder_gets_dedicated_folder_on_save(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        station.auto_history_folder = "/mnt/share"
+        station.save(update_fields=["auto_history_folder"])
+        station.refresh_from_db()
+
+        self.assertEqual(station.auto_history_folder, "/mnt/share/SES_8.8_MW")
+
 
 class InvitationFlowTests(APITestCase):
     def setUp(self):

@@ -214,7 +214,7 @@ class Station(models.Model):
         return f"{base_folder}/{normalized_name}"
 
     def save(self, *args, **kwargs):
-        if self.pk is None and (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
+        if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
             self.auto_history_folder = self._build_auto_history_folder(self.name)
         if self.pk is None and self.sort_order == 0:
             last_order = (
