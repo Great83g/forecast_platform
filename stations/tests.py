@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -102,6 +103,24 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertEqual(station_a.auto_history_folder, f"/mnt/share/org_{self.org.id}/SES_8.8_MW")
         self.assertEqual(station_b.auto_history_folder, f"/mnt/share/org_{other_org.id}/SES_8.8_MW")
         self.assertNotEqual(station_a.auto_history_folder, station_b.auto_history_folder)
+
+
+    def test_management_command_creates_folder_for_existing_station(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES Existing",
+            capacity_mw=1.2,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = Path(tmp) / f"org_{self.org.id}" / "SES_Existing"
+            Station.objects.filter(pk=station.pk).update(auto_history_folder=str(expected))
+            self.assertFalse(expected.exists())
+
+            call_command("ensure_station_import_folders", "--station-id", str(station.pk))
+
+            self.assertTrue(expected.exists())
 
     def test_existing_station_with_default_folder_gets_dedicated_folder_on_save(self):
         station = Station.objects.create(

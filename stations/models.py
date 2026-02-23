@@ -243,7 +243,7 @@ class Station(models.Model):
             return base_folder
         return f"{base_folder}/{'/'.join(path_parts)}"
 
-    def _ensure_auto_history_folder_exists(self):
+    def ensure_import_folder(self):
         folder = (self.auto_history_folder or "").strip()
         if not folder:
             return
@@ -270,7 +270,20 @@ class Station(models.Model):
             )
             self.sort_order = last_order + 1
         super().save(*args, **kwargs)
-        self._ensure_auto_history_folder_exists()
+        self.ensure_import_folder()
+
+    @classmethod
+    def ensure_all_import_folders(cls, station_ids: list[int] | None = None) -> int:
+        qs = cls.objects.all().only("id", "auto_history_folder")
+        if station_ids:
+            qs = qs.filter(id__in=station_ids)
+
+        count = 0
+        for station in qs.iterator():
+            station.ensure_import_folder()
+            count += 1
+        return count
+
 
     def clean(self):
         super().clean()
