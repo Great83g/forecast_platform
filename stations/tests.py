@@ -46,6 +46,36 @@ class StationAccessTests(APITestCase):
         self.assertFalse(Station.objects.filter(org=self.org, name="Station A").exists())
 
 
+class StationAutoHistoryFolderTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="folder-owner", email="owner-folder@example.com", password="pass12345")
+        self.org = Organization.objects.create(name="Folder Org", owner=self.owner)
+        OrganizationMember.objects.create(
+            organization=self.org,
+            user=self.owner,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+
+    def test_new_station_gets_dedicated_auto_history_folder_from_name(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 1.2 MW",
+            capacity_mw=1.2,
+        )
+
+        self.assertEqual(station.auto_history_folder, "/mnt/share/SES_1.2_MW")
+
+    def test_custom_auto_history_folder_is_preserved(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        self.assertEqual(station.auto_history_folder, "/mnt/share/custom-folder")
+
+
 class InvitationFlowTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username="owner", email="owner@example.com", password="pass12345")
