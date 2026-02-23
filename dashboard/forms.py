@@ -72,8 +72,15 @@ class StationForm(forms.ModelForm):
             "Например: /mnt/share (SMB/CIFS шары с D222*.csv.gz и Plant Report/reportSPP .xlsx)."
         )
         self.fields["auto_history_script"].help_text = (
-            "Индивидуальный обработчик для станции: python.module:function_name. "
+            "Куда добавлять: dashboard/services/history_scripts/. "
+            "Формат: module_name (например ses_8_8mw), "
+            "или python.module:function_name, "
+            "или /path/to/file.py:function_name. "
             "Если пусто — используется стандартный обработчик."
+        )
+        self.fields["auto_history_script"].widget.attrs.setdefault(
+            "placeholder",
+            "ses_8_8mw  или  dashboard.services.history_scripts.ses_8_8mw:build_history_dataframe",
         )
 
         # ---------- ДЕФОЛТЫ (только при создании) ----------

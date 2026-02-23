@@ -2,6 +2,8 @@ from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 import pandas as pd
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
@@ -68,6 +70,35 @@ class StationAutoHistoryCustomScriptTests(TestCase):
         rec = SolarRecord.objects.get(station=self.station)
         self.assertAlmostEqual(rec.power_kw, 700.4)
 
+    def test_short_module_name_resolves_from_history_scripts_package(self):
+        self.station.auto_history_script = "example_station"
+
+        rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
+
+    def test_file_path_module_can_be_used(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fpath = Path(tmp) / "custom_builder.py"
+            fpath.write_text(
+                "import pandas as pd\n"
+                "def build_history_dataframe(station):\n"
+                "    return pd.DataFrame([{\n"
+                "        'ds': pd.Timestamp('2026-01-01 10:00:00'),\n"
+                "        'irradiation': 400.0,\n"
+                "        'air_temp': 15.0,\n"
+                "        'pv_temp': 20.0,\n"
+                "        'power_kw': 500.0,\n"
+                "    }])\n"
+            )
+            self.station.auto_history_script = f"{fpath}:build_history_dataframe"
+
+            rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
+
+    def test_invalid_custom_script_format_raises(self):
+        self.station.auto_history_script = ":build_history_dataframe"
     def test_invalid_custom_script_format_raises(self):
         self.station.auto_history_script = "bad-path"
 
