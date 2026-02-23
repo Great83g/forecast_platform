@@ -94,6 +94,9 @@ class StationSerializer(serializers.ModelSerializer):
             "org",
             "history_source",
             "history_scale_by_capacity",
+            "auto_history_enabled",
+            "auto_history_folder",
+            "auto_history_script",
         ]
 
     def validate(self, attrs):

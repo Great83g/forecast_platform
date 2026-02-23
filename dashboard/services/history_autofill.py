@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import importlib
+import importlib.util
 import logging
 import re
 from pathlib import Path
@@ -232,12 +235,71 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
     return _clean_round_filter(out)
 
 
+def _load_module_from_file(file_path: str):
+    file_obj = Path(file_path)
+    if not file_obj.exists() or file_obj.suffix.lower() != ".py":
+        raise ValueError(f"Custom history file not found or not a .py file: {file_path}")
+
+    module_name = f"custom_history_{hashlib.md5(str(file_obj).encode('utf-8')).hexdigest()}"
+    spec = importlib.util.spec_from_file_location(module_name, str(file_obj))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module from file: {file_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_station_history_builder(station: Station):
+    raw_value = (getattr(station, "auto_history_script", "") or "").strip()
+    if not raw_value:
+        return None
+
+    if ":" in raw_value:
+        module_target, _, attr_name = raw_value.partition(":")
+    else:
+        module_target = f"dashboard.services.history_scripts.{raw_value}"
+        attr_name = "build_history_dataframe"
+
+    module_target = module_target.strip()
+    attr_name = attr_name.strip()
+
+    if not module_target or not attr_name:
+        raise ValueError(
+            f"Invalid auto_history_script format for station_id={station.pk}: {raw_value}. "
+            "Use one of: module_name | python.module:function | /path/to/file.py:function"
+        )
+
+    try:
+        if module_target.endswith('.py') or '/' in module_target:
+            module = _load_module_from_file(module_target)
+        else:
+            module = importlib.import_module(module_target)
+
+        builder = getattr(module, attr_name)
+    except Exception as exc:
+        raise ValueError(
+            f"Cannot load auto_history_script for station_id={station.pk}: {raw_value}. "
+            "Check path/module and function name."
+        ) from exc
+
+    if not callable(builder):
+        raise TypeError(f"Custom history builder is not callable: {raw_value}")
+    return builder
+
+
 def upsert_station_history_from_share(station: Station) -> int:
     folder = Path(station.auto_history_folder or "/mnt/share")
     if not folder.exists():
         return 0
 
-    df = collect_share_history_dataframe(folder)
+    custom_builder = _load_station_history_builder(station)
+    if custom_builder is not None:
+        df = custom_builder(station)
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Custom auto-history builder must return pandas.DataFrame")
+    else:
+        df = collect_share_history_dataframe(folder)
     if df.empty:
         return 0
 

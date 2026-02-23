@@ -202,6 +202,15 @@ class Station(models.Model):
         default="/mnt/share",
         help_text="Путь к папке с D222*.csv.gz и FusionSolar .xlsx отчетами.",
     )
+    auto_history_script = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Индивидуальный скрипт для автоистории. Формат: "
+            "python.module:function_name (оставьте пустым для стандартного обработчика)."
+        ),
+    )
     sort_order = models.PositiveIntegerField(default=0, db_index=True)
 
     @staticmethod

@@ -30,6 +30,7 @@ class StationForm(forms.ModelForm):
             "history_scale_by_capacity",
             "auto_history_enabled",
             "auto_history_folder",
+            "auto_history_script",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -57,6 +58,7 @@ class StationForm(forms.ModelForm):
         self.fields["history_scale_by_capacity"].label = "Масштабировать по мощности"
         self.fields["auto_history_enabled"].label = "Автозаполнение истории"
         self.fields["auto_history_folder"].label = "Папка автоимпорта"
+        self.fields["auto_history_script"].label = "Скрипт автоистории"
         self.fields["history_source"].help_text = (
             "Если у станции нет своей истории, можно выбрать близкую станцию."
         )
@@ -68,6 +70,17 @@ class StationForm(forms.ModelForm):
         )
         self.fields["auto_history_folder"].help_text = (
             "Например: /mnt/share (SMB/CIFS шары с D222*.csv.gz и Plant Report/reportSPP .xlsx)."
+        )
+        self.fields["auto_history_script"].help_text = (
+            "Куда добавлять: dashboard/services/history_scripts/. "
+            "Формат: module_name (например ses_8_8mw), "
+            "или python.module:function_name, "
+            "или /path/to/file.py:function_name. "
+            "Если пусто — используется стандартный обработчик."
+        )
+        self.fields["auto_history_script"].widget.attrs.setdefault(
+            "placeholder",
+            "ses_8_8mw  или  dashboard.services.history_scripts.ses_8_8mw:build_history_dataframe",
         )
 
         # ---------- ДЕФОЛТЫ (только при создании) ----------
