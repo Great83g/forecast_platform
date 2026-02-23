@@ -2,6 +2,7 @@ import logging
 import os
 import secrets
 import stat
+import tempfile
 from datetime import time
 from pathlib import Path
 
@@ -286,6 +287,42 @@ class Station(models.Model):
                         parent_mode = stat.filemode(parent_stat.st_mode)
                         parent_writable = os.access(candidate, os.W_OK | os.X_OK)
                         break
+
+            # Если системная шара недоступна на запись для пользователя сервиса,
+            # автоматически переключаемся на локальный fallback-каталог,
+            # чтобы станция могла продолжить работу и автоимпорт.
+            share_root = Path("/mnt/share")
+            if isinstance(exc, PermissionError) and (target == share_root or share_root in target.parents):
+                fallback_root = Path(tempfile.gettempdir()) / "forecast_platform_auto_history"
+                rel = target.relative_to(share_root)
+                fallback_target = fallback_root / rel
+                try:
+                    fallback_target.mkdir(parents=True, exist_ok=True)
+                    self.auto_history_folder = str(fallback_target)
+                    if self.pk:
+                        type(self).objects.filter(pk=self.pk).update(auto_history_folder=self.auto_history_folder)
+                    self._last_import_folder_error = (
+                        "Исходная папка недоступна по правам, использован fallback. "
+                        f"requested={target} fallback={fallback_target} "
+                        f"process_uid={process_uid} process_gid={process_gid} "
+                        f"nearest_existing_parent={nearest_existing_parent} "
+                        f"parent_uid={parent_owner} parent_gid={parent_group} parent_mode={parent_mode}"
+                    )
+                    logger.warning(
+                        "Auto-history folder fallback station_id=%s requested=%s fallback=%s error=%s",
+                        self.pk,
+                        target,
+                        fallback_target,
+                        exc,
+                    )
+                    return True
+                except OSError:
+                    logger.warning(
+                        "Fallback auto-history folder creation failed station_id=%s fallback=%s",
+                        self.pk,
+                        fallback_target,
+                        exc_info=True,
+                    )
 
             self._last_import_folder_error = (
                 f"{exc.__class__.__name__}: {exc}. "

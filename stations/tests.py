@@ -121,6 +121,24 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertIn("PermissionError", station._last_import_folder_error)
         self.assertIn("process_uid=", station._last_import_folder_error)
 
+    def test_ensure_import_folder_uses_tmp_fallback_when_share_is_not_writable(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES Fallback",
+            capacity_mw=1.2,
+            auto_history_folder="/mnt/share/org_1/SES_Fallback",
+        )
+
+        with patch("stations.models.Path.mkdir", side_effect=[PermissionError("denied"), None]):
+            ok = station.ensure_import_folder()
+
+        self.assertTrue(ok)
+        self.assertIn("forecast_platform_auto_history", station.auto_history_folder)
+        self.assertIn("org_1/SES_Fallback", station.auto_history_folder)
+        fallback_folder = station.auto_history_folder
+        station.refresh_from_db()
+        self.assertEqual(station.auto_history_folder, fallback_folder)
+
     def test_management_command_creates_folder_for_existing_station(self):
         station = Station.objects.create(
             org=self.org,
