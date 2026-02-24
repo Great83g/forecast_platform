@@ -69,6 +69,26 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertEqual(station.auto_history_folder, f"/mnt/share/org_{self.org.id}/SES_1.2_MW")
 
 
+    def test_new_station_falls_back_to_tmp_when_share_is_not_writable(self):
+        real_mkdir = Path.mkdir
+
+        def mkdir_side_effect(path_obj, *args, **kwargs):
+            if str(path_obj).startswith("/mnt/share"):
+                raise PermissionError("denied")
+            return real_mkdir(path_obj, *args, **kwargs)
+
+        with patch("stations.models.Path.mkdir", autospec=True, side_effect=mkdir_side_effect):
+            station = Station.objects.create(
+                org=self.org,
+                name="SES 1.2 MW",
+                capacity_mw=1.2,
+            )
+
+        self.assertEqual(
+            station.auto_history_folder,
+            f"/tmp/forecast_platform_auto_history/org_{self.org.id}/SES_1.2_MW",
+        )
+
     def test_default_auto_history_folder_is_created_on_save(self):
         with tempfile.TemporaryDirectory() as tmp:
             expected = Path(tmp) / f"org_{self.org.id}" / "SES_1.2_MW"
@@ -111,7 +131,7 @@ class StationAutoHistoryFolderTests(APITestCase):
             org=self.org,
             name="SES Err",
             capacity_mw=1.2,
-            auto_history_folder="/mnt/share/custom-folder",
+            auto_history_folder="/opt/forbidden/custom-folder",
         )
 
         with patch("stations.models.Path.mkdir", side_effect=PermissionError("denied")):
@@ -120,6 +140,35 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertFalse(ok)
         self.assertIn("PermissionError", station._last_import_folder_error)
         self.assertIn("process_uid=", station._last_import_folder_error)
+
+    def test_ensure_import_folder_falls_back_to_tmp_on_share_permission_error(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share/org_1/SES_8.8_MW",
+        )
+
+        real_mkdir = Path.mkdir
+
+        def mkdir_side_effect(path_obj, *args, **kwargs):
+            if str(path_obj).startswith("/mnt/share"):
+                raise PermissionError("denied")
+            return real_mkdir(path_obj, *args, **kwargs)
+
+        with patch("stations.models.Path.mkdir", autospec=True, side_effect=mkdir_side_effect):
+            ok = station.ensure_import_folder()
+
+        self.assertTrue(ok)
+        self.assertEqual(
+            station.auto_history_folder,
+            f"/tmp/forecast_platform_auto_history/org_{self.org.id}/SES_8.8_MW",
+        )
+        station.refresh_from_db()
+        self.assertEqual(
+            station.auto_history_folder,
+            f"/tmp/forecast_platform_auto_history/org_{self.org.id}/SES_8.8_MW",
+        )
 
     def test_management_command_creates_folder_for_existing_station(self):
         station = Station.objects.create(
@@ -137,6 +186,27 @@ class StationAutoHistoryFolderTests(APITestCase):
             call_command("ensure_station_import_folders", "--station-id", str(station.pk))
 
             self.assertTrue(expected.exists())
+
+    def test_ensure_import_folder_converts_plain_share_path_for_existing_station(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        Station.objects.filter(pk=station.pk).update(auto_history_folder="/mnt/share")
+        station.refresh_from_db()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = Path(tmp) / f"org_{self.org.id}" / "SES_8.8_MW"
+            with patch.object(Station, "_build_auto_history_folder", return_value=str(expected)):
+                ok = station.ensure_import_folder()
+
+        self.assertTrue(ok)
+        self.assertEqual(station.auto_history_folder, str(expected))
+        station.refresh_from_db()
+        self.assertEqual(station.auto_history_folder, str(expected))
 
     def test_existing_station_with_default_folder_gets_dedicated_folder_on_save(self):
         station = Station.objects.create(
