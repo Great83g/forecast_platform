@@ -479,6 +479,64 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertFalse(run_mock.call_args.kwargs["use_models"])
 
 
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": False, "error": "provider unavailable"},
+    )
+    def test_failed_run_does_not_mark_schedule_as_executed(self, run_mock, _build, _send):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        first = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+        second = run_scheduled_forecasts(now=now, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 0)
+        self.assertIsNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 2)
+
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email", return_value=False)
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_email_failure_does_not_mark_schedule_as_executed(self, run_mock, _build, send_mock):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        first = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+        second = run_scheduled_forecasts(now=now, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 0)
+        self.assertIsNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(send_mock.call_count, 2)
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_schedule_without_emails_marks_run_without_sending(self, run_mock, _build, send_mock):
+        self.schedule.emails = ""
+        self.schedule.save(update_fields=["emails"])
+
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+        count = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(count, 1)
+        self.assertIsNotNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 1)
+        send_mock.assert_not_called()
+
+
 class ForecastSchedulerProviderNormalizationTests(TestCase):
     def test_open_meteo_only_provider_marker_forces_open_meteo_and_heuristic(self):
         providers, open_meteo_only = _normalize_schedule_providers("visual_crossing,open_meteo_only")

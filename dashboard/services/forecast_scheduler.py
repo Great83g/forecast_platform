@@ -1,6 +1,7 @@
 # dashboard/services/forecast_scheduler.py
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from django.utils import timezone
@@ -8,6 +9,9 @@ from django.utils import timezone
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import run_forecast_for_station
 from dashboard.services.forecast_reports import build_forecast_report, send_report_email
+
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_providers(value: str) -> Optional[list[str]]:
@@ -62,19 +66,37 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
 
         providers, open_meteo_only = _normalize_schedule_providers(schedule.providers)
 
-        res = run_forecast_for_station(
-            schedule.station_id,
-            days=schedule.days,
-            providers=providers,
-            manual_snow_enable=schedule.manual_snow_enable,
-            manual_snow_factor=schedule.manual_snow_factor,
-            manual_snow_dates=manual_dates,
-            use_models=not open_meteo_only,
-            horizon_mode=schedule.horizon_mode or "weekday_calendar",
-            forecast_scope="main",
-        )
-        if res.get("ok"):
-            effective_report_days = int(res.get("days") or schedule.days)
+        try:
+            res = run_forecast_for_station(
+                schedule.station_id,
+                days=schedule.days,
+                providers=providers,
+                manual_snow_enable=schedule.manual_snow_enable,
+                manual_snow_factor=schedule.manual_snow_factor,
+                manual_snow_dates=manual_dates,
+                use_models=not open_meteo_only,
+                horizon_mode=schedule.horizon_mode or "weekday_calendar",
+                forecast_scope="main",
+            )
+        except Exception:
+            logger.exception(
+                "Scheduled forecast crashed station_id=%s schedule_id=%s",
+                schedule.station_id,
+                schedule.pk,
+            )
+            continue
+
+        if not res.get("ok"):
+            logger.warning(
+                "Scheduled forecast failed station_id=%s schedule_id=%s result=%s",
+                schedule.station_id,
+                schedule.pk,
+                res,
+            )
+            continue
+
+        effective_report_days = int(res.get("days") or schedule.days)
+        try:
             report = build_forecast_report(
                 station=schedule.station,
                 days=effective_report_days,
@@ -83,7 +105,23 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 forecast_scope="main",
                 target_dates=res.get("target_dates") or [],
             )
-            send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days)
+        except Exception:
+            logger.exception(
+                "Scheduled report build failed station_id=%s schedule_id=%s",
+                schedule.station_id,
+                schedule.pk,
+            )
+            continue
+
+        recipients_configured = bool((schedule.emails or "").strip())
+        if recipients_configured and not send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days):
+            logger.warning(
+                "Scheduled report email failed station_id=%s schedule_id=%s recipients=%s",
+                schedule.station_id,
+                schedule.pk,
+                schedule.emails,
+            )
+            continue
 
         schedule.last_run_at = current
         schedule.save(update_fields=["last_run_at"])
