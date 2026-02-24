@@ -260,6 +260,19 @@ class Station(models.Model):
             return str(base_folder)
         return str(base_folder / Path(*path_parts))
 
+    def _build_preferred_auto_history_folder(self) -> str:
+        fallback_root = str(Path(tempfile.gettempdir()) / "forecast_platform_auto_history")
+        fallback_prefix = f"{fallback_root.rstrip('/')}/"
+        has_org_fallback = False
+        if self.org_id:
+            has_org_fallback = type(self).objects.filter(
+                org_id=self.org_id,
+                auto_history_folder__startswith=fallback_prefix,
+            ).exclude(pk=self.pk).exists()
+        if has_org_fallback:
+            return self._build_fallback_auto_history_folder(self.name, self.org_id)
+        return self._build_auto_history_folder(self.name, self.org_id)
+
     def ensure_import_folder(self) -> bool:
         folder = (self.auto_history_folder or "").strip()
         if not folder:
@@ -267,7 +280,7 @@ class Station(models.Model):
             return False
 
         if folder.rstrip("/") == "/mnt/share":
-            folder = self._build_auto_history_folder(self.name, self.org_id)
+            folder = self._build_preferred_auto_history_folder()
             self.auto_history_folder = folder
             if self.pk:
                 type(self).objects.filter(pk=self.pk).update(auto_history_folder=folder)
@@ -360,7 +373,7 @@ class Station(models.Model):
 
     def save(self, *args, **kwargs):
         if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
-            self.auto_history_folder = self._build_auto_history_folder(self.name, self.org_id)
+            self.auto_history_folder = self._build_preferred_auto_history_folder()
         if self.pk is None and self.sort_order == 0:
             last_order = (
                 Station.objects.filter(org=self.org)

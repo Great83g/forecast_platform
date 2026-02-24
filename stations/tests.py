@@ -69,6 +69,26 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertEqual(station.auto_history_folder, f"/mnt/share/org_{self.org.id}/SES_1.2_MW")
 
 
+    def test_new_station_uses_tmp_when_org_already_has_tmp_station(self):
+        Station.objects.create(
+            org=self.org,
+            name="SES 1.2 MW",
+            capacity_mw=1.2,
+            auto_history_folder=f"/tmp/forecast_platform_auto_history/org_{self.org.id}/SES_1.2_MW",
+        )
+
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share",
+        )
+
+        self.assertEqual(
+            station.auto_history_folder,
+            f"/tmp/forecast_platform_auto_history/org_{self.org.id}/SES_8.8_MW",
+        )
+
     def test_new_station_falls_back_to_tmp_when_share_is_not_writable(self):
         real_mkdir = Path.mkdir
 
