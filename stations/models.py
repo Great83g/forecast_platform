@@ -2,6 +2,7 @@ import logging
 import os
 import secrets
 import stat
+import tempfile
 from datetime import time
 from pathlib import Path
 
@@ -245,11 +246,44 @@ class Station(models.Model):
             return base_folder
         return f"{base_folder}/{'/'.join(path_parts)}"
 
+    @staticmethod
+    def _build_fallback_auto_history_folder(station_name: str, org_id: int | None = None) -> str:
+        base_folder = Path(tempfile.gettempdir()) / "forecast_platform_auto_history"
+        normalized_name = re.sub(r"[\\/]+", "_", (station_name or "").strip())
+        normalized_name = re.sub(r"\s+", "_", normalized_name).strip("._")
+        path_parts = []
+        if org_id:
+            path_parts.append(f"org_{org_id}")
+        if normalized_name:
+            path_parts.append(normalized_name)
+        if not path_parts:
+            return str(base_folder)
+        return str(base_folder / Path(*path_parts))
+
+    def _build_preferred_auto_history_folder(self) -> str:
+        fallback_root = str(Path(tempfile.gettempdir()) / "forecast_platform_auto_history")
+        fallback_prefix = f"{fallback_root.rstrip('/')}/"
+        has_org_fallback = False
+        if self.org_id:
+            has_org_fallback = type(self).objects.filter(
+                org_id=self.org_id,
+                auto_history_folder__startswith=fallback_prefix,
+            ).exclude(pk=self.pk).exists()
+        if has_org_fallback:
+            return self._build_fallback_auto_history_folder(self.name, self.org_id)
+        return self._build_auto_history_folder(self.name, self.org_id)
+
     def ensure_import_folder(self) -> bool:
         folder = (self.auto_history_folder or "").strip()
         if not folder:
             self._last_import_folder_error = "Папка автоимпорта не задана."
             return False
+
+        if folder.rstrip("/") == "/mnt/share":
+            folder = self._build_preferred_auto_history_folder()
+            self.auto_history_folder = folder
+            if self.pk:
+                type(self).objects.filter(pk=self.pk).update(auto_history_folder=folder)
 
         target = Path(folder)
         parent = target.parent
@@ -263,6 +297,33 @@ class Station(models.Model):
             self._last_import_folder_error = f"Папка не появилась после создания: {folder}"
             return False
         except OSError as exc:
+            share_root = Path("/mnt/share")
+            is_share_permission_error = isinstance(exc, PermissionError) and (target == share_root or share_root in target.parents)
+            if is_share_permission_error:
+                fallback_folder = self._build_fallback_auto_history_folder(self.name, self.org_id)
+                fallback_target = Path(fallback_folder)
+                try:
+                    fallback_target.mkdir(parents=True, exist_ok=True)
+                    self.auto_history_folder = fallback_folder
+                    if self.pk:
+                        type(self).objects.filter(pk=self.pk).update(auto_history_folder=fallback_folder)
+                    self._last_import_folder_error = (
+                        f"PermissionError on /mnt/share ({exc}); switched to fallback folder: {fallback_folder}"
+                    )
+                    logger.warning(
+                        "Switching station auto-history folder to fallback station_id=%s from=%s to=%s",
+                        self.pk,
+                        folder,
+                        fallback_folder,
+                    )
+                    return True
+                except OSError:
+                    logger.exception(
+                        "Failed to create fallback auto-history folder station_id=%s fallback=%s",
+                        self.pk,
+                        fallback_folder,
+                    )
+
             parent_exists = parent.exists()
             parent_writable = os.access(parent, os.W_OK | os.X_OK) if parent_exists else False
             process_uid = os.geteuid()
@@ -270,17 +331,36 @@ class Station(models.Model):
             parent_owner = "?"
             parent_group = "?"
             parent_mode = "?"
+            nearest_existing_parent = parent
             if parent_exists:
                 parent_stat = parent.stat()
                 parent_owner = str(parent_stat.st_uid)
                 parent_group = str(parent_stat.st_gid)
                 parent_mode = stat.filemode(parent_stat.st_mode)
+            else:
+                for candidate in parent.parents:
+                    if candidate.exists():
+                        nearest_existing_parent = candidate
+                        parent_stat = candidate.stat()
+                        parent_owner = str(parent_stat.st_uid)
+                        parent_group = str(parent_stat.st_gid)
+                        parent_mode = stat.filemode(parent_stat.st_mode)
+                        parent_writable = os.access(candidate, os.W_OK | os.X_OK)
+                        break
 
+            hint = ""
+            if is_share_permission_error:
+                hint = (
+                    " hint=Недостаточно прав для записи в /mnt/share. "
+                    "Проверьте доступ к шаре или используйте fallback-путь в /tmp."
+                )
             self._last_import_folder_error = (
                 f"{exc.__class__.__name__}: {exc}. "
                 f"parent={parent} exists={parent_exists} writable={parent_writable} "
+                f"nearest_existing_parent={nearest_existing_parent} "
                 f"process_uid={process_uid} process_gid={process_gid} "
                 f"parent_uid={parent_owner} parent_gid={parent_group} parent_mode={parent_mode}"
+                f"{hint}"
             )
             logger.warning(
                 "Cannot create auto-history folder station_id=%s folder=%s error=%s",
@@ -293,7 +373,7 @@ class Station(models.Model):
 
     def save(self, *args, **kwargs):
         if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
-            self.auto_history_folder = self._build_auto_history_folder(self.name, self.org_id)
+            self.auto_history_folder = self._build_preferred_auto_history_folder()
         if self.pk is None and self.sort_order == 0:
             last_order = (
                 Station.objects.filter(org=self.org)
@@ -307,7 +387,7 @@ class Station(models.Model):
 
     @classmethod
     def ensure_all_import_folders(cls, station_ids: list[int] | None = None) -> int:
-        qs = cls.objects.all().only("id", "auto_history_folder")
+        qs = cls.objects.all().only("id", "name", "org_id", "auto_history_folder")
         if station_ids:
             qs = qs.filter(id__in=station_ids)
 

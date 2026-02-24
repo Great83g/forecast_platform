@@ -23,7 +23,7 @@ from dashboard.services.history_autofill import (
 from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from solar.models import SolarRecord
-from stations.models import Organization, Station
+from stations.models import Organization, OrganizationMember, Station
 
 
 def build_custom_history_dataframe(station):
@@ -56,6 +56,57 @@ class StationFormAutoHistoryFolderInitialTests(TestCase):
         form = StationForm(instance=station, user=user)
 
         self.assertEqual(form["auto_history_folder"].value(), f"/mnt/share/org_{org.id}/SES_8.8_MW")
+
+
+
+class StationEditAutoHistoryFolderNormalizationTests(TestCase):
+    def test_edit_get_normalizes_plain_share_folder_for_existing_station(self):
+        user = User.objects.create_user(username="folder-edit", password="pass")
+        org = Organization.objects.create(name="Folder Edit Org", owner=user)
+        OrganizationMember.objects.create(
+            organization=org,
+            user=user,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+
+        station = Station.objects.create(
+            org=org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+        )
+        Station.objects.filter(pk=station.pk).update(auto_history_folder="/mnt/share")
+
+        self.client.login(username="folder-edit", password="pass")
+        response = self.client.get(f"/dashboard/station/{station.pk}/edit/")
+
+        self.assertEqual(response.status_code, 200)
+        station.refresh_from_db()
+        self.assertEqual(station.auto_history_folder, f"/mnt/share/org_{org.id}/SES_8.8_MW")
+    def test_edit_form_prefers_tmp_path_when_org_has_tmp_station(self):
+        user = User.objects.create_user(username="folder-form-tmp", password="pass")
+        org = Organization.objects.create(name="Folder Form Tmp Org", owner=user)
+
+        Station.objects.create(
+            org=org,
+            name="SES 1.2 MW",
+            capacity_mw=1.2,
+            auto_history_folder=f"/tmp/forecast_platform_auto_history/org_{org.id}/SES_1.2_MW",
+        )
+        station = Station.objects.create(
+            org=org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share",
+        )
+
+        form = StationForm(instance=station, user=user)
+
+        self.assertEqual(
+            form["auto_history_folder"].value(),
+            f"/tmp/forecast_platform_auto_history/org_{org.id}/SES_8.8_MW",
+        )
+
+
 
 
 

@@ -267,6 +267,8 @@ def station_edit(request, pk: int):
             return redirect("dashboard:station-detail", pk=st.pk)
         messages.error(request, "Ошибка в форме станции.")
     else:
+        st.ensure_import_folder()
+        st.refresh_from_db(fields=["auto_history_folder"])
         form = StationForm(instance=st, user=request.user)
 
     return render(request, "dashboard/station_edit.html", {"station": st, "form": form})
