@@ -420,14 +420,24 @@ def _safe_upsert_station(station: Station) -> tuple[int, bool]:
 
 
 def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
+    last_run_date = getattr(station, "auto_history_last_run_date", None)
+    if last_run_date == now_local.date():
+        return False
+
     run_time = getattr(station, "auto_history_run_time", None)
     if run_time is None:
         return True
 
-    if now_local.time().replace(second=0, microsecond=0) < run_time.replace(second=0, microsecond=0):
-        return False
+    now_time = now_local.time().replace(second=0, microsecond=0)
+    scheduled_time = run_time.replace(second=0, microsecond=0)
+    if now_time >= scheduled_time:
+        return True
 
-    return getattr(station, "auto_history_last_run_date", None) != now_local.date()
+    # Fallback для редких запусков планировщика (например, 1 раз в день):
+    # если станция уже проверялась в прошлые дни, но сегодня ещё нет,
+    # разрешаем выполнить проверку до времени auto_history_run_time,
+    # чтобы не ждать целые сутки до следующего тика.
+    return last_run_date is not None and last_run_date < now_local.date()
 
 
 def _mark_station_auto_history_checked(station: Station, check_date):
