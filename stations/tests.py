@@ -152,6 +152,27 @@ class StationAutoHistoryFolderTests(APITestCase):
 
             self.assertTrue(expected.exists())
 
+    def test_ensure_import_folder_converts_plain_share_path_for_existing_station(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        Station.objects.filter(pk=station.pk).update(auto_history_folder="/mnt/share")
+        station.refresh_from_db()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = Path(tmp) / f"org_{self.org.id}" / "SES_8.8_MW"
+            with patch.object(Station, "_build_auto_history_folder", return_value=str(expected)):
+                ok = station.ensure_import_folder()
+
+        self.assertTrue(ok)
+        self.assertEqual(station.auto_history_folder, str(expected))
+        station.refresh_from_db()
+        self.assertEqual(station.auto_history_folder, str(expected))
+
     def test_existing_station_with_default_folder_gets_dedicated_folder_on_save(self):
         station = Station.objects.create(
             org=self.org,

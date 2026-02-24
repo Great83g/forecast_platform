@@ -252,6 +252,12 @@ class Station(models.Model):
             self._last_import_folder_error = "Папка автоимпорта не задана."
             return False
 
+        if folder.rstrip("/") == "/mnt/share":
+            folder = self._build_auto_history_folder(self.name, self.org_id)
+            self.auto_history_folder = folder
+            if self.pk:
+                type(self).objects.filter(pk=self.pk).update(auto_history_folder=folder)
+
         target = Path(folder)
         parent = target.parent
 
@@ -329,7 +335,7 @@ class Station(models.Model):
 
     @classmethod
     def ensure_all_import_folders(cls, station_ids: list[int] | None = None) -> int:
-        qs = cls.objects.all().only("id", "auto_history_folder")
+        qs = cls.objects.all().only("id", "name", "org_id", "auto_history_folder")
         if station_ids:
             qs = qs.filter(id__in=station_ids)
 
