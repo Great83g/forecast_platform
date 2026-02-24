@@ -219,6 +219,27 @@ class StationAutoHistoryScheduleTests(TestCase):
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
 
 
+class StationAutoHistoryConfigChangeResetTests(TestCase):
+    def test_station_save_resets_last_run_date_when_auto_history_config_changes(self):
+        user = User.objects.create_user(username="autohistory-reset", password="pass")
+        org = Organization.objects.create(name="AutoHistory Reset Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Reset Station",
+            capacity_mw=1.0,
+            auto_history_enabled=True,
+            auto_history_run_time=time(6, 0),
+            auto_history_last_run_date=timezone.datetime(2026, 2, 20).date(),
+        )
+
+        station.auto_history_run_time = time(7, 0)
+        station.save()
+
+        station.refresh_from_db()
+        self.assertIsNone(station.auto_history_last_run_date)
+
+
+
 class StationAutoHistoryMergeSameDateTests(TestCase):
     @patch("dashboard.services.history_autofill.read_meteo_hourly")
     @patch("dashboard.services.history_autofill.read_plant_report_hourly")
