@@ -218,6 +218,41 @@ class StationAutoHistoryScheduleTests(TestCase):
         self.station.refresh_from_db()
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
 
+    @patch("dashboard.services.history_autofill._safe_upsert_station", side_effect=[(0, True), (1, True)])
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_retries_same_day_when_no_rows(self, localtime_mock, _safe_upsert_mock):
+        localtime_mock.return_value = timezone.datetime(2026, 2, 20, 6, 30, tzinfo=timezone.get_current_timezone())
+
+        first_rows = run_auto_history_updates()
+        second_rows = run_auto_history_updates()
+
+        self.assertEqual(first_rows, 0)
+        self.assertEqual(second_rows, 1)
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
+
+
+
+class StationAutoHistoryConfigChangeResetTests(TestCase):
+    def test_station_save_resets_last_run_date_when_auto_history_config_changes(self):
+        user = User.objects.create_user(username="autohistory-reset", password="pass")
+        org = Organization.objects.create(name="AutoHistory Reset Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Reset Station",
+            capacity_mw=1.0,
+            auto_history_enabled=True,
+            auto_history_run_time=time(6, 0),
+            auto_history_last_run_date=timezone.datetime(2026, 2, 20).date(),
+        )
+
+        station.auto_history_run_time = time(7, 0)
+        station.save()
+
+        station.refresh_from_db()
+        self.assertIsNone(station.auto_history_last_run_date)
+
+
 
 class StationAutoHistoryMergeSameDateTests(TestCase):
     @patch("dashboard.services.history_autofill.read_meteo_hourly")
