@@ -386,9 +386,9 @@ def upsert_station_history_from_share(station: Station) -> int:
     return len(create_objs) + len(update_objs)
 
 
-def _safe_upsert_station(station: Station) -> int:
+def _safe_upsert_station(station: Station) -> tuple[int, bool]:
     try:
-        return upsert_station_history_from_share(station)
+        return upsert_station_history_from_share(station), True
     except Exception:
         logger.exception(
             "Auto-history failed for station_id=%s name=%s folder=%s",
@@ -396,7 +396,7 @@ def _safe_upsert_station(station: Station) -> int:
             station.name,
             station.auto_history_folder,
         )
-        return 0
+        return 0, False
 
 
 
@@ -423,6 +423,15 @@ def run_auto_history_updates() -> int:
     for station in Station.objects.filter(auto_history_enabled=True):
         if not _is_station_due_for_auto_history(station, now_local):
             continue
-        updated_rows += _safe_upsert_station(station)
-        _mark_station_auto_history_checked(station, now_local.date())
+
+        rows, success = _safe_upsert_station(station)
+        updated_rows += rows
+
+        # Помечаем станцию как проверенную за день только если
+        # обновление действительно прошло успешно и были изменения.
+        # Иначе оставляем возможность повторной проверки в этот же день
+        # (например, если файлы появились позже или был временный сбой).
+        if success and rows > 0:
+            _mark_station_auto_history_checked(station, now_local.date())
+
     return updated_rows
