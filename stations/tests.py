@@ -121,6 +121,20 @@ class StationAutoHistoryFolderTests(APITestCase):
         self.assertIn("PermissionError", station._last_import_folder_error)
         self.assertIn("process_uid=", station._last_import_folder_error)
 
+    def test_ensure_import_folder_returns_hint_on_share_permission_error(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES Hint",
+            capacity_mw=1.2,
+            auto_history_folder="/mnt/share/org_1/SES_Hint",
+        )
+
+        with patch("stations.models.Path.mkdir", side_effect=PermissionError("denied")):
+            ok = station.ensure_import_folder()
+
+        self.assertFalse(ok)
+        self.assertIn("hint=Недостаточно прав для записи в /mnt/share", station._last_import_folder_error)
+
     def test_management_command_creates_folder_for_existing_station(self):
         station = Station.objects.create(
             org=self.org,
@@ -137,6 +151,27 @@ class StationAutoHistoryFolderTests(APITestCase):
             call_command("ensure_station_import_folders", "--station-id", str(station.pk))
 
             self.assertTrue(expected.exists())
+
+    def test_ensure_import_folder_converts_plain_share_path_for_existing_station(self):
+        station = Station.objects.create(
+            org=self.org,
+            name="SES 8.8 MW",
+            capacity_mw=8.8,
+            auto_history_folder="/mnt/share/custom-folder",
+        )
+
+        Station.objects.filter(pk=station.pk).update(auto_history_folder="/mnt/share")
+        station.refresh_from_db()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = Path(tmp) / f"org_{self.org.id}" / "SES_8.8_MW"
+            with patch.object(Station, "_build_auto_history_folder", return_value=str(expected)):
+                ok = station.ensure_import_folder()
+
+        self.assertTrue(ok)
+        self.assertEqual(station.auto_history_folder, str(expected))
+        station.refresh_from_db()
+        self.assertEqual(station.auto_history_folder, str(expected))
 
     def test_existing_station_with_default_folder_gets_dedicated_folder_on_save(self):
         station = Station.objects.create(
