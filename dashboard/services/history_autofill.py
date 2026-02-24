@@ -270,8 +270,23 @@ def _load_module_from_file(file_path: str):
     return module
 
 
+def _normalize_auto_history_script(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+
+    for sep in (" или ", " or "):
+        if sep in value:
+            first = value.split(sep, 1)[0].strip()
+            if first:
+                value = first
+            break
+
+    return value
+
+
 def _load_station_history_builder(station: Station):
-    raw_value = (getattr(station, "auto_history_script", "") or "").strip()
+    raw_value = _normalize_auto_history_script(getattr(station, "auto_history_script", ""))
     if not raw_value:
         return None
 
@@ -285,10 +300,12 @@ def _load_station_history_builder(station: Station):
     attr_name = attr_name.strip()
 
     if not module_target or not attr_name:
-        raise ValueError(
-            f"Invalid auto_history_script format for station_id={station.pk}: {raw_value}. "
-            "Use one of: module_name | python.module:function | /path/to/file.py:function"
+        logger.warning(
+            "Invalid auto_history_script format for station_id=%s: %s. Fallback to standard handler.",
+            station.pk,
+            raw_value,
         )
+        return None
 
     try:
         if module_target.endswith('.py') or '/' in module_target:
@@ -297,11 +314,13 @@ def _load_station_history_builder(station: Station):
             module = importlib.import_module(module_target)
 
         builder = getattr(module, attr_name)
-    except Exception as exc:
-        raise ValueError(
-            f"Cannot load auto_history_script for station_id={station.pk}: {raw_value}. "
-            "Check path/module and function name."
-        ) from exc
+    except Exception:
+        logger.exception(
+            "Cannot load auto_history_script for station_id=%s value=%s. Fallback to standard handler.",
+            station.pk,
+            raw_value,
+        )
+        return None
 
     if not callable(builder):
         raise TypeError(f"Custom history builder is not callable: {raw_value}")
