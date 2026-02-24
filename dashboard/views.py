@@ -247,13 +247,21 @@ def station_edit(request, pk: int):
             if not _ensure_station_write_access(request, st):
                 return redirect("dashboard:station-detail", pk=st.pk)
             st = form.save()
-            if not st.ensure_import_folder():
-                details = getattr(st, "_last_import_folder_error", "")
+            folder_ready = st.ensure_import_folder()
+            details = getattr(st, "_last_import_folder_error", "")
+            if not folder_ready:
                 details_text = f" Детали: {details}" if details else ""
                 messages.warning(
                     request,
                     f"Не удалось проверить/создать папку автоимпорта: {st.auto_history_folder}. "
                     "Проверьте права на /mnt/share для пользователя сервиса."
+                    f"{details_text}",
+                )
+            elif (st.auto_history_folder or "").startswith("/tmp/forecast_platform_auto_history"):
+                details_text = f" Причина: {details}" if details else ""
+                messages.warning(
+                    request,
+                    f"Папка на /mnt/share недоступна, станция переключена на fallback: {st.auto_history_folder}."
                     f"{details_text}",
                 )
 
