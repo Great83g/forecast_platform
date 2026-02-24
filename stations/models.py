@@ -246,6 +246,20 @@ class Station(models.Model):
             return base_folder
         return f"{base_folder}/{'/'.join(path_parts)}"
 
+    @staticmethod
+    def _build_fallback_auto_history_folder(station_name: str, org_id: int | None = None) -> str:
+        base_folder = Path(tempfile.gettempdir()) / "forecast_platform_auto_history"
+        normalized_name = re.sub(r"[\\/]+", "_", (station_name or "").strip())
+        normalized_name = re.sub(r"\s+", "_", normalized_name).strip("._")
+        path_parts = []
+        if org_id:
+            path_parts.append(f"org_{org_id}")
+        if normalized_name:
+            path_parts.append(normalized_name)
+        if not path_parts:
+            return str(base_folder)
+        return str(base_folder / Path(*path_parts))
+
     def ensure_import_folder(self) -> bool:
         folder = (self.auto_history_folder or "").strip()
         if not folder:
@@ -270,6 +284,33 @@ class Station(models.Model):
             self._last_import_folder_error = f"Папка не появилась после создания: {folder}"
             return False
         except OSError as exc:
+            share_root = Path("/mnt/share")
+            is_share_permission_error = isinstance(exc, PermissionError) and (target == share_root or share_root in target.parents)
+            if is_share_permission_error:
+                fallback_folder = self._build_fallback_auto_history_folder(self.name, self.org_id)
+                fallback_target = Path(fallback_folder)
+                try:
+                    fallback_target.mkdir(parents=True, exist_ok=True)
+                    self.auto_history_folder = fallback_folder
+                    if self.pk:
+                        type(self).objects.filter(pk=self.pk).update(auto_history_folder=fallback_folder)
+                    self._last_import_folder_error = (
+                        f"PermissionError on /mnt/share ({exc}); switched to fallback folder: {fallback_folder}"
+                    )
+                    logger.warning(
+                        "Switching station auto-history folder to fallback station_id=%s from=%s to=%s",
+                        self.pk,
+                        folder,
+                        fallback_folder,
+                    )
+                    return True
+                except OSError:
+                    logger.exception(
+                        "Failed to create fallback auto-history folder station_id=%s fallback=%s",
+                        self.pk,
+                        fallback_folder,
+                    )
+
             parent_exists = parent.exists()
             parent_writable = os.access(parent, os.W_OK | os.X_OK) if parent_exists else False
             process_uid = os.geteuid()
@@ -295,12 +336,10 @@ class Station(models.Model):
                         break
 
             hint = ""
-            share_root = Path("/mnt/share")
-            if isinstance(exc, PermissionError) and (target == share_root or share_root in target.parents):
+            if is_share_permission_error:
                 hint = (
                     " hint=Недостаточно прав для записи в /mnt/share. "
-                    "Запустите сервис от пользователя с доступом к шару "
-                    "или выдайте права на запись (w+x) для ближайшего существующего родителя."
+                    "Проверьте доступ к шаре или используйте fallback-путь в /tmp."
                 )
             self._last_import_folder_error = (
                 f"{exc.__class__.__name__}: {exc}. "
