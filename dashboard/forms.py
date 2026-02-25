@@ -3,6 +3,17 @@ from django import forms
 from stations.models import Organization, Station
 
 
+
+AUTO_HISTORY_TIME_INPUT_FORMATS = [
+    "%H:%M",
+    "%H:%M:%S",
+    "%I:%M %p",
+    "%I:%M:%S %p",
+    "%I:%M%p",
+    "%I:%M:%S%p",
+]
+
+
 class StationForm(forms.ModelForm):
     class Meta:
         model = Station
@@ -87,7 +98,8 @@ class StationForm(forms.ModelForm):
         self.fields["auto_history_run_time"].help_text = (
             "Ежедневно в это время станция будет проверяться на новые файлы истории."
         )
-        self.fields["auto_history_run_time"].widget = forms.TimeInput(attrs={"type": "time"})
+        self.fields["auto_history_run_time"].input_formats = AUTO_HISTORY_TIME_INPUT_FORMATS
+        self.fields["auto_history_run_time"].widget = forms.TimeInput(attrs={"type": "time", "step": "60"})
 
         # ---------- ДЕФОЛТЫ (только при создании) ----------
         if not self.instance.pk and not self.is_bound:
