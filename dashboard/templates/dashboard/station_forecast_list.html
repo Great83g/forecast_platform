@@ -134,6 +134,9 @@
       <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
       <button class="btn btn-sm btn-outline-secondary" type="submit">Показать дату</button>
       <a class="btn btn-sm btn-outline-light border" href="{% url 'dashboard:station-forecast-list' station.pk %}">Сброс</a>
+      <label class="small mb-0 text-muted" for="target-dates">Постфактум даты (ручной режим):</label>
+      <input id="target-dates" class="form-control form-control-sm" type="text" name="target_dates"
+             style="width: 230px;" placeholder="2026-02-22, 2026-02-23" value="{{ target_dates_raw }}">
     </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-export' station.pk %}">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
