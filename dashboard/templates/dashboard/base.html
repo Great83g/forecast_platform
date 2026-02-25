@@ -40,6 +40,23 @@
 
   {% block content %}{% endblock %}
 </div>
+<script>
+  (function () {
+    if (window.__dashboardSchedulerTickInitialized) return;
+    window.__dashboardSchedulerTickInitialized = true;
+
+    var isAuthenticated = {{ user.is_authenticated|yesno:"true,false" }};
+    if (!isAuthenticated) return;
+
+    function tickScheduler() {
+      fetch("{% url 'dashboard:station-forecast-scheduler-tick' %}", {credentials: "same-origin"})
+        .catch(function () {});
+    }
+
+    tickScheduler();
+    setInterval(tickScheduler, 60000);
+  })();
+</script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
