@@ -434,22 +434,20 @@ def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
     if now_time >= scheduled_time:
         return True
 
-    if last_run_date is None:
-        return False
+    current_minutes = now_time.hour * 60 + now_time.minute
+    scheduled_minutes = scheduled_time.hour * 60 + scheduled_time.minute
+    minutes_before_schedule = scheduled_minutes - current_minutes
 
-    if last_run_date < now_local.date():
-        current_minutes = now_time.hour * 60 + now_time.minute
-        scheduled_minutes = scheduled_time.hour * 60 + scheduled_time.minute
-        minutes_before_schedule = scheduled_minutes - current_minutes
-        if 0 < minutes_before_schedule <= EARLY_FALLBACK_WINDOW_MINUTES:
-            logger.warning(
-                "Auto-history early fallback station_id=%s now=%s run_time=%s minutes_before_schedule=%s",
-                station.pk,
-                now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
-                run_time,
-                minutes_before_schedule,
-            )
-            return True
+    if 0 < minutes_before_schedule <= EARLY_FALLBACK_WINDOW_MINUTES:
+        logger.warning(
+            "Auto-history early fallback station_id=%s now=%s run_time=%s minutes_before_schedule=%s last_run_date=%s",
+            station.pk,
+            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+            run_time,
+            minutes_before_schedule,
+            last_run_date,
+        )
+        return True
 
     return False
 
