@@ -186,11 +186,6 @@
 {% block extra_scripts %}
 <script>
   (function () {
-    function tickScheduler() {
-      fetch("{% url 'dashboard:station-forecast-scheduler-tick' %}", {credentials: "same-origin"})
-        .catch(function () {});
-    }
-
     function bindScopeSwitcher() {
       var scopeSelect = document.getElementById("scope-mode");
       if (!scopeSelect) return;
@@ -202,8 +197,6 @@
     }
 
     bindScopeSwitcher();
-    tickScheduler();
-    setInterval(tickScheduler, 60000);
   })();
 </script>
 {% endblock %}
