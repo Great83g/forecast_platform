@@ -20,6 +20,7 @@ ROUND_TEMP = 3
 ROUND_POWER = 2
 
 logger = logging.getLogger(__name__)
+EARLY_FALLBACK_WINDOW_MINUTES = 120
 
 
 def extract_date_yyyymmdd_from_name(name: str) -> Optional[str]:
@@ -430,7 +431,27 @@ def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
 
     now_time = now_local.time().replace(second=0, microsecond=0)
     scheduled_time = run_time.replace(second=0, microsecond=0)
-    return now_time >= scheduled_time
+    if now_time >= scheduled_time:
+        return True
+
+    if last_run_date is None:
+        return False
+
+    if last_run_date < now_local.date():
+        current_minutes = now_time.hour * 60 + now_time.minute
+        scheduled_minutes = scheduled_time.hour * 60 + scheduled_time.minute
+        minutes_before_schedule = scheduled_minutes - current_minutes
+        if 0 < minutes_before_schedule <= EARLY_FALLBACK_WINDOW_MINUTES:
+            logger.warning(
+                "Auto-history early fallback station_id=%s now=%s run_time=%s minutes_before_schedule=%s",
+                station.pk,
+                now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+                run_time,
+                minutes_before_schedule,
+            )
+            return True
+
+    return False
 
 
 def _mark_station_auto_history_checked(station: Station, check_date):

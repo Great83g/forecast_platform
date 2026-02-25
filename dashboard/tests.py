@@ -256,6 +256,21 @@ class StationAutoHistoryScheduleTests(TestCase):
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
 
 
+    @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_allows_early_fallback_for_sparse_scheduler(self, localtime_mock, upsert_mock):
+        self.station.auto_history_last_run_date = timezone.datetime(2026, 2, 23).date()
+        self.station.auto_history_run_time = time(9, 0)
+        self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
+        localtime_mock.return_value = timezone.datetime(2026, 2, 24, 8, 10, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 1)
+        upsert_mock.assert_called_once()
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-24")
+
 
 class StationAutoHistoryConfigChangeResetTests(TestCase):
     def test_station_save_resets_last_run_date_when_auto_history_config_changes(self):
