@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import date, time
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
@@ -627,6 +627,38 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertIsNotNone(self.schedule.last_run_at)
         self.assertEqual(run_mock.call_count, 1)
         send_mock.assert_not_called()
+
+
+class StationForecastRunTargetDatesTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="run-target-dates", password="pass")
+        self.org = Organization.objects.create(name="Run Target Dates Org", owner=self.user)
+        OrganizationMember.objects.create(
+            organization=self.org,
+            user=self.user,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+        self.station = Station.objects.create(org=self.org, name="Target Dates Station", capacity_mw=1.2)
+        self.client.login(username="run-target-dates", password="pass")
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 2, "target_dates": ["2026-02-22", "2026-02-23"]})
+    def test_station_forecast_run_passes_target_dates(self, run_mock, _build, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "2",
+                "scope": "main",
+                "target_dates": "2026-02-22, 2026-02-23",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            run_mock.call_args.kwargs["target_dates"],
+            [date(2026, 2, 22), date(2026, 2, 23)],
+        )
 
 
 class ForecastSchedulerProviderNormalizationTests(TestCase):

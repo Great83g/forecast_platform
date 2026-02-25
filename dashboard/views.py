@@ -603,6 +603,7 @@ def station_forecast_list(request, pk: int):
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor = request.GET.get("manual_snow_factor") or ""
     manual_snow_dates = request.GET.get("manual_snow_dates") or ""
+    target_dates_raw = request.GET.get("target_dates") or ""
     forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
@@ -689,6 +690,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_enable": manual_snow_enable,
             "manual_snow_factor": manual_snow_factor,
             "manual_snow_dates": manual_snow_dates,
+            "target_dates_raw": target_dates_raw,
             "open_meteo_only": open_meteo_only,
             "horizon_mode": horizon_mode,
             "forecast_scope": forecast_scope,
@@ -714,6 +716,7 @@ def station_forecast_run(request, pk: int):
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
     manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
+    target_dates_raw = request.GET.get("target_dates") or ""
     forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
@@ -748,6 +751,16 @@ def station_forecast_run(request, pk: int):
             if parsed:
                 manual_snow_dates.append(parsed.date())
 
+    target_dates = []
+    if target_dates_raw:
+        for value in target_dates_raw.split(","):
+            value = value.strip()
+            if not value:
+                continue
+            parsed = _parse_date(value)
+            if parsed:
+                target_dates.append(parsed.date())
+
     try:
         if open_meteo_only:
             providers = ["open_meteo"]
@@ -761,6 +774,7 @@ def station_forecast_run(request, pk: int):
             use_models=not open_meteo_only,
             horizon_mode=horizon_mode,
             forecast_scope=forecast_scope,
+            target_dates=target_dates,
         )
         if res.get("ok"):
             msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}, scope={forecast_scope}"
@@ -799,6 +813,7 @@ def station_forecast_run(request, pk: int):
             "manual_snow_enable": "1" if manual_snow_enable else "",
             "manual_snow_factor": manual_snow_factor_raw or "",
             "manual_snow_dates": manual_snow_dates_raw,
+            "target_dates": target_dates_raw,
             "open_meteo_only": "1" if open_meteo_only else "",
             "horizon_mode": horizon_mode,
             "scope": forecast_scope,
