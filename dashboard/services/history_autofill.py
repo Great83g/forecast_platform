@@ -330,6 +330,37 @@ def _load_station_history_builder(station: Station):
 
 
 
+
+
+def _normalize_folder_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def _resolve_station_folder_alias(station: Station, folder: Path, share_root: Path) -> Optional[Path]:
+    org_id = getattr(station, "org_id", None)
+    station_name = getattr(station, "name", "")
+
+    org_dir = share_root / f"org_{org_id}" if org_id else folder.parent
+    if not org_dir.exists() or not org_dir.is_dir():
+        return None
+
+    expected_keys = {
+        _normalize_folder_key(folder.name),
+        _normalize_folder_key(station_name),
+    }
+    expected_keys.discard("")
+    if not expected_keys:
+        return None
+
+    for child in org_dir.iterdir():
+        if not child.is_dir():
+            continue
+        child_key = _normalize_folder_key(child.name)
+        if child_key in expected_keys:
+            return child
+
+    return None
+
 def _resolve_station_share_folder(station: Station, share_root: Optional[Path] = None) -> Path:
     folder = Path(getattr(station, "auto_history_folder", "") or "/mnt/share")
     if folder.exists():
@@ -339,6 +370,16 @@ def _resolve_station_share_folder(station: Station, share_root: Optional[Path] =
     folder_str = str(folder)
     base_prefix = f"{str(base).rstrip('/')}/"
     if folder_str.startswith(base_prefix) and base.exists():
+        alias = _resolve_station_folder_alias(station, folder, base)
+        if alias is not None:
+            logger.warning(
+                "Auto-history folder alias used station_id=%s configured=%s resolved=%s",
+                getattr(station, "pk", None),
+                folder,
+                alias,
+            )
+            return alias
+
         logger.warning(
             "Auto-history folder missing for station_id=%s folder=%s, fallback to shared root=%s",
             getattr(station, "pk", None),

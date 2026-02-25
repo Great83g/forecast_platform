@@ -156,6 +156,22 @@ class StationFormAutoHistoryRunTimeParsingTests(TestCase):
 
 
 class StationAutoHistoryFolderFallbackTests(TestCase):
+    def test_missing_station_subfolder_uses_alias_folder_with_spaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            alias = base / "org_1" / "SES 1.2 MW"
+            alias.mkdir(parents=True)
+            station = SimpleNamespace(
+                auto_history_folder=str(base / "org_1" / "SES_1.2_MW"),
+                pk=42,
+                org_id=1,
+                name="SES 1.2 MW",
+            )
+
+            resolved = _resolve_station_share_folder(station, share_root=base)
+
+            self.assertEqual(resolved, alias)
+
     def test_missing_station_subfolder_falls_back_to_share_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -626,27 +642,33 @@ class ForecastSchedulerTickViewTests(TestCase):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(username="viewer", password="pass")
 
+    @patch("dashboard.views.run_auto_history_updates", return_value=5)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=3)
-    def test_scheduler_tick_parses_force_true(self, run_mock):
+    def test_scheduler_tick_parses_force_true(self, run_mock, history_mock):
         request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/?force=1")
         request.user = self.user
 
         response = station_forecast_scheduler_tick(request)
 
         self.assertEqual(response.status_code, 200)
+        history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=True)
         self.assertIn(b'"force": true', response.content)
+        self.assertIn(b'"history_rows": 5', response.content)
 
+    @patch("dashboard.views.run_auto_history_updates", return_value=0)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=0)
-    def test_scheduler_tick_defaults_force_false(self, run_mock):
+    def test_scheduler_tick_defaults_force_false(self, run_mock, history_mock):
         request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/")
         request.user = self.user
 
         response = station_forecast_scheduler_tick(request)
 
         self.assertEqual(response.status_code, 200)
+        history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
+        self.assertIn(b'"history_rows": 0', response.content)
 
 
 class HistoryDatetimeParsingTests(TestCase):
