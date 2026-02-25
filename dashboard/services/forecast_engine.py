@@ -223,14 +223,33 @@ def _solar_hours_from_weather(
 
 
 def _weather_from_history(st: Station, target_dates: set[date], forecast_scope: str = "main") -> pd.DataFrame:
+    empty_df = pd.DataFrame(
+        columns=["ds", "irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"]
+    )
     if not target_dates:
-        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"])
+        return empty_df
 
-    history_scope = SolarRecord.HISTORY_SCOPE_MAIN if forecast_scope == "main" else SolarRecord.HISTORY_SCOPE_TEST
-    qs = SolarRecord.objects.filter(station=st, history_scope=history_scope, timestamp__date__in=list(target_dates))
-    data = list(qs.values("timestamp", "irradiation", "air_temp"))
+    preferred_scope = SolarRecord.HISTORY_SCOPE_MAIN if forecast_scope == "main" else SolarRecord.HISTORY_SCOPE_TEST
+    scope_order = [preferred_scope]
+    if preferred_scope != SolarRecord.HISTORY_SCOPE_MAIN:
+        scope_order.append(SolarRecord.HISTORY_SCOPE_MAIN)
+
+    station_order = [st]
+    if getattr(st, "history_source_id", None):
+        station_order.append(st.history_source)
+
+    data = []
+    for history_scope in scope_order:
+        for source_station in station_order:
+            qs = SolarRecord.objects.filter(station=source_station, history_scope=history_scope, timestamp__date__in=list(target_dates))
+            data = list(qs.values("timestamp", "irradiation", "air_temp"))
+            if data:
+                break
+        if data:
+            break
+
     if not data:
-        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"])
+        return empty_df
 
     df = pd.DataFrame(data)
     df["ds"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.floor("h")

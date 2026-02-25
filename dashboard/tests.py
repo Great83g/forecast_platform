@@ -426,6 +426,45 @@ class ForecastEngineIndexRegressionTests(TestCase):
         self.assertGreater(result["count"], 0)
 
 
+class ForecastEngineHistoryBackfillFallbackTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="history-fallback", password="pass")
+        org = Organization.objects.create(name="History Fallback Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Fallback Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_run_forecast_uses_main_history_when_test_scope_missing(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+        SolarRecord.objects.create(
+            station=self.station,
+            timestamp=timezone.datetime(2026, 2, 25, 12, 0, tzinfo=timezone.get_current_timezone()),
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            irradiation=620.0,
+            air_temp=11.0,
+        )
+
+        result = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["weather_source"], "history_backfill")
+        self.assertGreater(result["count"], 0)
+
+
 class ForecastEngineWeekdayCalendarTests(TestCase):
     def test_friday_offsets_cover_exactly_three_next_days(self):
         friday = timezone.datetime(2026, 2, 13, 9, 0)
