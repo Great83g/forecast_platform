@@ -110,6 +110,51 @@ class StationEditAutoHistoryFolderNormalizationTests(TestCase):
 
 
 
+class StationFormAutoHistoryRunTimeParsingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="time-form", password="pass")
+        self.org = Organization.objects.create(name="Time Form Org", owner=self.user)
+
+    def _base_data(self):
+        return {
+            "name": "SES 1.2 MW",
+            "org": self.org.pk,
+            "capacity_mw": "1.2",
+            "latitude": "47.8",
+            "longitude": "67.64",
+            "timezone": "Asia/Almaty",
+            "capacity_dc_kw": "1274",
+            "capacity_ac_kw": "1203",
+            "pr_default": "0.88",
+            "tilt_deg": "30",
+            "azimuth_deg": "180",
+            "losses_total_pct": "10",
+            "history_source": "",
+            "history_scale_by_capacity": "on",
+            "auto_history_enabled": "on",
+            "auto_history_folder": "/mnt/share/org_1/SES_1.2_MW",
+            "auto_history_script": "",
+        }
+
+    def test_accepts_ampm_time_from_legacy_browser(self):
+        data = self._base_data()
+        data["auto_history_run_time"] = "10:55:00 AM"
+
+        form = StationForm(data=data, user=self.user)
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["auto_history_run_time"], time(10, 55))
+
+    def test_accepts_24h_time(self):
+        data = self._base_data()
+        data["auto_history_run_time"] = "22:15"
+
+        form = StationForm(data=data, user=self.user)
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["auto_history_run_time"], time(22, 15))
+
+
 class StationAutoHistoryFolderFallbackTests(TestCase):
     def test_missing_station_subfolder_falls_back_to_share_root(self):
         with tempfile.TemporaryDirectory() as tmp:
