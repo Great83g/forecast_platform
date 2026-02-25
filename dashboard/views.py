@@ -28,6 +28,7 @@ from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastSc
 from .services.forecast_engine import run_forecast_for_station
 from .services.forecast_reports import build_forecast_report, send_report_email
 from .services.forecast_scheduler import run_scheduled_forecasts
+from .services.history_autofill import run_auto_history_updates
 from .models import ForecastSchedule
 
 logger = logging.getLogger(__name__)
@@ -843,8 +844,15 @@ def station_forecast_schedule_update(request, pk: int):
 @login_required
 def station_forecast_scheduler_tick(request):
     force = request.GET.get("force") in {"1", "true", "on", "yes"}
+
+    history_rows = 0
+    try:
+        history_rows = int(run_auto_history_updates() or 0)
+    except Exception:
+        logger.exception("Auto-history scheduler tick failed")
+
     count = run_scheduled_forecasts(force=force)
-    return JsonResponse({"ok": True, "count": count, "force": force})
+    return JsonResponse({"ok": True, "count": count, "force": force, "history_rows": history_rows})
 
 
 @login_required
