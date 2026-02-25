@@ -228,7 +228,7 @@ class StationAutoHistoryScheduleTests(TestCase):
 
     @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
     @patch("dashboard.services.history_autofill.timezone.localtime")
-    def test_run_auto_history_updates_allows_pre_time_run_when_scheduler_is_sparse(self, localtime_mock, upsert_mock):
+    def test_run_auto_history_updates_respects_time_even_when_last_run_was_previous_day(self, localtime_mock, upsert_mock):
         self.station.auto_history_last_run_date = timezone.datetime(2026, 2, 23).date()
         self.station.auto_history_run_time = time(9, 0)
         self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
@@ -236,10 +236,10 @@ class StationAutoHistoryScheduleTests(TestCase):
 
         rows = run_auto_history_updates()
 
-        self.assertEqual(rows, 1)
-        upsert_mock.assert_called_once()
+        self.assertEqual(rows, 0)
+        upsert_mock.assert_not_called()
         self.station.refresh_from_db()
-        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-24")
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-23")
 
 
     @patch("dashboard.services.history_autofill._safe_upsert_station", side_effect=[(0, True), (1, True)])
@@ -477,6 +477,64 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertEqual(count, 1)
         self.assertEqual(run_mock.call_args.kwargs["providers"], ["open_meteo"])
         self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": False, "error": "provider unavailable"},
+    )
+    def test_failed_run_does_not_mark_schedule_as_executed(self, run_mock, _build, _send):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        first = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+        second = run_scheduled_forecasts(now=now, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 0)
+        self.assertIsNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 2)
+
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email", return_value=False)
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_email_failure_does_not_mark_schedule_as_executed(self, run_mock, _build, send_mock):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        first = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+        second = run_scheduled_forecasts(now=now, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 0)
+        self.assertIsNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(send_mock.call_count, 2)
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_schedule_without_emails_marks_run_without_sending(self, run_mock, _build, send_mock):
+        self.schedule.emails = ""
+        self.schedule.save(update_fields=["emails"])
+
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+        count = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(count, 1)
+        self.assertIsNotNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 1)
+        send_mock.assert_not_called()
 
 
 class ForecastSchedulerProviderNormalizationTests(TestCase):
