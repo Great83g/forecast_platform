@@ -10,6 +10,7 @@ from typing import Optional
 
 import pandas as pd
 from django.db.models import Avg
+from django.db.models.functions import TruncHour
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
@@ -310,27 +311,44 @@ def station_detail(request, pk: int):
         history_qs = history_qs.filter(timestamp__lte=dt_to)
         forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
 
-    history_rows = (
-        history_qs.values("timestamp")
-        .annotate(power_kw=Avg("power_kw"))
-        .order_by("timestamp")
-    )
-    forecast_rows = (
-        forecast_qs.values("timestamp")
-        .annotate(pred_final=Avg("pred_final"))
-        .order_by("timestamp")
-    )
+    is_single_day_range = bool(dt_from and dt_to and dt_from.date() == dt_to.date())
 
-    history_map = {
-        row["timestamp"]: float(row["power_kw"])
-        for row in history_rows
-        if row.get("power_kw") is not None
-    }
-    forecast_map = {
-        row["timestamp"]: float(row["pred_final"])
-        for row in forecast_rows
-        if row.get("pred_final") is not None
-    }
+    if is_single_day_range:
+        history_rows = (
+            history_qs.annotate(bucket=TruncHour("timestamp"))
+            .values("bucket")
+            .annotate(power_kw=Avg("power_kw"))
+            .order_by("bucket")
+        )
+        forecast_rows = (
+            forecast_qs.annotate(bucket=TruncHour("timestamp"))
+            .values("bucket")
+            .annotate(pred_final=Avg("pred_final"))
+            .order_by("bucket")
+        )
+        history_map = {
+            row["bucket"]: float(row["power_kw"])
+            for row in history_rows
+            if row.get("power_kw") is not None
+        }
+        forecast_map = {
+            row["bucket"]: float(row["pred_final"])
+            for row in forecast_rows
+            if row.get("pred_final") is not None
+        }
+    else:
+        history_rows = history_qs.values("timestamp").annotate(power_kw=Avg("power_kw")).order_by("timestamp")
+        forecast_rows = forecast_qs.values("timestamp").annotate(pred_final=Avg("pred_final")).order_by("timestamp")
+        history_map = {
+            row["timestamp"]: float(row["power_kw"])
+            for row in history_rows
+            if row.get("power_kw") is not None
+        }
+        forecast_map = {
+            row["timestamp"]: float(row["pred_final"])
+            for row in forecast_rows
+            if row.get("pred_final") is not None
+        }
 
     merged_points = []
     labels = []
@@ -346,7 +364,8 @@ def station_detail(request, pk: int):
                 "plan_mw": (plan_kw / 1000.0) if plan_kw is not None else None,
             }
         )
-        labels.append(timezone.localtime(ts).strftime("%d.%m %H:%M") if timezone.is_aware(ts) else ts.strftime("%d.%m %H:%M"))
+        ts_local = timezone.localtime(ts) if timezone.is_aware(ts) else ts
+        labels.append(ts_local.strftime("%H:%M") if is_single_day_range else ts_local.strftime("%d.%m %H:%M"))
         fact_series.append(round(fact_kw / 1000.0, 4) if fact_kw is not None else None)
         plan_series.append(round(plan_kw / 1000.0, 4) if plan_kw is not None else None)
 
@@ -359,6 +378,7 @@ def station_detail(request, pk: int):
         "plan_series": plan_series,
         "points_count": len(merged_points),
         "comparison_rows": merged_points[:200],
+        "is_single_day_range": is_single_day_range,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)
