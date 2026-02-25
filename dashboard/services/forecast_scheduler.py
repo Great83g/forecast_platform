@@ -12,6 +12,7 @@ from dashboard.services.forecast_reports import build_forecast_report, send_repo
 
 
 logger = logging.getLogger(__name__)
+LATE_RUN_WARN_MINUTES = 15
 
 
 def _parse_providers(value: str) -> Optional[list[str]]:
@@ -51,6 +52,18 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
             else:
                 if current.time() < schedule.run_time:
                     continue
+
+        scheduled_dt = timezone.datetime.combine(today, schedule.run_time, tzinfo=current.tzinfo)
+        delay_minutes = max(0, int((current - scheduled_dt).total_seconds() // 60))
+        if delay_minutes >= LATE_RUN_WARN_MINUTES:
+            logger.warning(
+                "Scheduled forecast late station_id=%s schedule_id=%s delay_minutes=%s now=%s run_time=%s",
+                schedule.station_id,
+                schedule.pk,
+                delay_minutes,
+                current.strftime("%Y-%m-%d %H:%M:%S%z"),
+                schedule.run_time,
+            )
 
         manual_dates = []
         if schedule.manual_snow_dates:
