@@ -20,6 +20,7 @@ ROUND_TEMP = 3
 ROUND_POWER = 2
 
 logger = logging.getLogger(__name__)
+EARLY_FALLBACK_WINDOW_MINUTES = 120
 
 
 def extract_date_yyyymmdd_from_name(name: str) -> Optional[str]:
@@ -433,11 +434,22 @@ def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
     if now_time >= scheduled_time:
         return True
 
-    # Fallback для редких запусков планировщика (например, 1 раз в день):
-    # если станция уже проверялась в прошлые дни, но сегодня ещё нет,
-    # разрешаем выполнить проверку до времени auto_history_run_time,
-    # чтобы не ждать целые сутки до следующего тика.
-    return last_run_date is not None and last_run_date < now_local.date()
+    current_minutes = now_time.hour * 60 + now_time.minute
+    scheduled_minutes = scheduled_time.hour * 60 + scheduled_time.minute
+    minutes_before_schedule = scheduled_minutes - current_minutes
+
+    if 0 < minutes_before_schedule <= EARLY_FALLBACK_WINDOW_MINUTES:
+        logger.warning(
+            "Auto-history early fallback station_id=%s now=%s run_time=%s minutes_before_schedule=%s last_run_date=%s",
+            station.pk,
+            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+            run_time,
+            minutes_before_schedule,
+            last_run_date,
+        )
+        return True
+
+    return False
 
 
 def _mark_station_auto_history_checked(station: Station, check_date):
@@ -450,9 +462,24 @@ def run_auto_history_updates() -> int:
     updated_rows = 0
     now_local = timezone.localtime()
     for station in Station.objects.filter(auto_history_enabled=True):
+        run_time = getattr(station, "auto_history_run_time", None)
         if not _is_station_due_for_auto_history(station, now_local):
+            logger.info(
+                "Auto-history skip station_id=%s now=%s run_time=%s last_run_date=%s",
+                station.pk,
+                now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+                run_time,
+                getattr(station, "auto_history_last_run_date", None),
+            )
             continue
 
+        logger.info(
+            "Auto-history due station_id=%s now=%s run_time=%s last_run_date=%s",
+            station.pk,
+            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+            run_time,
+            getattr(station, "auto_history_last_run_date", None),
+        )
         rows, success = _safe_upsert_station(station)
         updated_rows += rows
 
@@ -462,5 +489,13 @@ def run_auto_history_updates() -> int:
         # (например, если файлы появились позже или был временный сбой).
         if success and rows > 0:
             _mark_station_auto_history_checked(station, now_local.date())
+            logger.info("Auto-history marked checked station_id=%s rows=%s", station.pk, rows)
+        else:
+            logger.warning(
+                "Auto-history not marked station_id=%s success=%s rows=%s",
+                station.pk,
+                success,
+                rows,
+            )
 
     return updated_rows
