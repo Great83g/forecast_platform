@@ -660,6 +660,24 @@ class StationForecastRunTargetDatesTests(TestCase):
             [date(2026, 2, 22), date(2026, 2, 23)],
         )
 
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 1, "target_dates": ["2026-02-22"]})
+    def test_station_forecast_run_target_dates_override_days(self, run_mock, build_mock, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "7",
+                "scope": "test",
+                "target_dates": "2026-02-22, 2026-02-22",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(run_mock.call_args.kwargs["days"], 1)
+        self.assertEqual(run_mock.call_args.kwargs["target_dates"], [date(2026, 2, 22)])
+        self.assertEqual(build_mock.call_args.kwargs["days"], 1)
+
 
 class ForecastSchedulerProviderNormalizationTests(TestCase):
     def test_open_meteo_only_provider_marker_forces_open_meteo_and_heuristic(self):

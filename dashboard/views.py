@@ -760,13 +760,15 @@ def station_forecast_run(request, pk: int):
             parsed = _parse_date(value)
             if parsed:
                 target_dates.append(parsed.date())
+    target_dates = sorted(set(target_dates))
+    run_days = 1 if target_dates else days
 
     try:
         if open_meteo_only:
             providers = ["open_meteo"]
         res = run_forecast_for_station(
             st.pk,
-            days=days,
+            days=run_days,
             providers=providers,
             manual_snow_enable=manual_snow_enable,
             manual_snow_factor=manual_snow_factor,
@@ -777,12 +779,15 @@ def station_forecast_run(request, pk: int):
             target_dates=target_dates,
         )
         if res.get("ok"):
-            msg = f"Прогноз построен: {res.get('count')} строк, days={days}, weather={res.get('weather_source')}, scope={forecast_scope}"
+            actual_days = res.get("days") or run_days
+            msg = f"Прогноз построен: {res.get('count')} строк, days={actual_days}, weather={res.get('weather_source')}, scope={forecast_scope}"
+            if target_dates:
+                msg += " | режим: фиксированные даты (параметр days игнорируется)"
             if open_meteo_only:
                 msg += " | режим: Open-Meteo без истории"
             report = build_forecast_report(
                 station=st,
-                days=days,
+                days=run_days,
                 weather_source=res.get("weather_source"),
                 recipients=[emails_raw],
                 forecast_scope=forecast_scope,
@@ -886,6 +891,20 @@ def station_forecast_clear(request, pk: int):
             return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
         deleted, _ = qs.filter(timestamp__date__lt=before_date.date()).delete()
         messages.success(request, f"Удалено строк старого прогноза: {deleted} (до {before_date.date()}).")
+        return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
+
+    if action == "date_range":
+        from_date = _parse_date(request.POST.get("from_date") or "")
+        to_date = _parse_date(request.POST.get("to_date") or "")
+        if not from_date or not to_date:
+            messages.error(request, "Не удалось распознать диапазон дат удаления.")
+            return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
+        from_d = from_date.date()
+        to_d = to_date.date()
+        if from_d > to_d:
+            from_d, to_d = to_d, from_d
+        deleted, _ = qs.filter(timestamp__date__gte=from_d, timestamp__date__lte=to_d).delete()
+        messages.success(request, f"Удалено строк прогноза: {deleted} (с {from_d} по {to_d}).")
         return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?scope={scope}")
 
     qs.delete()
