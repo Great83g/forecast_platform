@@ -11,6 +11,13 @@
       {{ form.as_p }}
       <button type="submit" class="btn btn-primary">Сохранить</button>
       <a href="{% url 'dashboard:station-detail' station.pk %}" class="btn btn-secondary">Отмена</a>
+      <hr>
+      <div class="small text-muted">
+        <div><b>Диагностика автоистории:</b></div>
+        <div>Последний тик: <b>{% if station.auto_history_last_check_at %}{{ station.auto_history_last_check_at|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</b></div>
+        <div>Статус: <b>{{ station.auto_history_last_status|default:"—" }}</b>, строк: <b>{{ station.auto_history_last_rows|default:0 }}</b></div>
+        <div>Сообщение: <b>{{ station.auto_history_last_message|default:"—" }}</b></div>
+      </div>
     </form>
   </div>
 </div>
