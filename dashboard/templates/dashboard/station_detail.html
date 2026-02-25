@@ -71,11 +71,13 @@
 {{ labels|json_script:"pf-labels" }}
 {{ fact_series|json_script:"pf-fact" }}
 {{ plan_series|json_script:"pf-plan" }}
+{{ is_single_day_range|json_script:"pf-single-day" }}
 <script>
   (function () {
     const labels = JSON.parse(document.getElementById("pf-labels").textContent || "[]");
     const fact = JSON.parse(document.getElementById("pf-fact").textContent || "[]");
     const plan = JSON.parse(document.getElementById("pf-plan").textContent || "[]");
+    const isSingleDayRange = JSON.parse(document.getElementById("pf-single-day").textContent || "false");
     const el = document.getElementById("planFactChart");
     if (!el) return;
 
@@ -94,7 +96,7 @@
         animation: false,
         scales: {
           y: {title: {display: true, text: "МВт"}},
-          x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: 24}}
+          x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: isSingleDayRange ? 24 : 31}}
         },
         plugins: {
           decimation: {
