@@ -1,14 +1,41 @@
 <!doctype html>
 <html lang="ru">
+{% load static %}
 <head>
   <meta charset="utf-8">
-  <title>Solar Dashboard</title>
+  <title>InTech-Forecast</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .navbar-brand {
+      font-size: 0;
+    }
+
+    .navbar-brand .brand-text {
+      font-size: 1.25rem;
+      white-space: nowrap;
+      line-height: 1;
+    }
+
+    .brand-logo-wrap {
+      width: 34px;
+      height: 34px;
+      display: inline-flex;
+      overflow: hidden;
+      border-radius: 0.375rem;
+      flex: 0 0 34px;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: cover;
+    }
+  </style>
 </head>
 <body class="bg-light">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
   <div class="container-fluid">
-    <a class="navbar-brand" href="{% url 'dashboard:station-list' %}">⚡ Solar Dashboard</a>
+    <a class="navbar-brand d-flex align-items-center gap-2" aria-label="InTech-Forecast" href="{% url 'dashboard:station-list' %}">
+      <span class="brand-logo-wrap" aria-hidden="true" style="background-image: url('{% static 'dashboard/img/logo.png' %}');"></span>
+      <span class="brand-text">InTech-Forecast</span>
+    </a>
 
     <div class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
