@@ -46,10 +46,7 @@
 <body class="bg-light">
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
   <div class="container-fluid">
-    <a class="navbar-brand d-flex align-items-center gap-2" aria-label="InTech-Forecast" href="{% url 'dashboard:station-list' %}">
-      <span class="brand-logo-wrap" aria-hidden="true" style="background-image: url('{% static 'dashboard/img/logo.png' %}');"></span>
-      <span class="brand-text">InTech-Forecast</span>
-    </a>
+    {% include "includes/navbar_brand.html" %}
 
     <div class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
