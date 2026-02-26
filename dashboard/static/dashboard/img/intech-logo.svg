@@ -1,0 +1,28 @@
+<svg width="480" height="220" viewBox="0 0 480 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="40" y1="20" x2="420" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDB813"/>
+      <stop offset="0.45" stop-color="#1B74C7"/>
+      <stop offset="1" stop-color="#09B5E5"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="60" y1="150" x2="400" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1273D4"/>
+      <stop offset="1" stop-color="#15D2F5"/>
+    </linearGradient>
+  </defs>
+
+  <ellipse cx="240" cy="110" rx="206" ry="82" fill="#071C3A"/>
+  <ellipse cx="240" cy="110" rx="192" ry="70" fill="url(#sky)"/>
+
+  <circle cx="98" cy="70" r="24" fill="#FFD166"/>
+  <path d="M95 132C145 70 220 65 280 102C325 130 366 132 405 114" stroke="#E7F4FF" stroke-width="10" stroke-linecap="round"/>
+  <path d="M74 156C155 132 256 132 370 166" stroke="url(#sea)" stroke-width="14" stroke-linecap="round"/>
+
+  <path d="M295 176V114" stroke="#E9FAFF" stroke-width="8" stroke-linecap="round"/>
+  <path d="M328 176V98" stroke="#D9F4FF" stroke-width="8" stroke-linecap="round"/>
+  <path d="M360 176V84" stroke="#C8EEFF" stroke-width="8" stroke-linecap="round"/>
+  <path d="M392 176V64" stroke="#B7E8FF" stroke-width="8" stroke-linecap="round"/>
+
+  <path d="M52 108C96 28 195 20 266 40C325 56 386 88 430 146" stroke="#00B8FF" stroke-width="12" stroke-linecap="round"/>
+  <path d="M40 96C72 26 160 4 238 14" stroke="#E9B83E" stroke-width="10" stroke-linecap="round"/>
+</svg>
