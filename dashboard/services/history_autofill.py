@@ -479,12 +479,6 @@ def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
     if now_dt + timedelta(minutes=1) >= scheduled_dt:
         return True
 
-
-    # Небольшой grace-период защищает от пропусков на границе времени
-    # (например tick в 09:19:31 при расписании 09:20).
-    if now_dt + timedelta(minutes=1) >= scheduled_dt:
-        return True
-
     # Fallback для редких запусков планировщика (например, 1 раз в день):
     # если станция уже проверялась в прошлые дни, но сегодня ещё нет,
     # разрешаем выполнить проверку до времени auto_history_run_time,
@@ -529,9 +523,6 @@ def run_auto_history_updates() -> int:
             getattr(station, "auto_history_last_run_date", None),
         )
 
-            run_time,
-            getattr(station, "auto_history_last_run_date", None),
-        )
         rows, success = _safe_upsert_station(station)
         updated_rows += rows
 
@@ -546,36 +537,5 @@ def run_auto_history_updates() -> int:
             logger.warning("Auto-history no new rows station_id=%s", station.pk)
         else:
             logger.warning("Auto-history failed station_id=%s", station.pk)
-            _record_auto_history_tick(
-                station,
-                now_local,
-                status="updated",
-                rows=rows,
-                message="Автообновление выполнено, новые строки добавлены.",
-            )
-            logger.info("Auto-history marked checked station_id=%s rows=%s", station.pk, rows)
-        elif success:
-            _record_auto_history_tick(
-                station,
-                now_local,
-                status="no_rows",
-                rows=0,
-                message="Автообновление выполнено, новых строк нет.",
-            )
-            logger.warning("Auto-history no new rows station_id=%s", station.pk)
-        else:
-            _record_auto_history_tick(
-                station,
-                now_local,
-                status="error",
-                rows=0,
-                message="Ошибка автообновления. Проверьте логи сервера.",
-            )
-            logger.warning(
-                "Auto-history not marked station_id=%s success=%s rows=%s",
-                station.pk,
-                success,
-                rows,
-            )
 
     return updated_rows
