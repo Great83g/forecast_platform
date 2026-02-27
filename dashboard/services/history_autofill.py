@@ -510,6 +510,30 @@ def _mark_station_auto_history_checked(station: Station, check_date):
     station.save(update_fields=["auto_history_last_run_date"])
 
 
+def _record_auto_history_tick(station: Station, checked_at, status: str, rows: int, message: str) -> None:
+    update_fields = []
+
+    if getattr(station, "auto_history_last_check_at", None) != checked_at:
+        station.auto_history_last_check_at = checked_at
+        update_fields.append("auto_history_last_check_at")
+
+    if getattr(station, "auto_history_last_status", "") != (status or ""):
+        station.auto_history_last_status = status or ""
+        update_fields.append("auto_history_last_status")
+
+    rows_int = int(rows or 0)
+    if getattr(station, "auto_history_last_rows", 0) != rows_int:
+        station.auto_history_last_rows = rows_int
+        update_fields.append("auto_history_last_rows")
+
+    if getattr(station, "auto_history_last_message", "") != (message or ""):
+        station.auto_history_last_message = message or ""
+        update_fields.append("auto_history_last_message")
+
+    if update_fields:
+        station.save(update_fields=update_fields)
+
+
 def run_auto_history_updates() -> int:
     updated_rows = 0
     now_local = timezone.localtime()
@@ -549,10 +573,31 @@ def run_auto_history_updates() -> int:
         # (например, если файлы появились позже или был временный сбой).
         if success and rows > 0:
             _mark_station_auto_history_checked(station, now_local.date())
+            _record_auto_history_tick(
+                station,
+                now_local,
+                status="updated",
+                rows=rows,
+                message=f"Обновлено строк: {rows}",
+            )
             logger.info("Auto-history marked checked station_id=%s rows=%s", station.pk, rows)
         elif success:
+            _record_auto_history_tick(
+                station,
+                now_local,
+                status="no_rows",
+                rows=0,
+                message="Автообновление выполнено, новых строк нет.",
+            )
             logger.warning("Auto-history no new rows station_id=%s", station.pk)
         else:
+            _record_auto_history_tick(
+                station,
+                now_local,
+                status="failed",
+                rows=0,
+                message="Ошибка автообновления. См. логи сервера.",
+            )
             logger.warning("Auto-history failed station_id=%s", station.pk)
 
     return updated_rows
