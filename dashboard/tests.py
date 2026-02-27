@@ -259,6 +259,20 @@ class StationAutoHistoryCustomScriptTests(TestCase):
 
         self.assertEqual(rows, 1)
 
+    def test_script_value_with_slashes_normalizes_to_short_module_name(self):
+        self.station.auto_history_script = "/history_scripts/example_station"
+
+        rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
+
+    def test_script_value_with_windows_slashes_normalizes_to_short_module_name(self):
+        self.station.auto_history_script = r"history_scripts\example_station"
+
+        rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
+
 
 
 
