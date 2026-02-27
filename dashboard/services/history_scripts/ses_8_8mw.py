@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}\s*$")
+TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}(?::\d{2})?\s*$")
 EXCLUDE_TIME_RE = re.compile(r"(?:прогноз|scada|аскуэ)", re.IGNORECASE)
 
 COL_TIME = 0
@@ -33,18 +33,47 @@ def _parse_sheet_date(sheet_name: str) -> pd.Timestamp | None:
         return None
 
 
+
+
+def _normalize_time_token(value) -> str | None:
+    if pd.isna(value):
+        return None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if EXCLUDE_TIME_RE.search(raw):
+        return None
+
+    if TIME_RE.match(raw):
+        parts = raw.split(":")
+        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.notna(ts):
+        return ts.strftime("%H:%M")
+
+    if isinstance(value, (int, float)) and 0 <= float(value) < 1:
+        total_minutes = int(round(float(value) * 24 * 60))
+        hh = (total_minutes // 60) % 24
+        mm = total_minutes % 60
+        return f"{hh:02d}:{mm:02d}"
+
+    return None
+
 def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> pd.DataFrame:
     raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
     if raw is None or raw.empty or COL_TIME not in raw.columns:
         return _empty_df()
 
-    col_time = raw[COL_TIME].astype(str).str.strip()
-    mask_time = col_time.str.match(TIME_RE) & ~col_time.str.contains(EXCLUDE_TIME_RE, na=False)
+    normalized_time = raw[COL_TIME].apply(_normalize_time_token)
+    mask_time = normalized_time.notna()
     block = raw.loc[mask_time].copy()
     if block.empty:
         return _empty_df()
 
-    ds = pd.to_datetime(day_ts.strftime("%Y-%m-%d") + " " + block[COL_TIME].astype(str).str.strip(), errors="coerce")
+    block["_time_norm"] = normalized_time.loc[mask_time].astype(str)
+    ds = pd.to_datetime(day_ts.strftime("%Y-%m-%d") + " " + block["_time_norm"], errors="coerce")
 
     out = pd.DataFrame(
         {
