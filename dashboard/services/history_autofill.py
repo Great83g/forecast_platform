@@ -284,6 +284,23 @@ def _normalize_auto_history_script(raw_value: str) -> str:
                 value = first
             break
 
+    has_func_delimiter = ":" in value
+    has_file_suffix = value.lower().endswith(".py")
+
+    # Поддержка UI-вариантов с путями (например /history_scripts/ses_8_8mw
+    # или dashboard/services/history_scripts/ses_8_8mw).
+    # Для не-.py путей берём последний токен как короткое имя модуля.
+    if not has_func_delimiter and ("/" in value or "\\" in value):
+        tokens = [t for t in re.split(r"[\\/]+", value) if t]
+        if tokens and not has_file_suffix:
+            value = tokens[-1]
+
+    # Поддержка "человеческого" ввода в UI: "ses 8 8mw" -> "ses_8_8mw"
+    # Нормализацию применяем только к короткому имени модуля,
+    # не затрагивая полные python-пути и file.py:func.
+    if ":" not in value and "." not in value and "/" not in value and "\\" not in value:
+        value = "_".join(value.split())
+
     return value
 
 
