@@ -284,6 +284,12 @@ def _normalize_auto_history_script(raw_value: str) -> str:
                 value = first
             break
 
+    # Поддержка "человеческого" ввода в UI: "ses 8 8mw" -> "ses_8_8mw"
+    # Нормализацию применяем только к короткому имени модуля,
+    # не затрагивая полные python-пути и file.py:func.
+    if ":" not in value and "." not in value and "/" not in value and "\\" not in value:
+        value = "_".join(value.split())
+
     return value
 
 
