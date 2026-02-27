@@ -220,6 +220,70 @@ def _solar_hours_from_weather(
     return (h1, h2)
 
 
+
+
+def _weather_from_history(st: Station, target_dates: set[date], forecast_scope: str = "main") -> pd.DataFrame:
+    empty_df = pd.DataFrame(
+        columns=["ds", "irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"]
+    )
+    if not target_dates:
+        return empty_df
+
+    preferred_scope = SolarRecord.HISTORY_SCOPE_MAIN if forecast_scope == "main" else SolarRecord.HISTORY_SCOPE_TEST
+    scope_order = [preferred_scope]
+    if preferred_scope != SolarRecord.HISTORY_SCOPE_MAIN:
+        scope_order.append(SolarRecord.HISTORY_SCOPE_MAIN)
+
+    station_order = [st]
+    if getattr(st, "history_source_id", None):
+        station_order.append(st.history_source)
+
+    data = []
+    for history_scope in scope_order:
+        for source_station in station_order:
+            qs = SolarRecord.objects.filter(station=source_station, history_scope=history_scope, timestamp__date__in=list(target_dates))
+            data = list(qs.values("timestamp", "irradiation", "air_temp"))
+            if data:
+                break
+        if data:
+            break
+
+    if not data:
+        return empty_df
+
+    df = pd.DataFrame(data)
+    df["ds"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.floor("h")
+    df["irradiation"] = pd.to_numeric(df.get("irradiation"), errors="coerce")
+    df["air_temp"] = pd.to_numeric(df.get("air_temp"), errors="coerce")
+    for c in ["wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"]:
+        df[c] = np.nan
+
+    return (
+        df[["ds", "irradiation", "air_temp", "wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"]]
+        .groupby("ds", as_index=False)
+        .mean(numeric_only=True)
+        .sort_values("ds")
+        .reset_index(drop=True)
+    )
+
+
+def _make_base_grid_for_dates(target_dates: set[date], solar_hours: Tuple[int, int], tzinfo) -> pd.DataFrame:
+    try:
+        h1, h2 = solar_hours
+    except Exception:
+        h1, h2 = 9, 17
+
+    rows = []
+    for d in sorted(target_dates):
+        for hour in range(int(h1), int(h2) + 1):
+            rows.append(
+                timezone.datetime.combine(d, timezone.datetime.min.time()).replace(
+                    hour=hour, minute=0, second=0, microsecond=0, tzinfo=tzinfo
+                )
+            )
+
+    return pd.DataFrame({"ds": pd.to_datetime(rows)}).reset_index(drop=True)
+
 def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
     w = weather.copy()
     w["ds"] = pd.to_datetime(w["ds"]).dt.floor("h")
@@ -598,14 +662,20 @@ def run_forecast_for_station(
     use_models: bool = True,
     horizon_mode: str = "weekday_calendar",
     forecast_scope: str = "main",
+    target_dates: Optional[List[date]] = None,
 ) -> Dict:
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
     now = timezone.localtime(timezone.now())
 
-    target_dates: Optional[set[date]] = None
+    requested_target_dates = {d for d in (target_dates or []) if isinstance(d, date)}
+    target_dates: Optional[set[date]] = requested_target_dates or None
     effective_days = max(int(days or 1), 1)
-    if horizon_mode == "weekday_calendar":
+    if target_dates:
+        min_date = min(target_dates)
+        max_date = max(target_dates)
+        effective_days = max((max_date - min_date).days + 1, 1)
+    elif horizon_mode == "weekday_calendar":
         offsets = _target_offsets_for_weekday_calendar(now)
         if offsets:
             target_dates = {(now + pd.Timedelta(days=offset)).date() for offset in offsets}
@@ -639,10 +709,18 @@ def run_forecast_for_station(
                 weather_df = wres.df.copy()
                 break
 
-    start_date = (now + pd.Timedelta(days=1)).date()
+    start_date = min(target_dates) if target_dates else (now + pd.Timedelta(days=1)).date()
+
+    if target_dates and max(target_dates) < (now + pd.Timedelta(days=1)).date():
+        weather_df = _weather_from_history(st, target_dates, forecast_scope=forecast_scope)
+        weather_source = "history_backfill" if not weather_df.empty else weather_source
+
     solar_hours = _solar_hours_from_weather(weather_df, start_date, effective_days) or _solar_hours_from_history(st)
 
-    base = _make_base_grid(days=effective_days, solar_hours=solar_hours)
+    if target_dates:
+        base = _make_base_grid_for_dates(target_dates, solar_hours=solar_hours, tzinfo=now.tzinfo)
+    else:
+        base = _make_base_grid(days=effective_days, solar_hours=solar_hours)
     merged = _merge_weather(base, weather_df)
     lat_deg = float(lat) if lat is not None else 47.86
     feat = _compute_features(merged, capacity_mw, lat_deg)

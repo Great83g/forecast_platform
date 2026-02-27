@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import date, time
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
@@ -110,7 +110,68 @@ class StationEditAutoHistoryFolderNormalizationTests(TestCase):
 
 
 
+class StationFormAutoHistoryRunTimeParsingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="time-form", password="pass")
+        self.org = Organization.objects.create(name="Time Form Org", owner=self.user)
+
+    def _base_data(self):
+        return {
+            "name": "SES 1.2 MW",
+            "org": self.org.pk,
+            "capacity_mw": "1.2",
+            "latitude": "47.8",
+            "longitude": "67.64",
+            "timezone": "Asia/Almaty",
+            "capacity_dc_kw": "1274",
+            "capacity_ac_kw": "1203",
+            "pr_default": "0.88",
+            "tilt_deg": "30",
+            "azimuth_deg": "180",
+            "losses_total_pct": "10",
+            "history_source": "",
+            "history_scale_by_capacity": "on",
+            "auto_history_enabled": "on",
+            "auto_history_folder": "/mnt/share/org_1/SES_1.2_MW",
+            "auto_history_script": "",
+        }
+
+    def test_accepts_ampm_time_from_legacy_browser(self):
+        data = self._base_data()
+        data["auto_history_run_time"] = "10:55:00 AM"
+
+        form = StationForm(data=data, user=self.user)
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["auto_history_run_time"], time(10, 55))
+
+    def test_accepts_24h_time(self):
+        data = self._base_data()
+        data["auto_history_run_time"] = "22:15"
+
+        form = StationForm(data=data, user=self.user)
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["auto_history_run_time"], time(22, 15))
+
+
 class StationAutoHistoryFolderFallbackTests(TestCase):
+    def test_missing_station_subfolder_uses_alias_folder_with_spaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            alias = base / "org_1" / "SES 1.2 MW"
+            alias.mkdir(parents=True)
+            station = SimpleNamespace(
+                auto_history_folder=str(base / "org_1" / "SES_1.2_MW"),
+                pk=42,
+                org_id=1,
+                name="SES 1.2 MW",
+            )
+
+            resolved = _resolve_station_share_folder(station, share_root=base)
+
+            self.assertEqual(resolved, alias)
+
     def test_missing_station_subfolder_falls_back_to_share_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -228,20 +289,7 @@ class StationAutoHistoryScheduleTests(TestCase):
 
     @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
     @patch("dashboard.services.history_autofill.timezone.localtime")
-    def test_run_auto_history_updates_allows_near_time_grace_window(self, localtime_mock, upsert_mock):
-        self.station.auto_history_last_run_date = None
-        self.station.auto_history_run_time = time(9, 20)
-        self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
-        localtime_mock.return_value = timezone.datetime(2026, 2, 24, 9, 19, 31, tzinfo=timezone.get_current_timezone())
-
-        rows = run_auto_history_updates()
-
-        self.assertEqual(rows, 1)
-        upsert_mock.assert_called_once()
-
-    @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
-    @patch("dashboard.services.history_autofill.timezone.localtime")
-    def test_run_auto_history_updates_allows_pre_time_run_when_scheduler_is_sparse(self, localtime_mock, upsert_mock):
+    def test_run_auto_history_updates_respects_time_even_when_last_run_was_previous_day(self, localtime_mock, upsert_mock):
         self.station.auto_history_last_run_date = timezone.datetime(2026, 2, 23).date()
         self.station.auto_history_run_time = time(9, 0)
         self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
@@ -253,6 +301,10 @@ class StationAutoHistoryScheduleTests(TestCase):
         upsert_mock.assert_called_once()
         self.station.refresh_from_db()
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-24")
+        self.assertEqual(rows, 0)
+        upsert_mock.assert_not_called()
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-23")
 
 
     @patch("dashboard.services.history_autofill._safe_upsert_station", side_effect=[(0, True), (1, True)])
@@ -344,6 +396,45 @@ class ForecastEngineIndexRegressionTests(TestCase):
         )
 
         self.assertTrue(result["ok"])
+        self.assertGreater(result["count"], 0)
+
+
+class ForecastEngineHistoryBackfillFallbackTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="history-fallback", password="pass")
+        org = Organization.objects.create(name="History Fallback Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Fallback Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_run_forecast_uses_main_history_when_test_scope_missing(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+        SolarRecord.objects.create(
+            station=self.station,
+            timestamp=timezone.datetime(2026, 2, 25, 12, 0, tzinfo=timezone.get_current_timezone()),
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            irradiation=620.0,
+            air_temp=11.0,
+        )
+
+        result = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["weather_source"], "history_backfill")
         self.assertGreater(result["count"], 0)
 
 
@@ -492,6 +583,114 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertFalse(run_mock.call_args.kwargs["use_models"])
 
 
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": False, "error": "provider unavailable"},
+    )
+    def test_failed_run_does_not_mark_schedule_as_executed(self, run_mock, _build, _send):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        first = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+        second = run_scheduled_forecasts(now=now, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 0)
+        self.assertIsNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 2)
+
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email", return_value=False)
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_email_failure_does_not_mark_schedule_as_executed(self, run_mock, _build, send_mock):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        first = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+        second = run_scheduled_forecasts(now=now, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 0)
+        self.assertIsNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(send_mock.call_count, 2)
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_schedule_without_emails_marks_run_without_sending(self, run_mock, _build, send_mock):
+        self.schedule.emails = ""
+        self.schedule.save(update_fields=["emails"])
+
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+        count = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(count, 1)
+        self.assertIsNotNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 1)
+        send_mock.assert_not_called()
+
+
+class StationForecastRunTargetDatesTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="run-target-dates", password="pass")
+        self.org = Organization.objects.create(name="Run Target Dates Org", owner=self.user)
+        OrganizationMember.objects.create(
+            organization=self.org,
+            user=self.user,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+        self.station = Station.objects.create(org=self.org, name="Target Dates Station", capacity_mw=1.2)
+        self.client.login(username="run-target-dates", password="pass")
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 2, "target_dates": ["2026-02-22", "2026-02-23"]})
+    def test_station_forecast_run_passes_target_dates(self, run_mock, _build, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "2",
+                "scope": "main",
+                "target_dates": "2026-02-22, 2026-02-23",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            run_mock.call_args.kwargs["target_dates"],
+            [date(2026, 2, 22), date(2026, 2, 23)],
+        )
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 1, "target_dates": ["2026-02-22"]})
+    def test_station_forecast_run_target_dates_override_days(self, run_mock, build_mock, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "7",
+                "scope": "test",
+                "target_dates": "2026-02-22, 2026-02-22",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(run_mock.call_args.kwargs["days"], 1)
+        self.assertEqual(run_mock.call_args.kwargs["target_dates"], [date(2026, 2, 22)])
+        self.assertEqual(build_mock.call_args.kwargs["days"], 1)
+
+
 class ForecastSchedulerProviderNormalizationTests(TestCase):
     def test_open_meteo_only_provider_marker_forces_open_meteo_and_heuristic(self):
         providers, open_meteo_only = _normalize_schedule_providers("visual_crossing,open_meteo_only")
@@ -505,27 +704,33 @@ class ForecastSchedulerTickViewTests(TestCase):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(username="viewer", password="pass")
 
+    @patch("dashboard.views.run_auto_history_updates", return_value=5)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=3)
-    def test_scheduler_tick_parses_force_true(self, run_mock):
+    def test_scheduler_tick_parses_force_true(self, run_mock, history_mock):
         request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/?force=1")
         request.user = self.user
 
         response = station_forecast_scheduler_tick(request)
 
         self.assertEqual(response.status_code, 200)
+        history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=True)
         self.assertIn(b'"force": true', response.content)
+        self.assertIn(b'"history_rows": 5', response.content)
 
+    @patch("dashboard.views.run_auto_history_updates", return_value=0)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=0)
-    def test_scheduler_tick_defaults_force_false(self, run_mock):
+    def test_scheduler_tick_defaults_force_false(self, run_mock, history_mock):
         request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/")
         request.user = self.user
 
         response = station_forecast_scheduler_tick(request)
 
         self.assertEqual(response.status_code, 200)
+        history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
+        self.assertIn(b'"history_rows": 0', response.content)
 
 
 class HistoryDatetimeParsingTests(TestCase):
