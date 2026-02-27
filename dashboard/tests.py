@@ -289,7 +289,20 @@ class StationAutoHistoryScheduleTests(TestCase):
 
     @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
     @patch("dashboard.services.history_autofill.timezone.localtime")
-    def test_run_auto_history_updates_respects_time_even_when_last_run_was_previous_day(self, localtime_mock, upsert_mock):
+    def test_run_auto_history_updates_allows_near_time_grace_window(self, localtime_mock, upsert_mock):
+        self.station.auto_history_last_run_date = None
+        self.station.auto_history_run_time = time(9, 20)
+        self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
+        localtime_mock.return_value = timezone.datetime(2026, 2, 24, 9, 19, 31, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 1)
+        upsert_mock.assert_called_once()
+
+    @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_allows_pre_time_run_when_scheduler_is_sparse(self, localtime_mock, upsert_mock):
         self.station.auto_history_last_run_date = timezone.datetime(2026, 2, 23).date()
         self.station.auto_history_run_time = time(9, 0)
         self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
@@ -301,10 +314,6 @@ class StationAutoHistoryScheduleTests(TestCase):
         upsert_mock.assert_called_once()
         self.station.refresh_from_db()
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-24")
-        self.assertEqual(rows, 0)
-        upsert_mock.assert_not_called()
-        self.station.refresh_from_db()
-        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-23")
 
 
     @patch("dashboard.services.history_autofill._safe_upsert_station", side_effect=[(0, True), (1, True)])
@@ -716,7 +725,8 @@ class ForecastSchedulerTickViewTests(TestCase):
         history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=True)
         self.assertIn(b'"force": true', response.content)
-        self.assertIn(b'"history_rows": 5', response.content)
+        self.assertIn(b'"auto_history_rows": 5', response.content)
+        self.assertIn(b'"forecast_count": 3', response.content)
 
     @patch("dashboard.views.run_auto_history_updates", return_value=0)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=0)
@@ -730,7 +740,7 @@ class ForecastSchedulerTickViewTests(TestCase):
         history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
-        self.assertIn(b'"history_rows": 0', response.content)
+        self.assertIn(b'"auto_history_rows": 0', response.content)
 
 
 class HistoryDatetimeParsingTests(TestCase):

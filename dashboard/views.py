@@ -884,6 +884,17 @@ def station_forecast_schedule_update(request, pk: int):
 @login_required
 def station_forecast_scheduler_tick(request):
     force = request.GET.get("force") in {"1", "true", "on", "yes"}
+    auto_history_rows = int(run_auto_history_updates() or 0)
+    forecast_count = run_scheduled_forecasts(force=force)
+    return JsonResponse(
+        {
+            "ok": True,
+            "force": force,
+            "auto_history_rows": auto_history_rows,
+            "forecast_count": forecast_count,
+            "count": forecast_count,
+        }
+    )
 
     history_rows = 0
     try:
