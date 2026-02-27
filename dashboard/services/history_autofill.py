@@ -479,6 +479,12 @@ def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
     if now_dt + timedelta(minutes=1) >= scheduled_dt:
         return True
 
+
+    # Небольшой grace-период защищает от пропусков на границе времени
+    # (например tick в 09:19:31 при расписании 09:20).
+    if now_dt + timedelta(minutes=1) >= scheduled_dt:
+        return True
+
     # Fallback для редких запусков планировщика (например, 1 раз в день):
     # если станция уже проверялась в прошлые дни, но сегодня ещё нет,
     # разрешаем выполнить проверку до времени auto_history_run_time,
@@ -519,6 +525,10 @@ def run_auto_history_updates() -> int:
             "Auto-history due station_id=%s now=%s run_time=%s last_run_date=%s",
             station.pk,
             now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+            getattr(station, "auto_history_run_time", None),
+            getattr(station, "auto_history_last_run_date", None),
+        )
+
             run_time,
             getattr(station, "auto_history_last_run_date", None),
         )
@@ -531,6 +541,11 @@ def run_auto_history_updates() -> int:
         # (например, если файлы появились позже или был временный сбой).
         if success and rows > 0:
             _mark_station_auto_history_checked(station, now_local.date())
+            logger.info("Auto-history marked checked station_id=%s rows=%s", station.pk, rows)
+        elif success:
+            logger.warning("Auto-history no new rows station_id=%s", station.pk)
+        else:
+            logger.warning("Auto-history failed station_id=%s", station.pk)
             _record_auto_history_tick(
                 station,
                 now_local,
