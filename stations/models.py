@@ -230,6 +230,27 @@ class Station(models.Model):
         editable=False,
         help_text="Служебное поле: дата последней автопроверки истории.",
     )
+    auto_history_last_check_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Служебное поле: дата/время последнего тика автоистории.",
+    )
+    auto_history_last_status = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Служебное поле: статус последнего тика автоистории.",
+    )
+    auto_history_last_rows = models.IntegerField(
+        default=0,
+        help_text="Служебное поле: сколько строк обновлено на последнем тике.",
+    )
+    auto_history_last_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Служебное поле: сообщение последнего тика автоистории.",
+    )
     sort_order = models.PositiveIntegerField(default=0, db_index=True)
 
     @staticmethod
