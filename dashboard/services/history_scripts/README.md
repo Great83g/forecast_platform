@@ -37,7 +37,6 @@ def build_history_dataframe(station):
 
 Готовый скрипт для станции 8.8 МВт:
 - `ses_8_8mw` (файл `dashboard/services/history_scripts/ses_8_8mw.py`)
-- Использование в поле `Скрипт автоистории`: `ses_8_8mw` (также сработают `ses 8 8mw`, `/history_scripts/ses_8_8mw`, `history_scripts\ses_8_8mw`)
-- Использование в поле `Скрипт автоистории`: `ses_8_8mw` (допустим и ввод с пробелами `ses 8 8mw` — нормализуется автоматически)
+- Использование в поле `Скрипт автоистории`: `ses_8_8mw` (также сработают `ses 8 8mw`, `/history_scripts/ses_8_8mw`, `history_scripts\ses_8_8mw`, `dashboard/services/history_scripts/ses_8_8mw`)
 - Скрипт читает Excel вида `СЭС Кенгир 10МВт <месяц> <год>.xlsx`, где листы названы датой `dd.mm.yyyy`, и формирует почасовой DataFrame.
 
