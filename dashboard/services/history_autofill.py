@@ -5,6 +5,7 @@ import importlib
 import importlib.util
 import logging
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -270,8 +271,23 @@ def _load_module_from_file(file_path: str):
     return module
 
 
+def _normalize_auto_history_script(raw_value: str) -> str:
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+
+    for sep in (" или ", " or "):
+        if sep in value:
+            first = value.split(sep, 1)[0].strip()
+            if first:
+                value = first
+            break
+
+    return value
+
+
 def _load_station_history_builder(station: Station):
-    raw_value = (getattr(station, "auto_history_script", "") or "").strip()
+    raw_value = _normalize_auto_history_script(getattr(station, "auto_history_script", ""))
     if not raw_value:
         return None
 
@@ -285,10 +301,12 @@ def _load_station_history_builder(station: Station):
     attr_name = attr_name.strip()
 
     if not module_target or not attr_name:
-        raise ValueError(
-            f"Invalid auto_history_script format for station_id={station.pk}: {raw_value}. "
-            "Use one of: module_name | python.module:function | /path/to/file.py:function"
+        logger.warning(
+            "Invalid auto_history_script format for station_id=%s: %s. Fallback to standard handler.",
+            station.pk,
+            raw_value,
         )
+        return None
 
     try:
         if module_target.endswith('.py') or '/' in module_target:
@@ -297,11 +315,13 @@ def _load_station_history_builder(station: Station):
             module = importlib.import_module(module_target)
 
         builder = getattr(module, attr_name)
-    except Exception as exc:
-        raise ValueError(
-            f"Cannot load auto_history_script for station_id={station.pk}: {raw_value}. "
-            "Check path/module and function name."
-        ) from exc
+    except Exception:
+        logger.exception(
+            "Cannot load auto_history_script for station_id=%s value=%s. Fallback to standard handler.",
+            station.pk,
+            raw_value,
+        )
+        return None
 
     if not callable(builder):
         raise TypeError(f"Custom history builder is not callable: {raw_value}")
@@ -386,9 +406,9 @@ def upsert_station_history_from_share(station: Station) -> int:
     return len(create_objs) + len(update_objs)
 
 
-def _safe_upsert_station(station: Station) -> int:
+def _safe_upsert_station(station: Station) -> tuple[int, bool]:
     try:
-        return upsert_station_history_from_share(station)
+        return upsert_station_history_from_share(station), True
     except Exception:
         logger.exception(
             "Auto-history failed for station_id=%s name=%s folder=%s",
@@ -396,19 +416,32 @@ def _safe_upsert_station(station: Station) -> int:
             station.name,
             station.auto_history_folder,
         )
-        return 0
+        return 0, False
 
 
 
 def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
+    last_run_date = getattr(station, "auto_history_last_run_date", None)
+    if last_run_date == now_local.date():
+        return False
+
     run_time = getattr(station, "auto_history_run_time", None)
     if run_time is None:
         return True
 
-    if now_local.time().replace(second=0, microsecond=0) < run_time.replace(second=0, microsecond=0):
-        return False
+    now_dt = now_local.replace(second=0, microsecond=0)
+    scheduled_dt = now_dt.replace(hour=run_time.hour, minute=run_time.minute)
 
-    return getattr(station, "auto_history_last_run_date", None) != now_local.date()
+    # Небольшой grace-период защищает от пропусков на границе времени
+    # (например tick в 09:19:31 при расписании 09:20).
+    if now_dt + timedelta(minutes=1) >= scheduled_dt:
+        return True
+
+    # Fallback для редких запусков планировщика (например, 1 раз в день):
+    # если станция уже проверялась в прошлые дни, но сегодня ещё нет,
+    # разрешаем выполнить проверку до времени auto_history_run_time,
+    # чтобы не ждать целые сутки до следующего тика.
+    return last_run_date is not None and last_run_date < now_local.date()
 
 
 def _mark_station_auto_history_checked(station: Station, check_date):
@@ -423,6 +456,28 @@ def run_auto_history_updates() -> int:
     for station in Station.objects.filter(auto_history_enabled=True):
         if not _is_station_due_for_auto_history(station, now_local):
             continue
-        updated_rows += _safe_upsert_station(station)
-        _mark_station_auto_history_checked(station, now_local.date())
+
+        logger.info(
+            "Auto-history due station_id=%s now=%s run_time=%s last_run_date=%s",
+            station.pk,
+            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+            getattr(station, "auto_history_run_time", None),
+            getattr(station, "auto_history_last_run_date", None),
+        )
+
+        rows, success = _safe_upsert_station(station)
+        updated_rows += rows
+
+        # Помечаем станцию как проверенную за день только если
+        # обновление действительно прошло успешно и были изменения.
+        # Иначе оставляем возможность повторной проверки в этот же день
+        # (например, если файлы появились позже или был временный сбой).
+        if success and rows > 0:
+            _mark_station_auto_history_checked(station, now_local.date())
+            logger.info("Auto-history marked checked station_id=%s rows=%s", station.pk, rows)
+        elif success:
+            logger.warning("Auto-history no new rows station_id=%s", station.pk)
+        else:
+            logger.warning("Auto-history failed station_id=%s", station.pk)
+
     return updated_rows

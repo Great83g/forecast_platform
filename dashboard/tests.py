@@ -177,11 +177,19 @@ class StationAutoHistoryCustomScriptTests(TestCase):
 
         self.assertEqual(rows, 1)
 
-    def test_invalid_custom_script_format_raises(self):
+    def test_invalid_custom_script_format_falls_back_to_standard_handler(self):
         self.station.auto_history_script = ":build_history_dataframe"
 
-        with self.assertRaises(ValueError):
-            upsert_station_history_from_share(self.station)
+        rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 0)
+
+    def test_script_value_with_help_text_uses_first_token(self):
+        self.station.auto_history_script = "example_station или dashboard.services.history_scripts.example_station:build_history_dataframe"
+
+        rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
 
 
 
@@ -217,6 +225,70 @@ class StationAutoHistoryScheduleTests(TestCase):
         self.assertEqual(second_rows, 0)
         self.station.refresh_from_db()
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
+
+    @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_allows_near_time_grace_window(self, localtime_mock, upsert_mock):
+        self.station.auto_history_last_run_date = None
+        self.station.auto_history_run_time = time(9, 20)
+        self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
+        localtime_mock.return_value = timezone.datetime(2026, 2, 24, 9, 19, 31, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 1)
+        upsert_mock.assert_called_once()
+
+    @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_allows_pre_time_run_when_scheduler_is_sparse(self, localtime_mock, upsert_mock):
+        self.station.auto_history_last_run_date = timezone.datetime(2026, 2, 23).date()
+        self.station.auto_history_run_time = time(9, 0)
+        self.station.save(update_fields=["auto_history_last_run_date", "auto_history_run_time"])
+        localtime_mock.return_value = timezone.datetime(2026, 2, 24, 6, 0, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 1)
+        upsert_mock.assert_called_once()
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-24")
+
+
+    @patch("dashboard.services.history_autofill._safe_upsert_station", side_effect=[(0, True), (1, True)])
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_retries_same_day_when_no_rows(self, localtime_mock, _safe_upsert_mock):
+        localtime_mock.return_value = timezone.datetime(2026, 2, 20, 6, 30, tzinfo=timezone.get_current_timezone())
+
+        first_rows = run_auto_history_updates()
+        second_rows = run_auto_history_updates()
+
+        self.assertEqual(first_rows, 0)
+        self.assertEqual(second_rows, 1)
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
+
+
+
+class StationAutoHistoryConfigChangeResetTests(TestCase):
+    def test_station_save_resets_last_run_date_when_auto_history_config_changes(self):
+        user = User.objects.create_user(username="autohistory-reset", password="pass")
+        org = Organization.objects.create(name="AutoHistory Reset Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Reset Station",
+            capacity_mw=1.0,
+            auto_history_enabled=True,
+            auto_history_run_time=time(6, 0),
+            auto_history_last_run_date=timezone.datetime(2026, 2, 20).date(),
+        )
+
+        station.auto_history_run_time = time(7, 0)
+        station.save()
+
+        station.refresh_from_db()
+        self.assertIsNone(station.auto_history_last_run_date)
+
 
 
 class StationAutoHistoryMergeSameDateTests(TestCase):
@@ -433,27 +505,34 @@ class ForecastSchedulerTickViewTests(TestCase):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(username="viewer", password="pass")
 
+    @patch("dashboard.views.run_auto_history_updates", return_value=5)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=3)
-    def test_scheduler_tick_parses_force_true(self, run_mock):
+    def test_scheduler_tick_parses_force_true(self, run_mock, history_mock):
         request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/?force=1")
         request.user = self.user
 
         response = station_forecast_scheduler_tick(request)
 
         self.assertEqual(response.status_code, 200)
+        history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=True)
         self.assertIn(b'"force": true', response.content)
+        self.assertIn(b'"auto_history_rows": 5', response.content)
+        self.assertIn(b'"forecast_count": 3', response.content)
 
+    @patch("dashboard.views.run_auto_history_updates", return_value=0)
     @patch("dashboard.views.run_scheduled_forecasts", return_value=0)
-    def test_scheduler_tick_defaults_force_false(self, run_mock):
+    def test_scheduler_tick_defaults_force_false(self, run_mock, history_mock):
         request = self.factory.get("/dashboard/stations/1/forecast/scheduler-tick/")
         request.user = self.user
 
         response = station_forecast_scheduler_tick(request)
 
         self.assertEqual(response.status_code, 200)
+        history_mock.assert_called_once_with()
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
+        self.assertIn(b'"auto_history_rows": 0', response.content)
 
 
 class HistoryDatetimeParsingTests(TestCase):
