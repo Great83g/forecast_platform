@@ -372,6 +372,33 @@ class Station(models.Model):
             return False
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            previous = (
+                Station.objects.filter(pk=self.pk)
+                .values(
+                    "auto_history_enabled",
+                    "auto_history_folder",
+                    "auto_history_script",
+                    "auto_history_run_time",
+                    "history_source_id",
+                    "history_scale_by_capacity",
+                )
+                .first()
+            )
+            if previous:
+                auto_history_config_changed = any(
+                    [
+                        previous["auto_history_enabled"] != self.auto_history_enabled,
+                        (previous["auto_history_folder"] or "") != (self.auto_history_folder or ""),
+                        (previous["auto_history_script"] or "") != (self.auto_history_script or ""),
+                        previous["auto_history_run_time"] != self.auto_history_run_time,
+                        previous["history_source_id"] != self.history_source_id,
+                        previous["history_scale_by_capacity"] != self.history_scale_by_capacity,
+                    ]
+                )
+                if auto_history_config_changed:
+                    self.auto_history_last_run_date = None
+
         if (self.auto_history_folder or "").rstrip("/") == "/mnt/share":
             self.auto_history_folder = self._build_preferred_auto_history_folder()
         if self.pk is None and self.sort_order == 0:
