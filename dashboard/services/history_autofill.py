@@ -5,6 +5,7 @@ import importlib
 import importlib.util
 import logging
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -470,49 +471,19 @@ def _is_station_due_for_auto_history(station: Station, now_local) -> bool:
     if run_time is None:
         return True
 
-    now_time = now_local.time().replace(second=0, microsecond=0)
-    scheduled_time = run_time.replace(second=0, microsecond=0)
-    if now_time >= scheduled_time:
+    now_dt = now_local.replace(second=0, microsecond=0)
+    scheduled_dt = now_dt.replace(hour=run_time.hour, minute=run_time.minute)
+
+    # Небольшой grace-период защищает от пропусков на границе времени
+    # (например tick в 09:19:31 при расписании 09:20).
+    if now_dt + timedelta(minutes=1) >= scheduled_dt:
         return True
 
-    current_minutes = now_time.hour * 60 + now_time.minute
-    scheduled_minutes = scheduled_time.hour * 60 + scheduled_time.minute
-    minutes_before_schedule = scheduled_minutes - current_minutes
-
-    if 0 < minutes_before_schedule <= EARLY_FALLBACK_WINDOW_MINUTES:
-        logger.warning(
-            "Auto-history early fallback station_id=%s now=%s run_time=%s minutes_before_schedule=%s last_run_date=%s",
-            station.pk,
-            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
-            run_time,
-            minutes_before_schedule,
-            last_run_date,
-        )
-        return True
-
-    return False
-
-
-def _record_auto_history_tick(
-    station: Station,
-    now_local,
-    *,
-    status: str,
-    rows: int,
-    message: str,
-):
-    station.auto_history_last_check_at = now_local
-    station.auto_history_last_status = status[:32]
-    station.auto_history_last_rows = int(rows or 0)
-    station.auto_history_last_message = message[:1000]
-    station.save(
-        update_fields=[
-            "auto_history_last_check_at",
-            "auto_history_last_status",
-            "auto_history_last_rows",
-            "auto_history_last_message",
-        ]
-    )
+    # Fallback для редких запусков планировщика (например, 1 раз в день):
+    # если станция уже проверялась в прошлые дни, но сегодня ещё нет,
+    # разрешаем выполнить проверку до времени auto_history_run_time,
+    # чтобы не ждать целые сутки до следующего тика.
+    return last_run_date is not None and last_run_date < now_local.date()
 
 
 def _mark_station_auto_history_checked(station: Station, check_date):
