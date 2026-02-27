@@ -896,15 +896,6 @@ def station_forecast_scheduler_tick(request):
         }
     )
 
-    history_rows = 0
-    try:
-        history_rows = int(run_auto_history_updates() or 0)
-    except Exception:
-        logger.exception("Auto-history scheduler tick failed")
-
-    count = run_scheduled_forecasts(force=force)
-    return JsonResponse({"ok": True, "count": count, "force": force, "history_rows": history_rows})
-
 
 @login_required
 def station_forecast_clear(request, pk: int):
