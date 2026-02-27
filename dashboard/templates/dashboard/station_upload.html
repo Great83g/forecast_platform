@@ -8,6 +8,19 @@
   <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
   <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
 </div>
+<div class="alert alert-info py-2 px-3 small">
+  <b>Тик автоистории:</b>
+  {% if station.auto_history_last_check_at %}
+    {{ station.auto_history_last_check_at|date:"d.m.Y H:i:s" }}
+  {% else %}
+    ещё не было
+  {% endif %}
+  | <b>Статус:</b> {{ station.auto_history_last_status|default:"—" }}
+  | <b>Строк:</b> {{ station.auto_history_last_rows|default:0 }}
+  {% if station.auto_history_last_message %}
+    | <b>Сообщение:</b> {{ station.auto_history_last_message }}
+  {% endif %}
+</div>
 
 <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
   <div>

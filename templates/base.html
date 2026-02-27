@@ -1,6 +1,7 @@
 {% load static %}
 <!DOCTYPE html>
 <html lang="ru">
+{% load static %}
 <head>
   <meta charset="UTF-8">
   <title>{% block title %}Dashboard{% endblock %}</title>
@@ -24,6 +25,12 @@
   display:block;
   object-fit:contain;
   flex-shrink:0;
+}
+
+.navbar-brand .brand-logo{
+  height:40px;
+  width:auto;
+  display:block;
   margin-right:0;
 }
 
@@ -35,6 +42,10 @@
 
 .navbar{
   min-height:72px;
+}
+  font-size:1.15rem;
+  line-height:1;
+  margin-left:0;
 }
 /* === /INTECH BRAND FIX === */
 </style>
