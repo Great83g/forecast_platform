@@ -457,6 +457,14 @@ def run_auto_history_updates() -> int:
         if not _is_station_due_for_auto_history(station, now_local):
             continue
 
+        logger.info(
+            "Auto-history due station_id=%s now=%s run_time=%s last_run_date=%s",
+            station.pk,
+            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+            getattr(station, "auto_history_run_time", None),
+            getattr(station, "auto_history_last_run_date", None),
+        )
+
         rows, success = _safe_upsert_station(station)
         updated_rows += rows
 
@@ -466,5 +474,10 @@ def run_auto_history_updates() -> int:
         # (например, если файлы появились позже или был временный сбой).
         if success and rows > 0:
             _mark_station_auto_history_checked(station, now_local.date())
+            logger.info("Auto-history marked checked station_id=%s rows=%s", station.pk, rows)
+        elif success:
+            logger.warning("Auto-history no new rows station_id=%s", station.pk)
+        else:
+            logger.warning("Auto-history failed station_id=%s", station.pk)
 
     return updated_rows
