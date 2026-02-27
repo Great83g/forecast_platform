@@ -841,3 +841,32 @@ class RunScheduledForecastsCommandTests(TestCase):
         result = _run_auto_history_updates_safe(DummyStdout(), DummyStyle)
 
         self.assertEqual(result, 7)
+
+
+class Ses88MwHistoryScriptTests(TestCase):
+    def test_build_history_dataframe_parses_kengir_excel_format(self):
+        from dashboard.services.history_scripts.ses_8_8mw import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "СЭС Кенгир 10МВт февраль 2026.xlsx"
+
+            raw = pd.DataFrame(
+                [
+                    ["Время", "Фактическая выработка", "Активная мощность", "Иррадиация", "", "", "Температура воздуха", "Температура PV"],
+                    ["08:00", 73, 0.22, 30.7, "", "", -9.1, -9.0],
+                    ["08:15", 155, 0.36, 46.9, "", "", -9.1, -8.9],
+                    ["scada", 0, 0.0, 0.0, "", "", 0.0, 0.0],
+                    ["08:30", 275, 10.5, 65.8, "", "", -9.2, -8.9],
+                ]
+            )
+            with pd.ExcelWriter(xlsx_path, engine="openpyxl") as writer:
+                raw.to_excel(writer, sheet_name="26.02.2026", header=False, index=False)
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+            self.assertEqual(len(out), 1)
+            self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-26 08:00:00")
+            self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
+            self.assertGreater(float(out.iloc[0]["irradiation"]), 40.0)
