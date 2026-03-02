@@ -624,7 +624,8 @@ def station_forecast_list(request, pk: int):
     manual_snow_factor = request.GET.get("manual_snow_factor") or ""
     manual_snow_dates = request.GET.get("manual_snow_dates") or ""
     target_dates_raw = request.GET.get("target_dates") or ""
-    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
+    manual_auto_send = request.GET.get("manual_auto_send") in {"1", "true", "on", "yes"}
+    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
         if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
@@ -711,6 +712,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_factor": manual_snow_factor,
             "manual_snow_dates": manual_snow_dates,
             "target_dates_raw": target_dates_raw,
+            "manual_auto_send": manual_auto_send,
             "open_meteo_only": open_meteo_only,
             "horizon_mode": horizon_mode,
             "forecast_scope": forecast_scope,
@@ -737,6 +739,7 @@ def station_forecast_run(request, pk: int):
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
     manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
     target_dates_raw = request.GET.get("target_dates") or ""
+    manual_auto_send = request.GET.get("manual_auto_send") in {"1", "true", "on", "yes"}
     forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
@@ -814,10 +817,13 @@ def station_forecast_run(request, pk: int):
                 target_dates=res.get("target_dates") or [],
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
-            if send_report_email(report, [emails_raw], st.name, days):
-                msg += f" | Email: {emails_raw}"
+            if manual_auto_send and emails_raw:
+                if send_report_email(report, [emails_raw], st.name, days):
+                    msg += f" | Email: {emails_raw}"
+                else:
+                    msg += " | Email: ошибка отправки"
             elif emails_raw:
-                msg += " | Email: ошибка отправки"
+                msg += " | Email: авто-отправка выключена"
             if not res.get("np_ok"):
                 np_err = res.get("np_error") or "FAIL"
                 msg += f" | NP: {np_err}"
@@ -839,6 +845,7 @@ def station_forecast_run(request, pk: int):
             "manual_snow_factor": manual_snow_factor_raw or "",
             "manual_snow_dates": manual_snow_dates_raw,
             "target_dates": target_dates_raw,
+            "manual_auto_send": "1" if manual_auto_send else "",
             "open_meteo_only": "1" if open_meteo_only else "",
             "horizon_mode": horizon_mode,
             "scope": forecast_scope,
