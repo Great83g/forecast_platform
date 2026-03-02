@@ -54,7 +54,7 @@
           <div class="form-check m-0">
             <input class="form-check-input" type="checkbox" name="{{ schedule_form.manual_snow_enable.name }}" id="{{ schedule_form.manual_snow_enable.id_for_label }}"
                    {% if schedule_form.manual_snow_enable.value %}checked{% endif %}>
-          <label class="form-check-label ms-1" for="{{ schedule_form.manual_snow_enable.id_for_label }}">{{ schedule_form.manual_snow_enable.label }}</label>
+            <label class="form-check-label ms-1" for="{{ schedule_form.manual_snow_enable.id_for_label }}">{{ schedule_form.manual_snow_enable.label }}</label>
           </div>
           {{ schedule_form.manual_snow_factor }}
           {{ schedule_form.manual_snow_dates }}
@@ -67,76 +67,97 @@
     </div>
   </div>
 
+  <div class="card mb-3 border-primary-subtle">
+    <div class="card-body">
+      <h6 class="card-title mb-3">Ручной режим</h6>
+      <form class="d-flex flex-column gap-3" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <div class="d-flex align-items-center gap-2 small">
+            <label class="small mb-0 text-muted">Дней:</label>
+            <select name="days" class="form-select form-select-sm" style="width: 100px;">
+              {% for d in '1234567' %}
+                <option value="{{ d }}" {% if days|stringformat:'s' == d %}selected{% endif %}>{{ d }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="d-flex align-items-center gap-2 small">
+            <label class="text-muted mb-0" for="horizon-mode">Режим:</label>
+            <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 290px;">
+              <option value="legacy" {% if horizon_mode == 'legacy' %}selected{% endif %}>Обычный (старый)</option>
+              <option value="weekday_calendar" {% if horizon_mode == 'weekday_calendar' %}selected{% endif %}>Календарь: Пн–Чт → +2 дня, Пт → +1/+2/+3</option>
+            </select>
+          </div>
+          <div class="d-flex align-items-center gap-2 small">
+            <label class="text-muted mb-0" for="scope-mode">База:</label>
+            <select id="scope-mode" name="scope" class="form-select form-select-sm" style="width: 180px;">
+              <option value="main" {% if forecast_scope == 'main' %}selected{% endif %}>Основная</option>
+              <option value="test" {% if forecast_scope == 'test' %}selected{% endif %}>Тестовая</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <div class="d-flex align-items-center gap-2 small">
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" name="manual_snow_enable" id="manual-snow-enable" value="1"
+                     {% if manual_snow_enable %}checked{% endif %}>
+              <label class="form-check-label" for="manual-snow-enable">Снег/облака (ручной фактор)</label>
+            </div>
+            <input class="form-control form-control-sm" type="number" step="0.05" min="0" max="1" name="manual_snow_factor"
+                   style="width: 90px;" placeholder="0.50" value="{{ manual_snow_factor }}">
+            <input class="form-control form-control-sm" type="text" name="manual_snow_dates"
+                   style="width: 230px;" placeholder="2025-02-05, 2025-02-06" value="{{ manual_snow_dates }}">
+          </div>
+          <div class="d-flex align-items-center gap-2 small">
+            <label class="text-muted mb-0" for="target-dates-run">Постфактум даты:</label>
+            <input id="target-dates-run" class="form-control form-control-sm" type="text" name="target_dates"
+                   style="width: 230px;" placeholder="2026-02-22, 2026-02-23" value="{{ target_dates_raw }}">
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <div class="d-flex align-items-center gap-2 small">
+            <span class="text-muted">Провайдеры:</span>
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" name="providers" id="provider-visual-crossing" value="visual_crossing"
+                     {% if 'visual_crossing' in selected_providers %}checked{% endif %}>
+              <label class="form-check-label" for="provider-visual-crossing">Visual Crossing</label>
+            </div>
+            <div class="form-check form-check-inline m-0">
+              <input class="form-check-input" type="checkbox" name="providers" id="provider-open-meteo" value="open_meteo"
+                     {% if 'open_meteo' in selected_providers %}checked{% endif %}>
+              <label class="form-check-label" for="provider-open-meteo">Open‑Meteo</label>
+            </div>
+            <div class="form-check m-0">
+              <input class="form-check-input" type="checkbox" name="open_meteo_only" id="open-meteo-only" value="1"
+                     {% if open_meteo_only %}checked{% endif %}>
+              <label class="form-check-label" for="open-meteo-only">Open‑Meteo без истории (только эвристика)</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <div class="d-flex align-items-center gap-2 small">
+            <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>
+            {{ email_form.emails }}
+          </div>
+          <div class="form-check m-0">
+            <input class="form-check-input" type="checkbox" name="manual_auto_send" id="manual-auto-send" value="1" {% if manual_auto_send %}checked{% endif %}>
+            <label class="form-check-label small" for="manual-auto-send">Авто-отправка отчёта в ручном режиме</label>
+          </div>
+          <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="d-flex flex-wrap gap-2 mb-3">
-    <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
-      <label class="small mb-0 text-muted">Дней:</label>
-      <select name="days" class="form-select form-select-sm" style="width: 100px;">
-        {% for d in '1234567' %}
-          <option value="{{ d }}" {% if days|stringformat:'s' == d %}selected{% endif %}>{{ d }}</option>
-        {% endfor %}
-      </select>
-      <div class="d-flex align-items-center gap-2 small">
-        <div class="form-check form-check-inline m-0">
-          <input class="form-check-input" type="checkbox" name="manual_snow_enable" id="manual-snow-enable" value="1"
-                 {% if manual_snow_enable %}checked{% endif %}>
-          <label class="form-check-label" for="manual-snow-enable">Снег/облака (ручной фактор)</label>
-        </div>
-        <input class="form-control form-control-sm" type="number" step="0.05" min="0" max="1" name="manual_snow_factor"
-               style="width: 90px;" placeholder="0.50" value="{{ manual_snow_factor }}">
-        <input class="form-control form-control-sm" type="text" name="manual_snow_dates"
-               style="width: 140px;" placeholder="2025-02-05, 2025-02-06" value="{{ manual_snow_dates }}">
-      </div>
-      <div class="d-flex align-items-center gap-2 small">
-        <div class="form-check form-check-inline m-0">
-          <input class="form-check-input" type="checkbox" name="providers" id="provider-visual-crossing" value="visual_crossing"
-                 {% if 'visual_crossing' in selected_providers %}checked{% endif %}>
-          <label class="form-check-label" for="provider-visual-crossing">Visual Crossing</label>
-        </div>
-        <div class="form-check form-check-inline m-0">
-          <input class="form-check-input" type="checkbox" name="providers" id="provider-open-meteo" value="open_meteo"
-                 {% if 'open_meteo' in selected_providers %}checked{% endif %}>
-          <label class="form-check-label" for="provider-open-meteo">Open‑Meteo</label>
-        </div>
-      </div>
-      <div class="form-check small m-0">
-        <input class="form-check-input" type="checkbox" name="open_meteo_only" id="open-meteo-only" value="1"
-               {% if open_meteo_only %}checked{% endif %}>
-        <label class="form-check-label" for="open-meteo-only">Open‑Meteo без истории (только эвристика)</label>
-      </div>
-      <div class="d-flex align-items-center gap-2 small">
-        <label class="text-muted mb-0" for="horizon-mode">Режим:</label>
-        <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 290px;">
-          <option value="legacy" {% if horizon_mode == 'legacy' %}selected{% endif %}>Обычный (старый)</option>
-          <option value="weekday_calendar" {% if horizon_mode == 'weekday_calendar' %}selected{% endif %}>Календарь: Пн–Чт → +2 дня, Пт → +1/+2/+3</option>
-        </select>
-      </div>
-      <div class="d-flex align-items-center gap-2 small">
-        <label class="text-muted mb-0" for="scope-mode">База:</label>
-        <select id="scope-mode" name="scope" class="form-select form-select-sm" style="width: 180px;">
-          <option value="main" {% if forecast_scope == 'main' %}selected{% endif %}>Основная</option>
-          <option value="test" {% if forecast_scope == 'test' %}selected{% endif %}>Тестовая</option>
-        </select>
-      </div>
-      <div class="d-flex align-items-center gap-2 small">
-        <label class="text-muted mb-0" for="target-dates-run">Постфактум даты (ручной режим):</label>
-        <input id="target-dates-run" class="form-control form-control-sm" type="text" name="target_dates"
-               style="width: 230px;" placeholder="2026-02-22, 2026-02-23" value="{{ target_dates_raw }}">
-      </div>
-      <div class="d-flex align-items-center gap-2 small">
-        <label class="text-muted mb-0" for="{{ email_form.emails.id_for_label }}">Email:</label>
-        {{ email_form.emails }}
-      </div>
-      <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
-    </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-list' station.pk %}">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
       <label class="small mb-0 text-muted">Дата:</label>
       <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
       <button class="btn btn-sm btn-outline-secondary" type="submit">Показать дату</button>
       <a class="btn btn-sm btn-outline-light border" href="{% url 'dashboard:station-forecast-list' station.pk %}">Сброс</a>
-      <label class="small mb-0 text-muted" for="target-dates">Постфактум даты (ручной режим):</label>
-      <input id="target-dates" class="form-control form-control-sm" type="text" name="target_dates"
-             style="width: 230px;" placeholder="2026-02-22, 2026-02-23" value="{{ target_dates_raw }}">
     </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-export' station.pk %}">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
@@ -209,7 +230,7 @@
       if (!scopeSelect) return;
       scopeSelect.addEventListener("change", function () {
         var url = new URL(window.location.href);
-        url.searchParams.set("scope", scopeSelect.value || "main");
+        url.searchParams.set("scope", scopeSelect.value || "test");
         window.location.href = url.toString();
       });
     }
