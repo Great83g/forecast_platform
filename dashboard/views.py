@@ -354,6 +354,8 @@ def station_detail(request, pk: int):
     labels = []
     fact_series = []
     plan_series = []
+    fact_energy_kwh = 0.0
+    plan_energy_kwh = 0.0
     for ts in sorted(set(history_map.keys()) | set(forecast_map.keys())):
         fact_kw = history_map.get(ts)
         plan_kw = forecast_map.get(ts)
@@ -369,6 +371,17 @@ def station_detail(request, pk: int):
         fact_series.append(round(fact_kw / 1000.0, 4) if fact_kw is not None else None)
         plan_series.append(round(plan_kw / 1000.0, 4) if plan_kw is not None else None)
 
+        # В режиме одного дня точки агрегированы по часам (средняя мощность за час),
+        # поэтому сумма кВт примерно равна дневной энергии в кВт·ч.
+        if is_single_day_range:
+            if fact_kw is not None:
+                fact_energy_kwh += fact_kw
+            if plan_kw is not None:
+                plan_energy_kwh += plan_kw
+
+    deviation_kwh = fact_energy_kwh - plan_energy_kwh
+    deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
+
     context = {
         "station": st,
         "date_from": date_from,
@@ -379,6 +392,10 @@ def station_detail(request, pk: int):
         "points_count": len(merged_points),
         "comparison_rows": merged_points[:200],
         "is_single_day_range": is_single_day_range,
+        "fact_energy_kwh": round(fact_energy_kwh),
+        "plan_energy_kwh": round(plan_energy_kwh),
+        "deviation_kwh": round(deviation_kwh),
+        "deviation_percent": round(deviation_percent, 1) if deviation_percent is not None else None,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)
