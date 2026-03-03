@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/workspace/forecast_platform}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SERVICE_CANDIDATES="${SERVICE_CANDIDATES:-gunicorn forecast-platform forecast_portal backend}"
 SUPERVISOR_PROGRAM="${SUPERVISOR_PROGRAM:-forecast_portal}"
 DOCKER_CONTAINER="${DOCKER_CONTAINER:-forecast_portal_web}"
