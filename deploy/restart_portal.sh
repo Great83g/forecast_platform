@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${PROJECT_DIR:-/workspace/forecast_platform}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 SERVICE_CANDIDATES="${SERVICE_CANDIDATES:-gunicorn forecast-platform forecast_portal backend}"
 SUPERVISOR_PROGRAM="${SUPERVISOR_PROGRAM:-forecast_portal}"
 DOCKER_CONTAINER="${DOCKER_CONTAINER:-forecast_portal_web}"
@@ -16,6 +16,27 @@ restart_systemd() {
   echo "[restart] Using systemd unit ${unit}.service"
   systemctl restart "${unit}.service"
   systemctl --no-pager --lines=20 status "${unit}.service"
+}
+
+restart_systemd_user() {
+  local unit="$1"
+  echo "[restart] Using user systemd unit ${unit}.service"
+  systemctl --user restart "${unit}.service"
+  systemctl --user --no-pager --lines=20 status "${unit}.service"
+}
+
+reload_gunicorn_master() {
+  local master_pid
+  master_pid="$(pgrep -o -f 'gunicorn: master' || true)"
+
+  if [ -n "$master_pid" ]; then
+    echo "[restart] Found gunicorn master process (${master_pid}), sending HUP for graceful reload"
+    kill -HUP "$master_pid"
+    ps -fp "$master_pid"
+    return 0
+  fi
+
+  return 1
 }
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -35,6 +56,15 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
+if command -v systemctl >/dev/null 2>&1; then
+  for service in $SERVICE_CANDIDATES; do
+    if systemctl --user list-unit-files --type=service 2>/dev/null | rg -q "^${service}\.service"; then
+      restart_systemd_user "$service"
+      exit 0
+    fi
+  done
+fi
+
 if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status | rg -q "^${SUPERVISOR_PROGRAM}\b"; then
   echo "[restart] Using supervisor program ${SUPERVISOR_PROGRAM}"
   supervisorctl restart "${SUPERVISOR_PROGRAM}"
@@ -46,6 +76,10 @@ if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | rg -q 
   echo "[restart] Using docker container ${DOCKER_CONTAINER}"
   docker restart "${DOCKER_CONTAINER}"
   docker ps --filter "name=${DOCKER_CONTAINER}"
+  exit 0
+fi
+
+if reload_gunicorn_master; then
   exit 0
 fi
 
