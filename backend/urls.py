@@ -5,6 +5,7 @@ from django.urls import path, include
 from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
 from accounts.web_views import RegisterPageView
+from backend.branding_views import brand_logo
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -16,6 +17,8 @@ urlpatterns = [
     path("login/", auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("register/", RegisterPageView.as_view(), name="register"),
+
+    path("brand-logo/", brand_logo, name="brand-logo"),
 
     # dashboard
     path("dashboard/", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
