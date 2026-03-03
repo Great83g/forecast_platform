@@ -416,6 +416,7 @@ def station_detail(request, pk: int):
     temp_plan_series = []
     fact_energy_kwh = 0.0
     plan_energy_kwh = 0.0
+    mape_values = []
     all_timestamps = sorted(
         set(history_map.keys())
         | set(forecast_map.keys())
@@ -451,19 +452,18 @@ def station_detail(request, pk: int):
             if plan_kw is not None:
                 plan_energy_kwh += plan_kw
 
-    deviation_kwh = fact_energy_kwh - plan_energy_kwh
-    deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
-
-        # В режиме одного дня точки агрегированы по часам (средняя мощность за час),
-        # поэтому сумма кВт примерно равна дневной энергии в кВт·ч.
-        if is_single_day_range:
-            if fact_kw is not None:
-                fact_energy_kwh += fact_kw
-            if plan_kw is not None:
-                plan_energy_kwh += plan_kw
+        if fact_kw not in (None, 0) and plan_kw is not None:
+            mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
 
     deviation_kwh = fact_energy_kwh - plan_energy_kwh
     deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
+    if mape_values:
+        mape_percent = sum(mape_values) / len(mape_values)
+    elif is_single_day_range and fact_energy_kwh:
+        # Fallback for sparse series: estimate by daily totals when point-wise MAPE is unavailable.
+        mape_percent = abs((fact_energy_kwh - plan_energy_kwh) / fact_energy_kwh) * 100.0
+    else:
+        mape_percent = None
 
     context = {
         "station": st,
@@ -483,6 +483,7 @@ def station_detail(request, pk: int):
         "plan_energy_kwh": round(plan_energy_kwh),
         "deviation_kwh": round(deviation_kwh),
         "deviation_percent": round(deviation_percent, 1) if deviation_percent is not None else None,
+        "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)

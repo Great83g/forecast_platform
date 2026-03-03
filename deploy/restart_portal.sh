@@ -9,10 +9,20 @@ ALLOW_RUNSERVER_FALLBACK="${ALLOW_RUNSERVER_FALLBACK:-0}"
 GUNICORN_PORT="${GUNICORN_PORT:-8000}"
 GUNICORN_PID_FILE="${GUNICORN_PID_FILE:-}"
 GUNICORN_MATCH="${GUNICORN_MATCH:-gunicorn}"
+SKIP_CONFLICT_CHECK="${SKIP_CONFLICT_CHECK:-0}"
 
 cd "$PROJECT_DIR"
 
 echo "[restart] Detecting process manager..."
+
+if [ "$SKIP_CONFLICT_CHECK" != "1" ] && command -v git >/dev/null 2>&1; then
+  if git -C "$PROJECT_DIR" grep -nE '^(<<<<<<< |=======|>>>>>>>)' -- '*.py' '*.html' '*.js' '*.css' >/tmp/restart_portal_conflicts.txt 2>/dev/null; then
+    echo "[restart] ERROR: unresolved merge conflict markers found in working tree."
+    cat /tmp/restart_portal_conflicts.txt
+    echo "[restart] Resolve conflicts first or run with SKIP_CONFLICT_CHECK=1 to bypass."
+    exit 1
+  fi
+fi
 
 restart_systemd() {
   local unit="$1"
