@@ -8,6 +8,18 @@ DEFAULT_GUNICORN_PORT="${DEFAULT_GUNICORN_PORT:-8000}"
 
 cd "$PROJECT_DIR"
 
+echo "[deploy] Checking git operation state..."
+if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+  echo "[deploy] ERROR: interactive rebase is in progress."
+  echo "[deploy] Run 'git status', resolve conflicts, then 'git rebase --continue' (or 'git rebase --abort')."
+  exit 1
+fi
+if [ -f .git/MERGE_HEAD ]; then
+  echo "[deploy] ERROR: merge is in progress."
+  echo "[deploy] Resolve conflicts and commit, or abort merge with 'git merge --abort'."
+  exit 1
+fi
+
 echo "[deploy] Checking unresolved merges..."
 if git diff --name-only --diff-filter=U | grep -q .; then
   echo "[deploy] ERROR: there are unresolved merge conflicts."
