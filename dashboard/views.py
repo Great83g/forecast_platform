@@ -454,6 +454,17 @@ def station_detail(request, pk: int):
     deviation_kwh = fact_energy_kwh - plan_energy_kwh
     deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
 
+        # В режиме одного дня точки агрегированы по часам (средняя мощность за час),
+        # поэтому сумма кВт примерно равна дневной энергии в кВт·ч.
+        if is_single_day_range:
+            if fact_kw is not None:
+                fact_energy_kwh += fact_kw
+            if plan_kw is not None:
+                plan_energy_kwh += plan_kw
+
+    deviation_kwh = fact_energy_kwh - plan_energy_kwh
+    deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
+
     context = {
         "station": st,
         "date_from": date_from,
