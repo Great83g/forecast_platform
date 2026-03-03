@@ -25,14 +25,40 @@ from solar.models import SolarRecord, SolarForecast
 
 from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
 
-# forecast service (обязательно должен быть)
-from .services.forecast_engine import run_forecast_for_station
-from .services.forecast_reports import build_forecast_report, send_report_email
-from .services.forecast_scheduler import run_scheduled_forecasts
-from .services.history_autofill import run_auto_history_updates
 from .models import ForecastSchedule
 
 logger = logging.getLogger(__name__)
+
+
+def _run_forecast_for_station_safe(*args, **kwargs):
+    from .services.forecast_engine import run_forecast_for_station
+
+    return run_forecast_for_station(*args, **kwargs)
+
+
+def _build_forecast_report_safe(*args, **kwargs):
+    from .services.forecast_reports import build_forecast_report
+
+    return build_forecast_report(*args, **kwargs)
+
+
+def _send_report_email_safe(*args, **kwargs):
+    from .services.forecast_reports import send_report_email
+
+    return send_report_email(*args, **kwargs)
+
+
+def _run_scheduled_forecasts_safe(*args, **kwargs):
+    from .services.forecast_scheduler import run_scheduled_forecasts
+
+    return run_scheduled_forecasts(*args, **kwargs)
+
+
+def _run_auto_history_updates_safe(*args, **kwargs):
+    from .services.history_autofill import run_auto_history_updates
+
+    return run_auto_history_updates(*args, **kwargs)
+
 
 # train service (может быть/не быть — не валим портал)
 try:
@@ -317,13 +343,21 @@ def station_detail(request, pk: int):
         history_rows = (
             history_qs.annotate(bucket=TruncHour("timestamp"))
             .values("bucket")
-            .annotate(power_kw=Avg("power_kw"))
+            .annotate(
+                power_kw=Avg("power_kw"),
+                irradiation=Avg("irradiation"),
+                air_temp=Avg("air_temp"),
+            )
             .order_by("bucket")
         )
         forecast_rows = (
             forecast_qs.annotate(bucket=TruncHour("timestamp"))
             .values("bucket")
-            .annotate(pred_final=Avg("pred_final"))
+            .annotate(
+                pred_final=Avg("pred_final"),
+                irradiation_fc=Avg("irradiation_fc"),
+                air_temp_fc=Avg("air_temp_fc"),
+            )
             .order_by("bucket")
         )
         history_map = {
@@ -336,9 +370,37 @@ def station_detail(request, pk: int):
             for row in forecast_rows
             if row.get("pred_final") is not None
         }
+        irr_fact_map = {
+            row["bucket"]: float(row["irradiation"])
+            for row in history_rows
+            if row.get("irradiation") is not None
+        }
+        irr_plan_map = {
+            row["bucket"]: float(row["irradiation_fc"])
+            for row in forecast_rows
+            if row.get("irradiation_fc") is not None
+        }
+        temp_fact_map = {
+            row["bucket"]: float(row["air_temp"])
+            for row in history_rows
+            if row.get("air_temp") is not None
+        }
+        temp_plan_map = {
+            row["bucket"]: float(row["air_temp_fc"])
+            for row in forecast_rows
+            if row.get("air_temp_fc") is not None
+        }
     else:
-        history_rows = history_qs.values("timestamp").annotate(power_kw=Avg("power_kw")).order_by("timestamp")
-        forecast_rows = forecast_qs.values("timestamp").annotate(pred_final=Avg("pred_final")).order_by("timestamp")
+        history_rows = history_qs.values("timestamp").annotate(
+            power_kw=Avg("power_kw"),
+            irradiation=Avg("irradiation"),
+            air_temp=Avg("air_temp"),
+        ).order_by("timestamp")
+        forecast_rows = forecast_qs.values("timestamp").annotate(
+            pred_final=Avg("pred_final"),
+            irradiation_fc=Avg("irradiation_fc"),
+            air_temp_fc=Avg("air_temp_fc"),
+        ).order_by("timestamp")
         history_map = {
             row["timestamp"]: float(row["power_kw"])
             for row in history_rows
@@ -349,12 +411,46 @@ def station_detail(request, pk: int):
             for row in forecast_rows
             if row.get("pred_final") is not None
         }
+        irr_fact_map = {
+            row["timestamp"]: float(row["irradiation"])
+            for row in history_rows
+            if row.get("irradiation") is not None
+        }
+        irr_plan_map = {
+            row["timestamp"]: float(row["irradiation_fc"])
+            for row in forecast_rows
+            if row.get("irradiation_fc") is not None
+        }
+        temp_fact_map = {
+            row["timestamp"]: float(row["air_temp"])
+            for row in history_rows
+            if row.get("air_temp") is not None
+        }
+        temp_plan_map = {
+            row["timestamp"]: float(row["air_temp_fc"])
+            for row in forecast_rows
+            if row.get("air_temp_fc") is not None
+        }
 
     merged_points = []
     labels = []
     fact_series = []
     plan_series = []
-    for ts in sorted(set(history_map.keys()) | set(forecast_map.keys())):
+    irr_fact_series = []
+    irr_plan_series = []
+    temp_fact_series = []
+    temp_plan_series = []
+    fact_energy_kwh = 0.0
+    plan_energy_kwh = 0.0
+    all_timestamps = sorted(
+        set(history_map.keys())
+        | set(forecast_map.keys())
+        | set(irr_fact_map.keys())
+        | set(irr_plan_map.keys())
+        | set(temp_fact_map.keys())
+        | set(temp_plan_map.keys())
+    )
+    for ts in all_timestamps:
         fact_kw = history_map.get(ts)
         plan_kw = forecast_map.get(ts)
         merged_points.append(
@@ -368,6 +464,21 @@ def station_detail(request, pk: int):
         labels.append(ts_local.strftime("%H:%M") if is_single_day_range else ts_local.strftime("%d.%m %H:%M"))
         fact_series.append(round(fact_kw / 1000.0, 4) if fact_kw is not None else None)
         plan_series.append(round(plan_kw / 1000.0, 4) if plan_kw is not None else None)
+        irr_fact_series.append(round(irr_fact_map.get(ts), 2) if irr_fact_map.get(ts) is not None else None)
+        irr_plan_series.append(round(irr_plan_map.get(ts), 2) if irr_plan_map.get(ts) is not None else None)
+        temp_fact_series.append(round(temp_fact_map.get(ts), 2) if temp_fact_map.get(ts) is not None else None)
+        temp_plan_series.append(round(temp_plan_map.get(ts), 2) if temp_plan_map.get(ts) is not None else None)
+
+        # В режиме одного дня точки агрегированы по часам (средняя мощность за час),
+        # поэтому сумма кВт примерно равна дневной энергии в кВт·ч.
+        if is_single_day_range:
+            if fact_kw is not None:
+                fact_energy_kwh += fact_kw
+            if plan_kw is not None:
+                plan_energy_kwh += plan_kw
+
+    deviation_kwh = fact_energy_kwh - plan_energy_kwh
+    deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
 
     context = {
         "station": st,
@@ -376,9 +487,17 @@ def station_detail(request, pk: int):
         "labels": labels,
         "fact_series": fact_series,
         "plan_series": plan_series,
+        "irr_fact_series": irr_fact_series,
+        "irr_plan_series": irr_plan_series,
+        "temp_fact_series": temp_fact_series,
+        "temp_plan_series": temp_plan_series,
         "points_count": len(merged_points),
         "comparison_rows": merged_points[:200],
         "is_single_day_range": is_single_day_range,
+        "fact_energy_kwh": round(fact_energy_kwh),
+        "plan_energy_kwh": round(plan_energy_kwh),
+        "deviation_kwh": round(deviation_kwh),
+        "deviation_percent": round(deviation_percent, 1) if deviation_percent is not None else None,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)
@@ -789,7 +908,7 @@ def station_forecast_run(request, pk: int):
     try:
         if open_meteo_only:
             providers = ["open_meteo"]
-        res = run_forecast_for_station(
+        res = _run_forecast_for_station_safe(
             st.pk,
             days=run_days,
             providers=providers,
@@ -808,7 +927,7 @@ def station_forecast_run(request, pk: int):
                 msg += " | режим: фиксированные даты (параметр days игнорируется)"
             if open_meteo_only:
                 msg += " | режим: Open-Meteo без истории"
-            report = build_forecast_report(
+            report = _build_forecast_report_safe(
                 station=st,
                 days=run_days,
                 weather_source=res.get("weather_source"),
@@ -818,7 +937,7 @@ def station_forecast_run(request, pk: int):
             )
             msg += f" | Отчёт сохранён: {report.file.name}"
             if manual_auto_send and emails_raw:
-                if send_report_email(report, [emails_raw], st.name, days):
+                if _send_report_email_safe(report, [emails_raw], st.name, days):
                     msg += f" | Email: {emails_raw}"
                 else:
                     msg += " | Email: ошибка отправки"
@@ -891,8 +1010,12 @@ def station_forecast_schedule_update(request, pk: int):
 @login_required
 def station_forecast_scheduler_tick(request):
     force = request.GET.get("force") in {"1", "true", "on", "yes"}
-    auto_history_rows = int(run_auto_history_updates() or 0)
-    forecast_count = run_scheduled_forecasts(force=force)
+    try:
+        auto_history_rows = int(_run_auto_history_updates_safe() or 0)
+        forecast_count = _run_scheduled_forecasts_safe(force=force)
+    except Exception as exc:
+        logger.exception("Scheduler tick failed: %s", exc)
+        return JsonResponse({"ok": False, "force": force, "error": str(exc)}, status=500)
     return JsonResponse(
         {
             "ok": True,

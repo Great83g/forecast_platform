@@ -12,6 +12,29 @@ GUNICORN_MATCH="${GUNICORN_MATCH:-gunicorn}"
 
 cd "$PROJECT_DIR"
 
+preflight_python_syntax() {
+  if ! command -v python >/dev/null 2>&1; then
+    echo "[restart] python command not found, skipping syntax preflight"
+    return 0
+  fi
+
+  local check_files=(
+    "manage.py"
+    "backend/urls.py"
+    "dashboard/urls.py"
+    "dashboard/views.py"
+  )
+
+  echo "[restart] Running Python syntax preflight..."
+  if ! python -m py_compile "${check_files[@]}"; then
+    echo "[restart] Syntax preflight failed. Refusing to reload service with broken code."
+    echo "[restart] Fix Python errors first, then rerun deploy/restart_portal.sh"
+    return 1
+  fi
+}
+
+preflight_python_syntax
+
 echo "[restart] Detecting process manager..."
 
 restart_systemd() {
