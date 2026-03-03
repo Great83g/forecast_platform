@@ -3,6 +3,7 @@ Django settings for backend project.
 """
 
 from pathlib import Path
+import os
 
 # === БАЗОВЫЙ ПУТЬ ===
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -36,10 +37,16 @@ FORECAST_WEATHER_PROVIDERS = [
 SECRET_KEY = "django-insecure-%v0pjz8ji+z50*r6xlldh55l%n2u@_7r%4j0pvxm26e%5o2rr*"
 DEBUG = True
 
-ALLOWED_HOSTS = [
+_default_allowed_hosts = [
     "127.0.0.1",
     "localhost",
+    "0.0.0.0",
+    "intech-forecast.com",
+    "www.intech-forecast.com",
 ]
+
+_env_allowed_hosts = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
+ALLOWED_HOSTS = _env_allowed_hosts or _default_allowed_hosts
 
 # === ПРИЛОЖЕНИЯ ===
 INSTALLED_APPS = [
