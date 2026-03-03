@@ -6,6 +6,9 @@ SERVICE_CANDIDATES="${SERVICE_CANDIDATES:-gunicorn forecast-platform forecast_po
 SUPERVISOR_PROGRAM="${SUPERVISOR_PROGRAM:-forecast_portal}"
 DOCKER_CONTAINER="${DOCKER_CONTAINER:-forecast_portal_web}"
 ALLOW_RUNSERVER_FALLBACK="${ALLOW_RUNSERVER_FALLBACK:-0}"
+GUNICORN_PORT="${GUNICORN_PORT:-8000}"
+GUNICORN_PID_FILE="${GUNICORN_PID_FILE:-}"
+GUNICORN_MATCH="${GUNICORN_MATCH:-gunicorn}"
 
 cd "$PROJECT_DIR"
 
@@ -27,10 +30,56 @@ restart_systemd_user() {
 
 reload_gunicorn_master() {
   local master_pid
+  local listener_pid
+
+  if [ -n "$GUNICORN_PID_FILE" ] && [ -f "$GUNICORN_PID_FILE" ]; then
+    master_pid="$(cat "$GUNICORN_PID_FILE" 2>/dev/null || true)"
+    if [ -n "$master_pid" ] && kill -0 "$master_pid" 2>/dev/null; then
+      echo "[restart] Using gunicorn pid from GUNICORN_PID_FILE=${GUNICORN_PID_FILE}: ${master_pid}"
+      kill -HUP "$master_pid"
+      ps -fp "$master_pid"
+      return 0
+    fi
+  fi
+
+  # Debug list helps when process titles differ between setups.
+  pgrep -af 'gunicorn' >/tmp/restart_portal_gunicorn_ps.txt || true
+  if [ -s /tmp/restart_portal_gunicorn_ps.txt ]; then
+    echo "[restart] Detected gunicorn-related processes:"
+    cat /tmp/restart_portal_gunicorn_ps.txt
+  fi
+
+  # 1) Standard gunicorn title: "gunicorn: master [...]"
   master_pid="$(pgrep -o -f 'gunicorn: master' || true)"
 
+  # 2) Some installs expose only the launch command, e.g. ".../bin/gunicorn backend.wsgi"
+  if [ -z "$master_pid" ]; then
+    master_pid="$(pgrep -o -f 'gunicorn .*\.(wsgi|asgi)' || true)"
+  fi
+
+  # 3) Final fallback: plain executable name
+  if [ -z "$master_pid" ]; then
+    master_pid="$(pgrep -o -x gunicorn || true)"
+  fi
+
+  # 4) Port fallback: process listening on configured app port.
+  if [ -z "$master_pid" ] && command -v ss >/dev/null 2>&1; then
+    listener_pid="$(ss -ltnp 2>/dev/null | awk -v p=":${GUNICORN_PORT}" '$4 ~ p {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1)"
+    if [ -n "$listener_pid" ]; then
+      if ps -p "$listener_pid" -o cmd= | rg -qi "$GUNICORN_MATCH"; then
+        master_pid="$listener_pid"
+      else
+        # Some launchers wrap gunicorn; try parent pid.
+        parent_pid="$(ps -o ppid= -p "$listener_pid" | awk '{print $1}' || true)"
+        if [ -n "$parent_pid" ] && ps -p "$parent_pid" -o cmd= | rg -qi "$GUNICORN_MATCH"; then
+          master_pid="$parent_pid"
+        fi
+      fi
+    fi
+  fi
+
   if [ -n "$master_pid" ]; then
-    echo "[restart] Found gunicorn master process (${master_pid}), sending HUP for graceful reload"
+    echo "[restart] Found gunicorn master/candidate process (${master_pid}), sending HUP for graceful reload"
     kill -HUP "$master_pid"
     ps -fp "$master_pid"
     return 0
@@ -91,4 +140,5 @@ fi
 
 echo "[restart] Refusing to start runserver by default in production helper."
 echo "[restart] Set ALLOW_RUNSERVER_FALLBACK=1 only for temporary diagnostics."
+echo "[restart] Tip: export GUNICORN_PID_FILE=/path/to/gunicorn.pid or GUNICORN_PORT=8000"
 exit 1
