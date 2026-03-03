@@ -1,5 +1,5 @@
 {% load static %}
 <a class="navbar-brand d-flex align-items-center gap-2" aria-label="InTech-Forecast" href="{% url 'dashboard:station-list' %}">
-  <span class="brand-logo-wrap" aria-hidden="true" style="background-image: url('{% static 'dashboard/img/intech-logo.svg' %}');"></span>
+  <span class="brand-logo-wrap" aria-hidden="true"><img class="brand-logo" src="{% static 'dashboard/img/logo.png' %}" data-fallback="{% static 'dashboard/img/intech-logo.svg' %}" onerror="this.onerror=null;this.src=this.dataset.fallback;" alt="InTech logo"></span>
   <span class="brand-text">InTech-Forecast</span>
 </a>
