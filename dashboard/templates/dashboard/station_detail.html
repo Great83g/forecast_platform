@@ -62,15 +62,7 @@
               {% endif %}
             </div>
             <div class="small mt-1 {% if mape_percent is not None and mape_percent > 30 %}text-danger{% else %}text-muted{% endif %}">
-              MAPE: {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}
-            </div>
-          </div>
-        </div>
-        <div class="col-12 col-md-3">
-          <div class="border rounded p-2 h-100">
-            <div class="small text-muted">MAPE</div>
-            <div class="h5 mb-0 {% if mape_percent is not None and mape_percent > 30 %}text-danger{% endif %}">
-              {% if mape_percent is not None %}{{ mape_percent }}%{% else %}—{% endif %}
+              MAPE (ср. ошибка): {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}
             </div>
           </div>
         </div>

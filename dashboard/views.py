@@ -457,7 +457,13 @@ def station_detail(request, pk: int):
 
     deviation_kwh = fact_energy_kwh - plan_energy_kwh
     deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
-    mape_percent = (sum(mape_values) / len(mape_values)) if mape_values else None
+    if mape_values:
+        mape_percent = sum(mape_values) / len(mape_values)
+    elif is_single_day_range and fact_energy_kwh:
+        # Fallback for sparse series: estimate by daily totals when point-wise MAPE is unavailable.
+        mape_percent = abs((fact_energy_kwh - plan_energy_kwh) / fact_energy_kwh) * 100.0
+    else:
+        mape_percent = None
 
     context = {
         "station": st,
