@@ -66,7 +66,18 @@
       </div>
     {% endif %}
 
-    <div style="height: 360px;"><canvas id="planFactChart"></canvas></div>
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
+      <div class="fw-semibold">Показывать:</div>
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input" type="checkbox" id="toggleIrradiation">
+        <label class="form-check-label" for="toggleIrradiation">Иррадиация (план/факт)</label>
+      </div>
+      <div class="form-check form-check-inline mb-0">
+        <input class="form-check-input" type="checkbox" id="toggleTemperature">
+        <label class="form-check-label" for="toggleTemperature">Температура (план/факт)</label>
+      </div>
+    </div>
+    <div style="height: 420px;"><canvas id="planFactChart"></canvas></div>
   </div>
 </div>
 
@@ -100,31 +111,49 @@
 {{ labels|json_script:"pf-labels" }}
 {{ fact_series|json_script:"pf-fact" }}
 {{ plan_series|json_script:"pf-plan" }}
+{{ irr_fact_series|json_script:"pf-irr-fact" }}
+{{ irr_plan_series|json_script:"pf-irr-plan" }}
+{{ temp_fact_series|json_script:"pf-temp-fact" }}
+{{ temp_plan_series|json_script:"pf-temp-plan" }}
 {{ is_single_day_range|json_script:"pf-single-day" }}
 <script>
   (function () {
     const labels = JSON.parse(document.getElementById("pf-labels").textContent || "[]");
     const fact = JSON.parse(document.getElementById("pf-fact").textContent || "[]");
     const plan = JSON.parse(document.getElementById("pf-plan").textContent || "[]");
+    const irrFact = JSON.parse(document.getElementById("pf-irr-fact").textContent || "[]");
+    const irrPlan = JSON.parse(document.getElementById("pf-irr-plan").textContent || "[]");
+    const tempFact = JSON.parse(document.getElementById("pf-temp-fact").textContent || "[]");
+    const tempPlan = JSON.parse(document.getElementById("pf-temp-plan").textContent || "[]");
     const isSingleDayRange = JSON.parse(document.getElementById("pf-single-day").textContent || "false");
     const el = document.getElementById("planFactChart");
     if (!el) return;
 
-    new Chart(el, {
+    const chart = new Chart(el, {
       type: "line",
       data: {
         labels,
         datasets: [
-          {label: "Факт", data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true},
-          {label: "План", data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true}
+          {label: "Факт", data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: "План", data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: "Иррадиация факт", data: irrFact, borderColor: "#f59f00", backgroundColor: "rgba(245,159,0,0.10)", borderDash: [6, 4], tension: 0.2, spanGaps: true, yAxisID: "yIrr", hidden: true},
+          {label: "Иррадиация план", data: irrPlan, borderColor: "#fd7e14", backgroundColor: "rgba(253,126,20,0.10)", borderDash: [2, 4], tension: 0.2, spanGaps: true, yAxisID: "yIrr", hidden: true},
+          {label: "Темп. факт", data: tempFact, borderColor: "#6f42c1", backgroundColor: "rgba(111,66,193,0.10)", borderDash: [8, 3], tension: 0.2, spanGaps: true, yAxisID: "yTemp", hidden: true},
+          {label: "Темп. план", data: tempPlan, borderColor: "#d63384", backgroundColor: "rgba(214,51,132,0.10)", borderDash: [3, 3], tension: 0.2, spanGaps: true, yAxisID: "yTemp", hidden: true}
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        interaction: {
+          mode: "index",
+          intersect: false
+        },
         scales: {
-          y: {title: {display: true, text: "МВт"}},
+          yPower: {type: "linear", position: "left", title: {display: true, text: "МВт"}},
+          yIrr: {type: "linear", position: "right", title: {display: true, text: "Вт/м²"}, grid: {drawOnChartArea: false}, display: false},
+          yTemp: {type: "linear", position: "right", title: {display: true, text: "°C"}, grid: {drawOnChartArea: false}, display: false},
           x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: isSingleDayRange ? 24 : 31}}
         },
         plugins: {
@@ -135,6 +164,26 @@
         }
       }
     });
+
+    const toggleIrr = document.getElementById("toggleIrradiation");
+    const toggleTemp = document.getElementById("toggleTemperature");
+
+    const applyVisibility = () => {
+      const showIrr = Boolean(toggleIrr && toggleIrr.checked);
+      const showTemp = Boolean(toggleTemp && toggleTemp.checked);
+
+      chart.data.datasets.forEach((dataset) => {
+        if (dataset.yAxisID === "yIrr") dataset.hidden = !showIrr;
+        if (dataset.yAxisID === "yTemp") dataset.hidden = !showTemp;
+      });
+      chart.options.scales.yIrr.display = showIrr;
+      chart.options.scales.yTemp.display = showTemp;
+      chart.update();
+    };
+
+    if (toggleIrr) toggleIrr.addEventListener("change", applyVisibility);
+    if (toggleTemp) toggleTemp.addEventListener("change", applyVisibility);
+    applyVisibility();
   })();
 </script>
 {% endblock %}
