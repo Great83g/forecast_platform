@@ -27,10 +27,29 @@ restart_systemd_user() {
 
 reload_gunicorn_master() {
   local master_pid
+
+  # Debug list helps when process titles differ between setups.
+  pgrep -af 'gunicorn' >/tmp/restart_portal_gunicorn_ps.txt || true
+  if [ -s /tmp/restart_portal_gunicorn_ps.txt ]; then
+    echo "[restart] Detected gunicorn-related processes:"
+    cat /tmp/restart_portal_gunicorn_ps.txt
+  fi
+
+  # 1) Standard gunicorn title: "gunicorn: master [...]"
   master_pid="$(pgrep -o -f 'gunicorn: master' || true)"
 
+  # 2) Some installs expose only the launch command, e.g. ".../bin/gunicorn backend.wsgi"
+  if [ -z "$master_pid" ]; then
+    master_pid="$(pgrep -o -f 'gunicorn .*\.(wsgi|asgi)' || true)"
+  fi
+
+  # 3) Final fallback: plain executable name
+  if [ -z "$master_pid" ]; then
+    master_pid="$(pgrep -o -x gunicorn || true)"
+  fi
+
   if [ -n "$master_pid" ]; then
-    echo "[restart] Found gunicorn master process (${master_pid}), sending HUP for graceful reload"
+    echo "[restart] Found gunicorn master/candidate process (${master_pid}), sending HUP for graceful reload"
     kill -HUP "$master_pid"
     ps -fp "$master_pid"
     return 0
