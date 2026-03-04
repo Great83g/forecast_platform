@@ -29,7 +29,7 @@
         <a class="btn btn-outline-success btn-sm" href="{% url 'dashboard:station-plan-fact-export' station.pk %}?{{ export_query }}">Скачать Excel</a>
       </div>
     </form>
-    <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию за последний месяц)</div>
+    <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию с начала текущего месяца)</div>
   </div>
 </div>
 

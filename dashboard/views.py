@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 import importlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 from typing import Optional
 
@@ -293,7 +293,7 @@ def station_detail(request, pk: int):
 
     if not date_from and not date_to:
         now_local = timezone.localtime()
-        default_from = (now_local - timedelta(days=30)).date()
+        default_from = now_local.date().replace(day=1)
         default_to = now_local.date()
         date_from = default_from.isoformat()
         date_to = default_to.isoformat()
@@ -454,9 +454,24 @@ def station_detail(request, pk: int):
             plan_energy_kwh += plan_kw
 
 
+    fact_values = [value for value in history_map.values() if value is not None]
+    peak_fact_kw = max(fact_values) if fact_values else 0.0
+    min_fact_for_mape_kw = max(1.0, peak_fact_kw * 0.10)
 
-    deviation_kwh = fact_energy_kwh - plan_energy_kwh
-    deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
+    for ts in all_timestamps:
+        fact_kw = history_map.get(ts)
+        plan_kw = forecast_map.get(ts)
+        if fact_kw is None or plan_kw is None or fact_kw <= 0:
+            continue
+        if fact_kw < min_fact_for_mape_kw:
+            continue
+        mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
+
+    mape_points_count = len(mape_values)
+    if mape_values:
+        mape_percent = sum(mape_values) / len(mape_values)
+    else:
+        mape_percent = None
 
     fact_values = [value for value in history_map.values() if value is not None]
     peak_fact_kw = max(fact_values) if fact_values else 0.0
