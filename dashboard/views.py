@@ -416,6 +416,9 @@ def station_detail(request, pk: int):
     temp_plan_series = []
     fact_energy_kwh = 0.0
     plan_energy_kwh = 0.0
+    deviation_kwh = 0.0
+    deviation_percent = None
+    mape_percent = None
     mape_values = []
     mape_points_count = 0
     all_timestamps = sorted(
@@ -454,24 +457,6 @@ def station_detail(request, pk: int):
             plan_energy_kwh += plan_kw
 
 
-    fact_values = [value for value in history_map.values() if value is not None]
-    peak_fact_kw = max(fact_values) if fact_values else 0.0
-    min_fact_for_mape_kw = max(1.0, peak_fact_kw * 0.10)
-
-    for ts in all_timestamps:
-        fact_kw = history_map.get(ts)
-        plan_kw = forecast_map.get(ts)
-        if fact_kw is None or plan_kw is None or fact_kw <= 0:
-            continue
-        if fact_kw < min_fact_for_mape_kw:
-            continue
-        mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
-
-    mape_points_count = len(mape_values)
-    if mape_values:
-        mape_percent = sum(mape_values) / len(mape_values)
-    else:
-        mape_percent = None
 
     fact_values = [value for value in history_map.values() if value is not None]
     peak_fact_kw = max(fact_values) if fact_values else 0.0
