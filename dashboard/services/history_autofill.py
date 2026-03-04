@@ -175,6 +175,57 @@ def _clean_round_filter(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _normalize_standard_history_columns(df: pd.DataFrame) -> pd.DataFrame:
+    col_map = {str(col).strip().lower(): col for col in df.columns}
+
+    ds_col = col_map.get("ds") or col_map.get("timestamp")
+    irr_col = col_map.get("irradiation")
+    air_col = col_map.get("air_temp")
+    pv_col = col_map.get("pv_temp")
+    power_col = col_map.get("power_kw")
+
+    if not all([ds_col, irr_col, air_col, pv_col, power_col]):
+        raise ValueError(
+            "[STANDARD] Нужны колонки ds, Irradiation, Air_Temp, PV_Temp, Power_KW "
+            f"(или timestamp вместо ds). Найдено: {list(df.columns)}"
+        )
+
+    out = df[[ds_col, irr_col, air_col, pv_col, power_col]].copy()
+    out.columns = ["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]
+    out["ds"] = pd.to_datetime(out["ds"], errors="coerce")
+    out = out.dropna(subset=["ds"]).copy()
+    out["ds"] = out["ds"].dt.floor("h")
+    return out
+
+
+def _collect_standard_history_dataframe(folder: Path) -> pd.DataFrame:
+    files = [p for p in sorted(folder.glob("*.csv")) if p.is_file()]
+    files += [p for p in sorted(folder.glob("*.xlsx")) if p.is_file() and not p.name.startswith("~$")]
+    if not files:
+        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "pv_temp", "power_kw"])
+
+    parts: list[pd.DataFrame] = []
+    for file_path in files:
+        try:
+            if file_path.suffix.lower() == ".csv":
+                raw = pd.read_csv(file_path, low_memory=False)
+            else:
+                raw = pd.read_excel(file_path)
+            normalized = _normalize_standard_history_columns(raw)
+            if not normalized.empty:
+                parts.append(normalized)
+        except Exception:
+            logger.debug("Auto-history: skip standard file=%s", file_path, exc_info=True)
+            continue
+
+    if not parts:
+        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "pv_temp", "power_kw"])
+
+    out = pd.concat(parts, ignore_index=True).sort_values("ds").reset_index(drop=True)
+    out = out.drop_duplicates(subset=["ds"], keep="last")
+    return _clean_round_filter(out)
+
+
 def _to_aware_dt(value: pd.Timestamp):
     py_dt = value.to_pydatetime()
     if timezone.is_naive(py_dt):
@@ -223,7 +274,7 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
     plant_files = [p for p in sorted(folder.glob("*.xlsx")) if is_fusionsolar_report_xlsx(p)]
 
     if not meteo_files or not plant_files:
-        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "pv_temp", "power_kw"])
+        return _collect_standard_history_dataframe(folder)
 
     plant_by_date_multi: dict[str, list[Path]] = {}
     for p in plant_files:
@@ -241,7 +292,7 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
 
     common_dates = sorted(set(plant_by_date.keys()) & set(meteo_by_date.keys()))
     if not common_dates:
-        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "pv_temp", "power_kw"])
+        return _collect_standard_history_dataframe(folder)
 
     rows: list[pd.DataFrame] = []
     for d in common_dates:
@@ -250,7 +301,7 @@ def collect_share_history_dataframe(folder: Path) -> pd.DataFrame:
             rows.append(day_df)
 
     if not rows:
-        return pd.DataFrame(columns=["ds", "irradiation", "air_temp", "pv_temp", "power_kw"])
+        return _collect_standard_history_dataframe(folder)
 
     out = pd.concat(rows, ignore_index=True).sort_values("ds").reset_index(drop=True)
     out = out.drop_duplicates(subset=["ds"], keep="last")
