@@ -730,6 +730,7 @@ def station_forecast_list(request, pk: int):
 
     days = int(request.GET.get("days", "7") or 7)
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
+    visual_crossing_only = request.GET.get("visual_crossing_only") in {"1", "true", "on", "yes"}
     horizon_mode = request.GET.get("horizon_mode") or ""
     selected_providers = request.GET.getlist("providers") or getattr(
         settings,
@@ -831,6 +832,7 @@ def station_forecast_list(request, pk: int):
             "target_dates_raw": target_dates_raw,
             "manual_auto_send": manual_auto_send,
             "open_meteo_only": open_meteo_only,
+            "visual_crossing_only": visual_crossing_only,
             "horizon_mode": horizon_mode,
             "forecast_scope": forecast_scope,
             "schedule_form": schedule_form,
@@ -851,6 +853,7 @@ def station_forecast_run(request, pk: int):
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
+    visual_crossing_only = request.GET.get("visual_crossing_only") in {"1", "true", "on", "yes"}
     horizon_mode = request.GET.get("horizon_mode") or ""
     manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
     manual_snow_factor_raw = request.GET.get("manual_snow_factor")
@@ -870,11 +873,20 @@ def station_forecast_run(request, pk: int):
             horizon_mode = schedule.horizon_mode or "weekday_calendar"
     if horizon_mode == "":
         horizon_mode = "weekday_calendar"
-    if (not open_meteo_only) and schedule and schedule.providers:
+    if schedule and schedule.providers and (not open_meteo_only) and (not visual_crossing_only):
         schedule_providers = [p.strip() for p in schedule.providers.split(",") if p.strip()]
-        if "open_meteo_only" in schedule_providers:
-            open_meteo_only = True
-            providers = ["open_meteo"]
+        open_meteo_only = "open_meteo_only" in schedule_providers
+        visual_crossing_only = "visual_crossing_only" in schedule_providers
+        if open_meteo_only or visual_crossing_only:
+            explicit_providers = [p for p in schedule_providers if p not in {"open_meteo_only", "visual_crossing_only"}]
+            if explicit_providers:
+                providers = explicit_providers
+            elif visual_crossing_only and open_meteo_only:
+                providers = ["visual_crossing", "open_meteo"]
+            elif visual_crossing_only:
+                providers = ["visual_crossing"]
+            else:
+                providers = ["open_meteo"]
     manual_snow_factor = None
     if manual_snow_factor_raw not in (None, ""):
         try:
@@ -904,8 +916,14 @@ def station_forecast_run(request, pk: int):
     run_days = 1 if target_dates else days
 
     try:
-        if open_meteo_only:
-            providers = ["open_meteo"]
+        heuristic_only = open_meteo_only or visual_crossing_only
+        if heuristic_only and not providers:
+            if visual_crossing_only and open_meteo_only:
+                providers = ["visual_crossing", "open_meteo"]
+            elif visual_crossing_only:
+                providers = ["visual_crossing"]
+            else:
+                providers = ["open_meteo"]
         res = run_forecast_for_station(
             st.pk,
             days=run_days,
@@ -913,7 +931,7 @@ def station_forecast_run(request, pk: int):
             manual_snow_enable=manual_snow_enable,
             manual_snow_factor=manual_snow_factor,
             manual_snow_dates=manual_snow_dates,
-            use_models=not open_meteo_only,
+            use_models=not heuristic_only,
             horizon_mode=horizon_mode,
             forecast_scope=forecast_scope,
             target_dates=target_dates,
@@ -925,6 +943,8 @@ def station_forecast_run(request, pk: int):
                 msg += " | режим: фиксированные даты (параметр days игнорируется)"
             if open_meteo_only:
                 msg += " | режим: Open-Meteo без истории"
+            if visual_crossing_only:
+                msg += " | режим: Visual Crossing без истории"
             report = build_forecast_report(
                 station=st,
                 days=run_days,
@@ -964,6 +984,7 @@ def station_forecast_run(request, pk: int):
             "target_dates": target_dates_raw,
             "manual_auto_send": "1" if manual_auto_send else "",
             "open_meteo_only": "1" if open_meteo_only else "",
+            "visual_crossing_only": "1" if visual_crossing_only else "",
             "horizon_mode": horizon_mode,
             "scope": forecast_scope,
         },

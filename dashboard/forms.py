@@ -189,6 +189,7 @@ class ForecastScheduleForm(forms.Form):
             ("visual_crossing", "Visual Crossing"),
             ("open_meteo", "Open‑Meteo"),
             ("open_meteo_only", "Open‑Meteo без истории (только эвристика)"),
+            ("visual_crossing_only", "Visual Crossing без истории (только эвристика)"),
         ],
     )
     emails = forms.CharField(
