@@ -445,13 +445,14 @@ def station_detail(request, pk: int):
         temp_fact_series.append(round(temp_fact_map.get(ts), 2) if temp_fact_map.get(ts) is not None else None)
         temp_plan_series.append(round(temp_plan_map.get(ts), 2) if temp_plan_map.get(ts) is not None else None)
 
-        # В режиме одного дня точки агрегированы по часам (средняя мощность за час),
-        # поэтому сумма кВт примерно равна дневной энергии в кВт·ч.
-        if is_single_day_range:
-            if fact_kw is not None:
-                fact_energy_kwh += fact_kw
-            if plan_kw is not None:
-                plan_energy_kwh += plan_kw
+        # Суммируем мощность по шагам ряда как приближение энергии (кВт·ч).
+        # Для дневного почасового разреза это близко к фактической суточной энергии,
+        # для произвольного диапазона даёт агрегированный итог за период.
+        if fact_kw is not None:
+            fact_energy_kwh += fact_kw
+        if plan_kw is not None:
+            plan_energy_kwh += plan_kw
+
 
 
     deviation_kwh = fact_energy_kwh - plan_energy_kwh

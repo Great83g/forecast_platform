@@ -38,17 +38,17 @@
     <h6 class="card-title">График план / факт (МВт)</h6>
     <div class="small text-muted mb-2">Разрез: {% if is_single_day_range %}<b>по часам</b>{% else %}<b>детально (как раньше)</b>{% endif %}</div>
 
-    {% if is_single_day_range %}
+    
       <div class="row g-2 mb-3">
         <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
-            <div class="small text-muted">Прогноз за день</div>
+            <div class="small text-muted">Прогноз {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
             <div class="h5 mb-0">{{ plan_energy_kwh|default:0 }} кВт·ч</div>
           </div>
         </div>
         <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
-            <div class="small text-muted">Факт за день</div>
+            <div class="small text-muted">Факт {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
             <div class="h5 mb-0">{{ fact_energy_kwh|default:0 }} кВт·ч</div>
           </div>
         </div>
@@ -62,13 +62,12 @@
               {% endif %}
             </div>
             <div class="small mt-1 {% if mape_percent is not None and mape_percent > 30 %}text-danger{% else %}text-muted{% endif %}">
-              MAPE (дневные часы): {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}{% if mape_points_count %} <span class="text-muted">по {{ mape_points_count }} тчк.</span>{% endif %}
+              MAPE {% if is_single_day_range %}(дневные часы){% else %}(за период){% endif %}: {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}{% if mape_points_count %} <span class="text-muted">по {{ mape_points_count }} тчк.</span>{% endif %}
             </div>
           </div>
         </div>
       </div>
-    {% endif %}
-
+    
     <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
       <div class="fw-semibold">Показывать:</div>
       <div class="form-check form-check-inline mb-0">
