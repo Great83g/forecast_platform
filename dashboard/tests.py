@@ -406,6 +406,60 @@ class StationAutoHistoryMergeSameDateTests(TestCase):
 
 
 
+class StationAutoHistoryStandardFileTests(TestCase):
+    def test_collect_share_history_uses_standard_history_columns_from_csv(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "ds": "2026-02-17 10:10:00",
+                        "Irradiation": 500.456,
+                        "Air_Temp": 20.222,
+                        "PV_Temp": 25.111,
+                        "Power_KW": 120.987,
+                    }
+                ]
+            ).to_csv(folder / "history_upload.csv", index=False)
+
+            out = collect_share_history_dataframe(folder)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-17 10:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["irradiation"]), 500.456, places=3)
+        self.assertAlmostEqual(float(out.iloc[0]["air_temp"]), 20.222, places=3)
+        self.assertAlmostEqual(float(out.iloc[0]["pv_temp"]), 25.111, places=3)
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 120.99, places=2)
+
+    def test_collect_share_history_standard_file_supports_timestamp_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "timestamp": "2026-02-17 11:40:00",
+                        "Irradiation": 410,
+                        "Air_Temp": 18,
+                        "PV_Temp": 22,
+                        "Power_KW": 0,
+                    },
+                    {
+                        "timestamp": "2026-02-17 12:05:00",
+                        "Irradiation": 430,
+                        "Air_Temp": 19,
+                        "PV_Temp": 23,
+                        "Power_KW": 140,
+                    },
+                ]
+            ).to_csv(folder / "history_upload.csv", index=False)
+
+            out = collect_share_history_dataframe(folder)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-17 12:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 140.0)
+
+
 class ForecastEngineIndexRegressionTests(TestCase):
     def setUp(self):
         user = User.objects.create_user(username="tester", password="pass")
