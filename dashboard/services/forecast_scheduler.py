@@ -25,10 +25,17 @@ def _parse_providers(value: str) -> Optional[list[str]]:
 def _normalize_schedule_providers(value: str) -> tuple[Optional[list[str]], bool]:
     providers = _parse_providers(value) or []
     open_meteo_only = "open_meteo_only" in providers
-    providers = [p for p in providers if p != "open_meteo_only"]
-    if open_meteo_only:
-        providers = ["open_meteo"]
-    return (providers or None, open_meteo_only)
+    visual_crossing_only = "visual_crossing_only" in providers
+    providers = [p for p in providers if p not in {"open_meteo_only", "visual_crossing_only"}]
+    heuristic_only = open_meteo_only or visual_crossing_only
+    if heuristic_only and not providers:
+        if open_meteo_only and visual_crossing_only:
+            providers = ["visual_crossing", "open_meteo"]
+        elif visual_crossing_only:
+            providers = ["visual_crossing"]
+        else:
+            providers = ["open_meteo"]
+    return (providers or None, heuristic_only)
 
 
 def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool = False) -> int:

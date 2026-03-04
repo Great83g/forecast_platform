@@ -671,7 +671,24 @@ class ForecastSchedulerForceRunTests(TestCase):
         count = run_scheduled_forecasts(now=now, force=True)
 
         self.assertEqual(count, 1)
-        self.assertEqual(run_mock.call_args.kwargs["providers"], ["open_meteo"])
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["visual_crossing"])
+        self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub", "days": 3},
+    )
+    def test_schedule_visual_crossing_only_disables_models(self, run_mock, _build, _send):
+        self.schedule.providers = "visual_crossing_only"
+        self.schedule.save(update_fields=["providers"])
+
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+        count = run_scheduled_forecasts(now=now, force=True)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["visual_crossing"])
         self.assertFalse(run_mock.call_args.kwargs["use_models"])
 
 
@@ -766,6 +783,58 @@ class StationForecastRunTargetDatesTests(TestCase):
 
     @patch("dashboard.views.send_report_email", return_value=False)
     @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 2})
+    def test_station_forecast_run_open_meteo_only_keeps_explicit_providers(self, run_mock, _build, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "2",
+                "scope": "main",
+                "providers": ["visual_crossing"],
+                "open_meteo_only": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["visual_crossing"])
+        self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 2})
+    def test_station_forecast_run_open_meteo_only_defaults_to_open_meteo_provider(self, run_mock, _build, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "2",
+                "scope": "main",
+                "open_meteo_only": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["open_meteo"])
+        self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 2})
+    def test_station_forecast_run_visual_crossing_only_defaults_to_visual_crossing_provider(self, run_mock, _build, _send):
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "2",
+                "scope": "main",
+                "visual_crossing_only": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(run_mock.call_args.kwargs["providers"], ["visual_crossing"])
+        self.assertFalse(run_mock.call_args.kwargs["use_models"])
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
     @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 1, "target_dates": ["2026-02-22"]})
     def test_station_forecast_run_target_dates_override_days(self, run_mock, build_mock, _send):
         response = self.client.get(
@@ -787,7 +856,19 @@ class ForecastSchedulerProviderNormalizationTests(TestCase):
     def test_open_meteo_only_provider_marker_forces_open_meteo_and_heuristic(self):
         providers, open_meteo_only = _normalize_schedule_providers("visual_crossing,open_meteo_only")
 
+        self.assertEqual(providers, ["visual_crossing"])
+        self.assertTrue(open_meteo_only)
+
+    def test_open_meteo_only_without_explicit_provider_falls_back_to_open_meteo(self):
+        providers, open_meteo_only = _normalize_schedule_providers("open_meteo_only")
+
         self.assertEqual(providers, ["open_meteo"])
+        self.assertTrue(open_meteo_only)
+
+    def test_visual_crossing_only_without_explicit_provider_falls_back_to_visual_crossing(self):
+        providers, open_meteo_only = _normalize_schedule_providers("visual_crossing_only")
+
+        self.assertEqual(providers, ["visual_crossing"])
         self.assertTrue(open_meteo_only)
 
 
