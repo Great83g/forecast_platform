@@ -417,6 +417,7 @@ def station_detail(request, pk: int):
     fact_energy_kwh = 0.0
     plan_energy_kwh = 0.0
     mape_values = []
+    mape_points_count = 0
     all_timestamps = sorted(
         set(history_map.keys())
         | set(forecast_map.keys())
@@ -452,16 +453,26 @@ def station_detail(request, pk: int):
             if plan_kw is not None:
                 plan_energy_kwh += plan_kw
 
-        if fact_kw not in (None, 0) and plan_kw is not None:
-            mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
 
     deviation_kwh = fact_energy_kwh - plan_energy_kwh
     deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
+
+    fact_values = [value for value in history_map.values() if value is not None]
+    peak_fact_kw = max(fact_values) if fact_values else 0.0
+    min_fact_for_mape_kw = max(1.0, peak_fact_kw * 0.10)
+
+    for ts in all_timestamps:
+        fact_kw = history_map.get(ts)
+        plan_kw = forecast_map.get(ts)
+        if fact_kw is None or plan_kw is None or fact_kw <= 0:
+            continue
+        if fact_kw < min_fact_for_mape_kw:
+            continue
+        mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
+
+    mape_points_count = len(mape_values)
     if mape_values:
         mape_percent = sum(mape_values) / len(mape_values)
-    elif is_single_day_range and fact_energy_kwh:
-        # Fallback for sparse series: estimate by daily totals when point-wise MAPE is unavailable.
-        mape_percent = abs((fact_energy_kwh - plan_energy_kwh) / fact_energy_kwh) * 100.0
     else:
         mape_percent = None
 
@@ -484,6 +495,7 @@ def station_detail(request, pk: int):
         "deviation_kwh": round(deviation_kwh),
         "deviation_percent": round(deviation_percent, 1) if deviation_percent is not None else None,
         "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
+        "mape_points_count": mape_points_count,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)

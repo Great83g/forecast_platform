@@ -62,7 +62,7 @@
               {% endif %}
             </div>
             <div class="small mt-1 {% if mape_percent is not None and mape_percent > 30 %}text-danger{% else %}text-muted{% endif %}">
-              MAPE (ср. ошибка): {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}
+              MAPE (дневные часы): {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}{% if mape_points_count %} <span class="text-muted">по {{ mape_points_count }} тчк.</span>{% endif %}
             </div>
           </div>
         </div>
