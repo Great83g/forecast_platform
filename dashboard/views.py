@@ -454,6 +454,7 @@ def station_detail(request, pk: int):
             plan_energy_kwh += plan_kw
 
 
+
     deviation_kwh = fact_energy_kwh - plan_energy_kwh
     deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
 
