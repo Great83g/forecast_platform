@@ -457,7 +457,6 @@ def station_detail(request, pk: int):
             plan_energy_kwh += plan_kw
 
 
-
     fact_values = [value for value in history_map.values() if value is not None]
     peak_fact_kw = max(fact_values) if fact_values else 0.0
     min_fact_for_mape_kw = max(1.0, peak_fact_kw * 0.10)
@@ -493,8 +492,8 @@ def station_detail(request, pk: int):
         "is_single_day_range": is_single_day_range,
         "fact_energy_kwh": round(fact_energy_kwh),
         "plan_energy_kwh": round(plan_energy_kwh),
-        "deviation_kwh": round(deviation_kwh),
-        "deviation_percent": round(deviation_percent, 1) if deviation_percent is not None else None,
+        "deviation_kwh": round(fact_energy_kwh - plan_energy_kwh),
+        "deviation_percent": round(((fact_energy_kwh - plan_energy_kwh) / plan_energy_kwh * 100.0), 1) if plan_energy_kwh else None,
         "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
         "mape_points_count": mape_points_count,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
