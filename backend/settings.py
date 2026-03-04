@@ -48,6 +48,17 @@ _default_allowed_hosts = [
 _env_allowed_hosts = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
 ALLOWED_HOSTS = _env_allowed_hosts or _default_allowed_hosts
 
+_default_csrf_trusted_origins = [
+    "https://intech-forecast.com",
+    "https://www.intech-forecast.com",
+    "http://127.0.0.1",
+    "http://localhost",
+]
+_env_csrf_trusted_origins = [
+    origin.strip() for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if origin.strip()
+]
+CSRF_TRUSTED_ORIGINS = _env_csrf_trusted_origins or _default_csrf_trusted_origins
+
 # === ПРИЛОЖЕНИЯ ===
 INSTALLED_APPS = [
     "django.contrib.admin",
