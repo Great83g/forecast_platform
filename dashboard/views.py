@@ -457,8 +457,6 @@ def station_detail(request, pk: int):
             plan_energy_kwh += plan_kw
 
 
-    deviation_kwh = fact_energy_kwh - plan_energy_kwh
-    deviation_percent = (deviation_kwh / plan_energy_kwh * 100.0) if plan_energy_kwh else None
 
     fact_values = [value for value in history_map.values() if value is not None]
     peak_fact_kw = max(fact_values) if fact_values else 0.0

@@ -40,19 +40,19 @@
 
     
       <div class="row g-2 mb-3">
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
             <div class="small text-muted">Прогноз {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
             <div class="h5 mb-0">{{ plan_energy_kwh|default:0 }} кВт·ч</div>
           </div>
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
             <div class="small text-muted">Факт {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
             <div class="h5 mb-0">{{ fact_energy_kwh|default:0 }} кВт·ч</div>
           </div>
         </div>
-        <div class="col-12 col-md-4">
+        <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
             <div class="small text-muted">Отклонение (Факт − Прогноз)</div>
             <div class="h5 mb-0 {% if deviation_kwh < 0 %}text-danger{% elif deviation_kwh > 0 %}text-success{% endif %}">
