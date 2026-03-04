@@ -40,3 +40,8 @@ def build_history_dataframe(station):
 - Использование в поле `Скрипт автоистории`: `ses_8_8mw` (также сработают `ses 8 8mw`, `/history_scripts/ses_8_8mw`, `history_scripts\ses_8_8mw`, `dashboard/services/history_scripts/ses_8_8mw`)
 - Скрипт читает Excel вида `СЭС Кенгир 10МВт <месяц> <год>.xlsx`, где листы названы датой `dd.mm.yyyy`, и формирует почасовой DataFrame.
 
+Готовый скрипт для станции 1.2 МВт (загрузка из стандартного файла портала):
+- `ses_1_2mw` (файл `dashboard/services/history_scripts/ses_1_2mw.py`)
+- Использование в поле `Скрипт автоистории`: `ses_1_2mw`
+- Скрипт читает `.csv`/`.xlsx` из папки автоимпорта и ожидает колонки: `ds, Irradiation, Air_Temp, PV_Temp, Power_KW` (допускается `timestamp` вместо `ds`).
+
