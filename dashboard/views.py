@@ -23,6 +23,7 @@ from urllib.parse import urlencode
 
 from stations.models import Organization, OrganizationMember, Station
 from solar.models import SolarRecord, SolarForecast
+from solar.org_sync import sync_solar_records
 
 from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
 
@@ -624,6 +625,8 @@ def station_upload(request, pk: int):
             )
 
         SolarRecord.objects.bulk_create(objs, batch_size=1000)
+        mirrored_qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("id")
+        sync_solar_records(mirrored_qs)
         messages.success(request, f"История загружена: {len(objs)} строк.")
         return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 

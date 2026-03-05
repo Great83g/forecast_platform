@@ -13,6 +13,7 @@ import pandas as pd
 from django.utils import timezone
 
 from solar.models import SolarRecord
+from solar.org_sync import sync_solar_records
 from stations.models import Station
 
 MIN_POWER_KW = 0.0001
@@ -512,6 +513,14 @@ def upsert_station_history_from_share(station: Station) -> int:
         SolarRecord.objects.bulk_create(create_objs, batch_size=1000)
     if update_objs:
         SolarRecord.objects.bulk_update(update_objs, ["power_kw", "irradiation", "air_temp", "pv_temp"], batch_size=1000)
+
+    if ts_values:
+        mirrored_qs = SolarRecord.objects.filter(
+            station=station,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            timestamp__in=ts_values,
+        ).order_by("id")
+        sync_solar_records(mirrored_qs)
 
     return len(create_objs) + len(update_objs)
 

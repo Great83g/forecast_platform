@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from datetime import datetime
+from typing import Any, Iterable
 from typing import Any
 
 from solar.models import SolarForecast, SolarRecord
@@ -275,3 +276,13 @@ def delete_solar_forecast(forecast: SolarForecast):
         logger.exception("Failed to delete solar forecast %s from org DB", forecast.id)
     finally:
         conn.close()
+
+
+def sync_solar_records(records: Iterable[SolarRecord]):
+    for record in records:
+        sync_solar_record(record)
+
+
+def sync_solar_forecasts(forecasts: Iterable[SolarForecast]):
+    for forecast in forecasts:
+        sync_solar_forecast(forecast)
