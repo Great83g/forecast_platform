@@ -19,6 +19,7 @@ from django.utils.text import slugify
 from neuralprophet import load as np_load
 
 from solar.models import SolarForecast, SolarRecord
+from solar.org_sync import sync_solar_forecasts
 from stations.models import Station
 from .open_meteo import fetch_open_meteo_hourly
 from .vc_weather import fetch_visual_crossing_hourly
@@ -1060,6 +1061,14 @@ def run_forecast_for_station(
         )
 
     SolarForecast.objects.bulk_create(objs, batch_size=500)
+
+    mirrored_qs = SolarForecast.objects.filter(
+        station=st,
+        forecast_scope=forecast_scope,
+        timestamp__gte=start,
+        timestamp__lt=end,
+    ).order_by("id")
+    sync_solar_forecasts(mirrored_qs)
 
     return {
         "ok": True,
