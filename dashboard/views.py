@@ -9,6 +9,7 @@ from io import BytesIO
 from typing import Optional
 
 import pandas as pd
+from django.db.models import Q
 from django.db.models import Avg
 from django.db.models.functions import TruncHour
 from django.contrib import messages
