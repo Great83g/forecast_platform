@@ -40,6 +40,12 @@ class Organization(models.Model):
         choices=SUBSCRIPTION_CHOICES,
         default=SUBSCRIPTION_TRIALING,
     )
+    data_db_path = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Путь к выделенной SQLite базе организации.",
+    )
 
     def is_trial_active(self) -> bool:
         return bool(self.trial_ends_at and self.trial_ends_at >= timezone.now())
