@@ -927,9 +927,11 @@ class StationVisibilityTests(TestCase):
 
         self.owner_org = Organization.objects.create(name="Owner Org", owner=self.owner)
         self.other_org = Organization.objects.create(name="Other Org", owner=self.other)
+        self.admin_org = Organization.objects.create(name="Admin Org", owner=self.admin)
 
         self.owner_station = Station.objects.create(org=self.owner_org, name="Owner Station")
         self.other_station = Station.objects.create(org=self.other_org, name="Other Station")
+        self.admin_station = Station.objects.create(org=self.admin_org, name="Admin Station")
 
     def test_owner_without_membership_sees_own_station(self):
         self.client.login(username="org-owner", password="pass")
@@ -940,14 +942,20 @@ class StationVisibilityTests(TestCase):
         stations = list(response.context["stations"])
         self.assertEqual([st.id for st in stations], [self.owner_station.id])
 
-    def test_superuser_does_not_see_all_stations_without_membership(self):
+    def test_superuser_sees_only_owned_or_member_stations(self):
+        OrganizationMember.objects.create(
+            organization=self.owner_org,
+            user=self.admin,
+            role=OrganizationMember.ROLE_ADMIN,
+        )
         self.client.login(username="super", password="pass")
 
         response = self.client.get("/dashboard/")
 
         self.assertEqual(response.status_code, 200)
-        stations = list(response.context["stations"])
-        self.assertEqual(stations, [])
+        station_ids = {st.id for st in response.context["stations"]}
+        self.assertEqual(station_ids, {self.admin_station.id, self.owner_station.id})
+        self.assertNotIn(self.other_station.id, station_ids)
 
 
 class StationOrderingTests(TestCase):
