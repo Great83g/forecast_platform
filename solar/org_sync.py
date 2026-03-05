@@ -2,6 +2,7 @@ import logging
 import sqlite3
 from datetime import datetime
 from typing import Any, Iterable
+from typing import Any
 
 from solar.models import SolarForecast, SolarRecord
 from stations.models import Station
