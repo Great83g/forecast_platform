@@ -1,4 +1,5 @@
 {% extends "dashboard/base.html" %}
+{% load l10n %}
 {% block content %}
 
 <div class="station-list-header d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
@@ -52,6 +53,16 @@
             {% if st.latitude and st.longitude %}
               {% if st.capacity_mw %} | {% endif %}
               Коорд: {{ st.latitude }}, {{ st.longitude }}
+              <a
+                class="ms-1 text-decoration-none"
+                href="https://earth.google.com/web/search/{{ st.latitude|unlocalize }},{{ st.longitude|unlocalize }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Открыть станцию в Google Earth"
+                aria-label="Открыть станцию в Google Earth"
+              >
+                🌍
+              </a>
             {% endif %}
           </div>
         </div>
