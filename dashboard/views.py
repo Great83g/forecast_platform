@@ -125,9 +125,9 @@ def _localize_timestamp(value):
         return value
 
 def _station_queryset_for_user(user):
-    if user.is_superuser:
-        return Station.objects.all()
-    return Station.objects.filter(org__memberships__user=user).distinct()
+    org_ids = Organization.objects.filter(owner=user).values_list("id", flat=True)
+    member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
+    return Station.objects.filter(org_id__in=(org_ids.union(member_org_ids))).distinct()
 
 
 def _get_station_or_404(user, pk: int):
