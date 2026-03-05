@@ -12,6 +12,19 @@ from rest_framework.test import APITestCase
 from stations.models import Organization, OrganizationInvitation, OrganizationMember, Station
 
 
+class OrganizationDatabaseTests(APITestCase):
+    def test_creates_dedicated_sqlite_file_on_organization_create(self):
+        owner = User.objects.create_user(username="org-db-owner", email="org-db-owner@example.com", password="pass12345")
+
+        org = Organization.objects.create(name="Org DB", owner=owner)
+
+        self.assertTrue(org.data_db_path)
+        db_path = Path(org.data_db_path)
+        self.assertTrue(db_path.exists())
+        self.assertEqual(db_path.name, f"org_{org.id}.sqlite3")
+
+
+
 class StationAccessTests(APITestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username="owner", email="owner@example.com", password="pass12345")

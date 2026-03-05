@@ -5,8 +5,14 @@ from .models import Organization, OrganizationInvitation, OrganizationMember, St
 
 @admin.register(Organization)
 class OrganizationAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "owner", "trial_ends_at", "is_active")
+    list_display = ("id", "name", "owner", "data_db_filename", "data_db_path", "trial_ends_at", "is_active")
     search_fields = ("name", "owner__username", "owner__email")
+
+    @admin.display(description="DB file")
+    def data_db_filename(self, obj: Organization) -> str:
+        if not obj.data_db_path:
+            return ""
+        return obj.data_db_path.rsplit("/", 1)[-1]
 
 
 @admin.register(OrganizationMember)
