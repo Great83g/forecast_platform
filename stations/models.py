@@ -4,7 +4,6 @@ import secrets
 import stat
 import tempfile
 from datetime import time
-from pathlib import Path
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -74,6 +73,7 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+
 
 
 class OrganizationMember(models.Model):
