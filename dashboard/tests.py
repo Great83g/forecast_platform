@@ -919,6 +919,37 @@ class HistoryDatetimeParsingTests(TestCase):
         self.assertEqual(parsed.iloc[1].day, 2)
 
 
+class StationVisibilityTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="org-owner", password="pass")
+        self.other = User.objects.create_user(username="other-user", password="pass")
+        self.admin = User.objects.create_superuser(username="super", email="super@example.com", password="pass")
+
+        self.owner_org = Organization.objects.create(name="Owner Org", owner=self.owner)
+        self.other_org = Organization.objects.create(name="Other Org", owner=self.other)
+
+        self.owner_station = Station.objects.create(org=self.owner_org, name="Owner Station")
+        self.other_station = Station.objects.create(org=self.other_org, name="Other Station")
+
+    def test_owner_without_membership_sees_own_station(self):
+        self.client.login(username="org-owner", password="pass")
+
+        response = self.client.get("/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        stations = list(response.context["stations"])
+        self.assertEqual([st.id for st in stations], [self.owner_station.id])
+
+    def test_superuser_does_not_see_all_stations_without_membership(self):
+        self.client.login(username="super", password="pass")
+
+        response = self.client.get("/dashboard/")
+
+        self.assertEqual(response.status_code, 200)
+        stations = list(response.context["stations"])
+        self.assertEqual(stations, [])
+
+
 class StationOrderingTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="order", password="pass")

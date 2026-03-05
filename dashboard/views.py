@@ -9,6 +9,7 @@ from io import BytesIO
 from typing import Optional
 
 import pandas as pd
+from django.db.models import Q
 from django.db.models import Avg
 from django.db.models.functions import TruncHour
 from django.contrib import messages
@@ -125,9 +126,9 @@ def _localize_timestamp(value):
         return value
 
 def _station_queryset_for_user(user):
-    if user.is_superuser:
-        return Station.objects.all()
-    return Station.objects.filter(org__memberships__user=user).distinct()
+    return Station.objects.filter(
+        Q(org__memberships__user=user) | Q(org__owner=user)
+    ).distinct()
 
 
 def _get_station_or_404(user, pk: int):
