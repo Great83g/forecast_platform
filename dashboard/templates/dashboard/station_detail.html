@@ -134,6 +134,7 @@
     const irradiationMultiplier = maxIrrValue > 0 && maxIrrValue <= 2 ? 1000 : 1;
     const irrFact = irrFactRaw.map((v) => (Number.isFinite(v) ? Math.round(v * irradiationMultiplier) : v));
     const irrPlan = irrPlanRaw.map((v) => (Number.isFinite(v) ? Math.round(v * irradiationMultiplier) : v));
+    const hasIrrData = [...irrFact, ...irrPlan].some((v) => Number.isFinite(v));
     const el = document.getElementById("planFactChart");
     if (!el) return;
 
