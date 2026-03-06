@@ -195,7 +195,7 @@
     const toggleTemp = document.getElementById("toggleTemperature");
 
     const applyVisibility = () => {
-      const showIrr = Boolean(toggleIrr ? toggleIrr.checked : hasIrrData);
+      const showIrr = Boolean(toggleIrr ? toggleIrr.checked : true);
       const showTemp = Boolean(toggleTemp && toggleTemp.checked);
 
       chart.data.datasets.forEach((dataset) => {
@@ -208,8 +208,8 @@
     };
 
     if (toggleIrr) {
-      toggleIrr.checked = hasIrrData;
-      toggleIrr.disabled = !hasIrrData;
+      toggleIrr.checked = true;
+      toggleIrr.disabled = false;
       toggleIrr.addEventListener("change", applyVisibility);
     }
     if (toggleTemp) toggleTemp.addEventListener("change", applyVisibility);
