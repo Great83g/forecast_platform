@@ -123,11 +123,17 @@
     const labels = JSON.parse(document.getElementById("pf-labels").textContent || "[]");
     const fact = JSON.parse(document.getElementById("pf-fact").textContent || "[]");
     const plan = JSON.parse(document.getElementById("pf-plan").textContent || "[]");
-    const irrFact = JSON.parse(document.getElementById("pf-irr-fact").textContent || "[]");
-    const irrPlan = JSON.parse(document.getElementById("pf-irr-plan").textContent || "[]");
+    const irrFactRaw = JSON.parse(document.getElementById("pf-irr-fact").textContent || "[]");
+    const irrPlanRaw = JSON.parse(document.getElementById("pf-irr-plan").textContent || "[]");
     const tempFact = JSON.parse(document.getElementById("pf-temp-fact").textContent || "[]");
     const tempPlan = JSON.parse(document.getElementById("pf-temp-plan").textContent || "[]");
     const isSingleDayRange = JSON.parse(document.getElementById("pf-single-day").textContent || "false");
+
+    const irradiationValues = [...irrFactRaw, ...irrPlanRaw].filter((v) => Number.isFinite(v));
+    const maxIrrValue = irradiationValues.length ? Math.max(...irradiationValues) : 0;
+    const irradiationMultiplier = maxIrrValue > 0 && maxIrrValue <= 2 ? 1000 : 1;
+    const irrFact = irrFactRaw.map((v) => (Number.isFinite(v) ? Math.round(v * irradiationMultiplier) : v));
+    const irrPlan = irrPlanRaw.map((v) => (Number.isFinite(v) ? Math.round(v * irradiationMultiplier) : v));
     const el = document.getElementById("planFactChart");
     if (!el) return;
 
@@ -154,8 +160,23 @@
         },
         scales: {
           yPower: {type: "linear", position: "left", title: {display: true, text: "МВт"}},
-          yIrr: {type: "linear", position: "right", title: {display: true, text: "Вт/м²"}, grid: {drawOnChartArea: false}, display: false},
-          yTemp: {type: "linear", position: "right", title: {display: true, text: "°C"}, grid: {drawOnChartArea: false}, display: false},
+          yIrr: {
+            type: "linear",
+            position: "right",
+            min: 0,
+            title: {display: true, text: "Иррадиация (Вт/м²)", color: "#fd7e14"},
+            ticks: {color: "#fd7e14"},
+            grid: {drawOnChartArea: false},
+            display: false
+          },
+          yTemp: {
+            type: "linear",
+            position: "right",
+            offset: true,
+            title: {display: true, text: "Температура (°C)"},
+            grid: {drawOnChartArea: false},
+            display: false
+          },
           x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: isSingleDayRange ? 24 : 31}}
         },
         plugins: {
