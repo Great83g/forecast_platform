@@ -38,6 +38,9 @@ source "$VENV_PATH"
 echo "[deploy] Applying migrations..."
 python3 manage.py migrate
 
+echo "[deploy] Collecting static files..."
+python3 manage.py collectstatic --noinput
+
 if [ -n "${GUNICORN_PID_FILE:-}" ]; then
   echo "[deploy] Restarting via explicit GUNICORN_PID_FILE=$GUNICORN_PID_FILE"
   GUNICORN_PID_FILE="$GUNICORN_PID_FILE" bash deploy/restart_portal.sh
