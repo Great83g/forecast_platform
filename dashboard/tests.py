@@ -110,6 +110,30 @@ class StationEditAutoHistoryFolderNormalizationTests(TestCase):
 
 
 
+
+
+class StationFormOrganizationVisibilityTests(TestCase):
+    def test_owner_sees_owned_org_in_operator_field(self):
+        owner = User.objects.create_user(username="owner-visible", password="pass")
+        own_org = Organization.objects.create(name="Owned Org", owner=owner)
+
+        form = StationForm(user=owner)
+
+        org_ids = set(form.fields["org"].queryset.values_list("id", flat=True))
+        self.assertIn(own_org.id, org_ids)
+
+    def test_user_does_not_see_other_organizations(self):
+        owner = User.objects.create_user(username="owner-only", password="pass")
+        other = User.objects.create_user(username="other-only", password="pass")
+        own_org = Organization.objects.create(name="Owned Org", owner=owner)
+        other_org = Organization.objects.create(name="Hidden Org", owner=other)
+
+        form = StationForm(user=owner)
+
+        org_ids = set(form.fields["org"].queryset.values_list("id", flat=True))
+        self.assertIn(own_org.id, org_ids)
+        self.assertNotIn(other_org.id, org_ids)
+
 class StationFormAutoHistoryRunTimeParsingTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="time-form", password="pass")

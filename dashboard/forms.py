@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Q
 
 from stations.models import Organization, Station
 
@@ -12,6 +13,14 @@ AUTO_HISTORY_TIME_INPUT_FORMATS = [
     "%I:%M%p",
     "%I:%M:%S%p",
 ]
+
+
+def _organizations_for_user(user):
+    if user is None:
+        return Organization.objects.none()
+    return Organization.objects.filter(
+        Q(owner=user) | Q(memberships__user=user)
+    ).distinct()
 
 
 class StationForm(forms.ModelForm):
@@ -116,9 +125,8 @@ class StationForm(forms.ModelForm):
             if folder == "/mnt/share":
                 self.fields["auto_history_folder"].initial = self.instance._build_preferred_auto_history_folder()
 
-        if "org" in self.fields and user is not None:
-            org_qs = Organization.objects.all() if user.is_superuser else Organization.objects.filter(memberships__user=user).distinct()
-            self.fields["org"].queryset = org_qs
+        if "org" in self.fields:
+            self.fields["org"].queryset = _organizations_for_user(user)
 
         if "history_source" in self.fields:
             qs = Station.objects.all()
