@@ -29,6 +29,9 @@ source "$VENV_PATH"
 echo "[force-sync] Running migrations..."
 python3 manage.py migrate
 
+echo "[force-sync] Collecting static files..."
+python3 manage.py collectstatic --noinput
+
 if [ -f "$GUNICORN_PID_FILE_DEFAULT" ]; then
   echo "[force-sync] Restarting via pid file: $GUNICORN_PID_FILE_DEFAULT"
   GUNICORN_PID_FILE="$GUNICORN_PID_FILE_DEFAULT" bash deploy/restart_portal.sh
