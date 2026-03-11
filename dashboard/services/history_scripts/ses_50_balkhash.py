@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -100,6 +101,37 @@ def _parse_ds(value, fallback_year: int | None) -> pd.Timestamp | None:
             minute=ts.minute,
             second=ts.second,
         )
+
+    if isinstance(value, datetime):
+        ts = pd.Timestamp(value)
+        if ts.year >= 2000:
+            return ts
+        if fallback_year is None:
+            return None
+        return pd.Timestamp(
+            year=fallback_year,
+            month=ts.month,
+            day=ts.day,
+            hour=ts.hour,
+            minute=ts.minute,
+            second=ts.second,
+        )
+
+    if isinstance(value, (int, float)):
+        ts = pd.to_datetime(value, unit="D", origin="1899-12-30", errors="coerce")
+        if pd.notna(ts):
+            ts = pd.Timestamp(ts)
+            if ts.year >= 2000:
+                return ts
+            if fallback_year is not None:
+                return pd.Timestamp(
+                    year=fallback_year,
+                    month=ts.month,
+                    day=ts.day,
+                    hour=ts.hour,
+                    minute=ts.minute,
+                    second=ts.second,
+                )
 
     text = _normalize_text(value)
     if not text:
