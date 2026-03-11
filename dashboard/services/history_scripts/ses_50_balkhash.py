@@ -7,7 +7,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
-HEADER_SCAN_ROWS = 25
+HEADER_SCAN_ROWS = 300
 MIN_POWER_KW = 0.0001
 
 
@@ -74,10 +74,30 @@ def _detect_header_row(ws) -> tuple[int, dict[str, int]]:
         if all(k in resolved for k in REQUIRED_COLUMNS):
             return row_num, resolved
 
-    raise ValueError("Не найдена строка заголовков с колонками Время/Мощность/Иррадиация/Температура")
+    # Фолбэк для типового формата отчётов СЭС Балхаш:
+    # A=Время, B=Мощность актив., C=Иррадиация, D=Температура воздуха, G=Температура ФЭМ.
+    # Бывает, что в файле повреждена/смещена шапка, поэтому используем фиксированные индексы.
+    return 1, {"time": 0, "power": 1, "irradiation": 2, "air_temp": 3, "pv_temp": 6}
 
 
 def _parse_ds(value, fallback_year: int | None) -> pd.Timestamp | None:
+    if isinstance(value, pd.Timestamp):
+        ts = value
+        if pd.isna(ts):
+            return None
+        if ts.year >= 2000:
+            return ts
+        if fallback_year is None:
+            return None
+        return pd.Timestamp(
+            year=fallback_year,
+            month=ts.month,
+            day=ts.day,
+            hour=ts.hour,
+            minute=ts.minute,
+            second=ts.second,
+        )
+
     text = _normalize_text(value)
     if not text:
         return None
