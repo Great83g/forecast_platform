@@ -364,7 +364,16 @@ def _load_station_history_builder(station: Station):
     if ":" in raw_value:
         module_target, _, attr_name = raw_value.partition(":")
     else:
-        module_target = f"dashboard.services.history_scripts.{raw_value}"
+        # Поддержка значений без ':function':
+        # - короткое имя: ses_50_balkhash
+        # - модульный путь: dashboard.services.history_scripts.ses_50_balkhash
+        # - путь к файлу: /dashboard/services/history_scripts/ses_50_balkhash.py
+        if raw_value.endswith(".py") or "/" in raw_value or "\\" in raw_value:
+            module_target = raw_value
+        elif "." in raw_value:
+            module_target = raw_value
+        else:
+            module_target = f"dashboard.services.history_scripts.{raw_value}"
         attr_name = "build_history_dataframe"
 
     module_target = module_target.strip()
