@@ -380,7 +380,32 @@ def _load_station_history_builder(station: Station):
 
     try:
         if module_target.endswith('.py') or '/' in module_target:
-            module = _load_module_from_file(module_target)
+            module = None
+            file_candidate = module_target
+
+            # UI часто сохраняет путь как "/dashboard/services/history_scripts/...py:func"
+            # (абсолютный от корня ФС), хотя в проекте файл лежит относительно репозитория.
+            # Пробуем несколько безопасных вариантов до fallback:
+            # 1) как есть;
+            # 2) относительный путь без ведущего '/';
+            # 3) короткое имя модуля через package import.
+            try_paths = [file_candidate]
+            if file_candidate.startswith("/"):
+                try_paths.append(file_candidate.lstrip("/"))
+
+            for path_candidate in try_paths:
+                try:
+                    module = _load_module_from_file(path_candidate)
+                    break
+                except Exception:
+                    module = None
+
+            if module is None:
+                script_name = Path(file_candidate).stem
+                if script_name:
+                    module = importlib.import_module(f"dashboard.services.history_scripts.{script_name}")
+                else:
+                    raise ImportError(f"Cannot resolve auto_history_script path: {module_target}")
         else:
             module = importlib.import_module(module_target)
 
