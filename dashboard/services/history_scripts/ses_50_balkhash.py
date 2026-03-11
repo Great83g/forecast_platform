@@ -7,7 +7,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
-HEADER_SCAN_ROWS = 300
+HEADER_SCAN_ROWS = 20000
 MIN_POWER_KW = 0.0001
 
 
@@ -55,7 +55,8 @@ def _guess_year_for_file(file_path: Path) -> int | None:
 
 
 def _detect_header_row(ws) -> tuple[int, dict[str, int]]:
-    for row_num in range(1, HEADER_SCAN_ROWS + 1):
+    max_scan_rows = min(max(int(getattr(ws, "max_row", 0) or 0), 1), HEADER_SCAN_ROWS)
+    for row_num in range(1, max_scan_rows + 1):
         row_vals = [cell.value for cell in ws[row_num]]
         headers = [_normalize_text(x) for x in row_vals]
 
@@ -77,7 +78,9 @@ def _detect_header_row(ws) -> tuple[int, dict[str, int]]:
     # Фолбэк для типового формата отчётов СЭС Балхаш:
     # A=Время, B=Мощность актив., C=Иррадиация, D=Температура воздуха, G=Температура ФЭМ.
     # Бывает, что в файле повреждена/смещена шапка, поэтому используем фиксированные индексы.
-    return 1, {"time": 0, "power": 1, "irradiation": 2, "air_temp": 3, "pv_temp": 6}
+    # Запускаем парсинг по всему листу (min_row=1), чтобы поймать блоки отчёта,
+    # которые начинаются после тысяч служебных строк.
+    return 0, {"time": 0, "power": 1, "irradiation": 2, "air_temp": 3, "pv_temp": 6}
 
 
 def _parse_ds(value, fallback_year: int | None) -> pd.Timestamp | None:
@@ -119,29 +122,32 @@ def _parse_ds(value, fallback_year: int | None) -> pd.Timestamp | None:
 
 def _process_one_file(file_path: Path, fallback_year: int | None) -> pd.DataFrame:
     wb = load_workbook(file_path, data_only=True)
-    ws = wb.active
-
-    header_row, col_idx = _detect_header_row(ws)
 
     rows = []
-    for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
-        time_idx = col_idx["time"]
-        if time_idx >= len(row):
+    for ws in wb.worksheets:
+        try:
+            header_row, col_idx = _detect_header_row(ws)
+        except Exception:
             continue
 
-        ds = _parse_ds(row[time_idx], fallback_year)
-        if ds is None:
-            continue
+        for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
+            time_idx = col_idx["time"]
+            if time_idx >= len(row):
+                continue
 
-        rows.append(
-            {
-                "ds": ds,
-                "power_raw": row[col_idx["power"]] if col_idx["power"] < len(row) else None,
-                "irradiation": row[col_idx["irradiation"]] if col_idx["irradiation"] < len(row) else None,
-                "air_temp": row[col_idx["air_temp"]] if col_idx["air_temp"] < len(row) else None,
-                "pv_temp": row[col_idx["pv_temp"]] if col_idx["pv_temp"] < len(row) else None,
-            }
-        )
+            ds = _parse_ds(row[time_idx], fallback_year)
+            if ds is None:
+                continue
+
+            rows.append(
+                {
+                    "ds": ds,
+                    "power_raw": row[col_idx["power"]] if col_idx["power"] < len(row) else None,
+                    "irradiation": row[col_idx["irradiation"]] if col_idx["irradiation"] < len(row) else None,
+                    "air_temp": row[col_idx["air_temp"]] if col_idx["air_temp"] < len(row) else None,
+                    "pv_temp": row[col_idx["pv_temp"]] if col_idx["pv_temp"] < len(row) else None,
+                }
+            )
 
     if not rows:
         return _empty_df()
