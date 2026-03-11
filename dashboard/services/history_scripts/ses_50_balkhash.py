@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from datetime import time as dt_time
 from pathlib import Path
 
 import pandas as pd
@@ -12,7 +13,9 @@ HEADER_SCAN_ROWS = 20000
 MIN_POWER_KW = 0.0001
 
 
-DATE_TIME_RE = re.compile(r"^(\d{2})\.(\d{2})(?:\.(\d{4}))?\s*-?\s*(\d{1,2}):(\d{2})$")
+DATE_TIME_RE = re.compile(r"^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?\s*-?\s*(\d{1,2}):(\d{1,2})$")
+DAY_ONLY_RE = re.compile(r"^(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?$")
+TIME_ONLY_RE = re.compile(r"^(\d{1,2}):(\d{1,2})(?::\d{1,2})?$")
 
 
 REQUIRED_COLUMNS = {
@@ -142,12 +145,68 @@ def _parse_ds(value, fallback_year: int | None) -> pd.Timestamp | None:
         return None
 
     day, month, year_part, hour, minute = m.groups()
-    year = int(year_part) if year_part else fallback_year
+    if year_part:
+        year = int(year_part)
+        if year < 100:
+            year += 2000
+    else:
+        year = fallback_year
     if year is None:
         return None
 
     try:
         return pd.Timestamp(year=year, month=int(month), day=int(day), hour=int(hour), minute=int(minute))
+    except ValueError:
+        return None
+
+
+def _parse_day_marker(value, fallback_year: int | None) -> tuple[int, int, int] | None:
+    text = _normalize_text(value)
+    if not text:
+        return None
+
+    m = DAY_ONLY_RE.match(text)
+    if not m:
+        return None
+
+    day, month, year_part = m.groups()
+    if year_part:
+        year = int(year_part)
+        if year < 100:
+            year += 2000
+    else:
+        year = fallback_year
+
+    if year is None:
+        return None
+
+    try:
+        pd.Timestamp(year=year, month=int(month), day=int(day))
+    except ValueError:
+        return None
+    return int(year), int(month), int(day)
+
+
+def _parse_time_only(value, current_day: tuple[int, int, int] | None) -> pd.Timestamp | None:
+    if current_day is None:
+        return None
+
+    if isinstance(value, dt_time):
+        y, m, d = current_day
+        return pd.Timestamp(year=y, month=m, day=d, hour=value.hour, minute=value.minute, second=value.second)
+
+    text = _normalize_text(value)
+    if not text:
+        return None
+
+    m = TIME_ONLY_RE.match(text)
+    if not m:
+        return None
+
+    hour, minute = map(int, m.groups())
+    y, mon, d = current_day
+    try:
+        return pd.Timestamp(year=y, month=mon, day=d, hour=hour, minute=minute)
     except ValueError:
         return None
 
@@ -162,12 +221,20 @@ def _process_one_file(file_path: Path, fallback_year: int | None) -> pd.DataFram
         except Exception:
             continue
 
+        current_day = None
         for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
             time_idx = col_idx["time"]
             if time_idx >= len(row):
                 continue
 
-            ds = _parse_ds(row[time_idx], fallback_year)
+            time_raw = row[time_idx]
+            day_marker = _parse_day_marker(time_raw, fallback_year)
+            if day_marker is not None:
+                current_day = day_marker
+
+            ds = _parse_ds(time_raw, fallback_year)
+            if ds is None:
+                ds = _parse_time_only(time_raw, current_day)
             if ds is None:
                 continue
 
