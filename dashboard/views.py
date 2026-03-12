@@ -4,8 +4,11 @@ from __future__ import annotations
 from collections import defaultdict
 import importlib
 import logging
+import subprocess
+import sys
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -35,13 +38,6 @@ from .services.history_autofill import run_auto_history_updates
 from .models import ForecastSchedule
 
 logger = logging.getLogger(__name__)
-
-# train service (может быть/не быть — не валим портал)
-try:
-    from .services.train_models import train_models_for_station
-except Exception:
-    train_models_for_station = None
-
 
 # ----------------------------
 # helpers
@@ -152,6 +148,28 @@ def _ensure_station_write_access(request, station):
         return True
     messages.error(request, _station_write_denied_message(station))
     return False
+
+
+def _start_station_training_subprocess(station_id: int) -> tuple[bool, str]:
+    base_dir = Path(getattr(settings, "BASE_DIR", "."))
+    model_dir = Path(getattr(settings, "MODEL_DIR", base_dir / "models_cache"))
+    model_dir.mkdir(parents=True, exist_ok=True)
+    log_path = model_dir / f"train_station_{station_id}.log"
+
+    cmd = [sys.executable, "manage.py", "train_station_models", str(station_id)]
+    try:
+        with log_path.open("ab") as log_file:
+            subprocess.Popen(
+                cmd,
+                cwd=str(base_dir),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+    except Exception as exc:
+        logger.exception("[TRAIN] station=%s failed to spawn train process", station_id)
+        return False, str(exc)
+    return True, str(log_path)
 
 # ----------------------------
 # stations
@@ -700,17 +718,14 @@ def station_train(request, pk: int):
             return redirect("dashboard:station-detail", pk=st.pk)
 
         if request.method == "POST":
-            if train_models_for_station is None:
-                messages.error(request, "train_models_for_station не найден. Проверь dashboard/services/train_models.py")
-                return redirect("dashboard:station-train", pk=pk)
-
-            try:
-                res = train_models_for_station(st)
-                # res может быть dict/str — покажем как есть
-                messages.success(request, f"Обучение запущено/выполнено: {res}")
-            except Exception as e:
-                logger.exception("[TRAIN] station=%s train_models_for_station failed", st.pk)
-                messages.error(request, f"Ошибка обучения: {e}")
+            ok, details = _start_station_training_subprocess(st.pk)
+            if ok:
+                messages.success(
+                    request,
+                    f"Обучение запущено в фоне. Лог: {details}",
+                )
+            else:
+                messages.error(request, f"Не удалось запустить обучение: {details}")
 
             return redirect("dashboard:station-detail", pk=pk)
 
