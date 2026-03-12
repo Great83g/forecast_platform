@@ -14,6 +14,7 @@ from dashboard.services.forecast_engine import _target_offsets_for_weekday_calen
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
+    _normalize_auto_history_script,
     _resolve_station_share_folder,
     collect_share_history_dataframe,
     run_auto_history_updates,
@@ -282,6 +283,13 @@ class StationAutoHistoryCustomScriptTests(TestCase):
         rows = upsert_station_history_from_share(self.station)
 
         self.assertEqual(rows, 1)
+
+    def test_script_value_with_dot_in_short_name_normalizes_to_short_module_name(self):
+        self.station.auto_history_script = "ses_1.2mw"
+
+        normalized = _normalize_auto_history_script(self.station.auto_history_script)
+
+        self.assertEqual(normalized, "ses_1_2mw")
 
     def test_script_value_with_slashes_normalizes_to_short_module_name(self):
         self.station.auto_history_script = "/history_scripts/example_station"

@@ -347,11 +347,15 @@ def _normalize_auto_history_script(raw_value: str) -> str:
         if tokens and not has_file_suffix:
             value = tokens[-1]
 
-    # Поддержка "человеческого" ввода в UI: "ses 8 8mw" -> "ses_8_8mw"
-    # Нормализацию применяем только к короткому имени модуля,
-    # не затрагивая полные python-пути и file.py:func.
-    if ":" not in value and "." not in value and "/" not in value and "\\" not in value:
-        value = "_".join(value.split())
+    # Поддержка "человеческого" ввода в UI:
+    # - "ses 8 8mw" -> "ses_8_8mw"
+    # - "ses_1.2mw" -> "ses_1_2mw"
+    # Полные python-пути (dashboard.services...) оставляем без изменений.
+    if ":" not in value and "/" not in value and "\\" not in value:
+        dot_parts = value.split(".")
+        is_module_path = len(dot_parts) > 1 and all(part.isidentifier() for part in dot_parts)
+        if not is_module_path:
+            value = re.sub(r"[^0-9a-zA-Z_]+", "_", value).strip("_")
 
     return value
 
