@@ -1163,6 +1163,83 @@ class Ses88MwHistoryScriptTests(TestCase):
             self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 08:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
 
+
+
+class Ses50BalkhashHistoryScriptTests(TestCase):
+    def test_build_history_dataframe_uses_hourly_mean_for_power(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_50_balkhash import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "balkhash_report.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws["A1"] = "Отчет №01 / 09.03.2026 0:00:00"
+            ws.append([])
+            ws.append([])
+            ws.append(["Время", "Мощность актив", "Иррадиация", "Температура воздуха", "", "", "Температура ФЭМ"])
+            ws.append(["09.03 - 08:10", 0.2, 100, 5, "", "", 7])
+            ws.append(["09.03 - 08:40", 0.4, 120, 6, "", "", 8])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 08:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 300.0)
+
+    def test_build_history_dataframe_extracts_year_from_sheet_header(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_50_balkhash import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "report_without_year_in_name.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws["A1"] = "Отчет №55 / 07.03.2026 0:00:00"
+            ws.append([])
+            ws.append([])
+            ws.append(["Время", "Мощность актив", "Иррадиация", "Температура воздуха", "", "", "Температура ФЭМ"])
+            ws.append(["07.03 - 23:15", 0.1, 10, -2, "", "", -1])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-07 23:00:00")
+
+    def test_build_history_dataframe_parses_comma_decimal_text_values(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_50_balkhash import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "report_text_numbers.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws["A1"] = "Отчет №99 / 11.03.2026 0:00:00"
+            ws.append([])
+            ws.append([])
+            ws.append(["Время", "Мощность актив", "Иррадиация", "Температура воздуха", "", "", "Температура ФЭМ"])
+            ws.append(["11.03 - 09:00", "32,18", "396,43", "-15,70", "", "", "-3,67"])
+            ws.append(["11.03 - 09:15", "35,02", "438,08", "-15,70", "", "", "-1,67"])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 09:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["irradiation"]), 417.255, places=3)
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 33600.0, places=2)
+
 class Ses12MwHistoryScriptTests(TestCase):
     @patch("dashboard.services.history_autofill.collect_share_history_dataframe")
     def test_build_history_dataframe_uses_share_merge_for_d222_and_report_files(self, collect_mock):
