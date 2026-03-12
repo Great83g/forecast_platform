@@ -14,6 +14,7 @@ from dashboard.services.forecast_engine import _target_offsets_for_weekday_calen
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
+    _normalize_auto_history_script,
     _resolve_station_share_folder,
     collect_share_history_dataframe,
     run_auto_history_updates,
@@ -282,6 +283,45 @@ class StationAutoHistoryCustomScriptTests(TestCase):
         rows = upsert_station_history_from_share(self.station)
 
         self.assertEqual(rows, 1)
+
+    def test_script_value_with_dot_in_short_name_normalizes_to_short_module_name(self):
+        self.station.auto_history_script = "ses_1.2mw"
+
+        normalized = _normalize_auto_history_script(self.station.auto_history_script)
+
+        self.assertEqual(normalized, "ses_1_2mw")
+
+    def test_script_value_with_dot_in_short_name_runs_history_builder(self):
+        self.station.auto_history_script = "ses_1.2mw"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "ds": "2026-02-26 08:10:00",
+                        "Irradiation": 30.7,
+                        "Air_Temp": -9.1,
+                        "PV_Temp": -9.0,
+                        "Power_KW": 220.123,
+                    },
+                    {
+                        "ds": "2026-02-26 08:40:00",
+                        "Irradiation": 46.9,
+                        "Air_Temp": -9.1,
+                        "PV_Temp": -8.9,
+                        "Power_KW": 70.222,
+                    },
+                ]
+            ).to_csv(folder / "history_1_2.csv", index=False)
+            self.station.auto_history_folder = str(folder)
+            self.station.save(update_fields=["auto_history_script", "auto_history_folder"])
+
+            rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
+        rec = SolarRecord.objects.get(station=self.station)
+        self.assertAlmostEqual(rec.power_kw, 70.22)
 
     def test_script_value_with_slashes_normalizes_to_short_module_name(self):
         self.station.auto_history_script = "/history_scripts/example_station"
@@ -1123,7 +1163,87 @@ class Ses88MwHistoryScriptTests(TestCase):
             self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 08:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
 
+
+
+class Ses50BalkhashHistoryScriptTests(TestCase):
+    def test_build_history_dataframe_uses_hourly_mean_for_power(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_50_balkhash import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "balkhash_report.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws["A1"] = "Отчет №01 / 09.03.2026 0:00:00"
+            ws.append([])
+            ws.append([])
+            ws.append(["Время", "Мощность актив", "Иррадиация", "Температура воздуха", "", "", "Температура ФЭМ"])
+            ws.append(["09.03 - 08:10", 0.2, 100, 5, "", "", 7])
+            ws.append(["09.03 - 08:40", 0.4, 120, 6, "", "", 8])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 08:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 300.0)
+
+    def test_build_history_dataframe_extracts_year_from_sheet_header(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_50_balkhash import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "report_without_year_in_name.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws["A1"] = "Отчет №55 / 07.03.2026 0:00:00"
+            ws.append([])
+            ws.append([])
+            ws.append(["Время", "Мощность актив", "Иррадиация", "Температура воздуха", "", "", "Температура ФЭМ"])
+            ws.append(["07.03 - 23:15", 0.1, 10, -2, "", "", -1])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-07 23:00:00")
+
 class Ses12MwHistoryScriptTests(TestCase):
+    @patch("dashboard.services.history_autofill.collect_share_history_dataframe")
+    def test_build_history_dataframe_uses_share_merge_for_d222_and_report_files(self, collect_mock):
+        from dashboard.services.history_scripts.ses_1_2mw import build_history_dataframe
+
+        collect_mock.return_value = pd.DataFrame(
+            [
+                {
+                    "ds": pd.Timestamp("2026-03-12 06:00:00"),
+                    "irradiation": 123.4,
+                    "air_temp": 11.0,
+                    "pv_temp": 16.0,
+                    "power_kw": 77.7,
+                }
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "D222152_20260312_0000.csv.gz").write_text("dummy")
+            (folder / "reportSPP_JezSolar 1.2 MW_12-03-2026_Plant Statistics Report_by Time.xlsx").write_text("dummy")
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 06:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 77.7)
+        collect_mock.assert_called_once()
+
     def test_build_history_dataframe_parses_standard_csv_columns(self):
         from dashboard.services.history_scripts.ses_1_2mw import build_history_dataframe
 

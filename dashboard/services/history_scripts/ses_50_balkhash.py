@@ -55,6 +55,25 @@ def _guess_year_for_file(file_path: Path) -> int | None:
     return max(candidates) if candidates else None
 
 
+def _extract_year_from_sheet(ws) -> int | None:
+    # Пример в шапке: "Отчет №__ / 07.03.2026 0:00:00"
+    for row in ws.iter_rows(min_row=1, max_row=8, values_only=True):
+        for cell in row:
+            text = _normalize_text(cell)
+            if not text:
+                continue
+
+            m = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text)
+            if m:
+                return int(m.group(3))
+
+            m2 = re.search(r"\b(20\d{2})\b", text)
+            if m2:
+                return int(m2.group(1))
+
+    return None
+
+
 def _detect_header_row(ws) -> tuple[int, dict[str, int]]:
     max_scan_rows = min(max(int(getattr(ws, "max_row", 0) or 0), 1), HEADER_SCAN_ROWS)
     for row_num in range(1, max_scan_rows + 1):
@@ -157,6 +176,8 @@ def _process_one_file(file_path: Path, fallback_year: int | None) -> pd.DataFram
 
     rows = []
     for ws in wb.worksheets:
+        sheet_year = _extract_year_from_sheet(ws)
+        effective_year = sheet_year or fallback_year
         try:
             header_row, col_idx = _detect_header_row(ws)
         except Exception:
@@ -167,7 +188,7 @@ def _process_one_file(file_path: Path, fallback_year: int | None) -> pd.DataFram
             if time_idx >= len(row):
                 continue
 
-            ds = _parse_ds(row[time_idx], fallback_year)
+            ds = _parse_ds(row[time_idx], effective_year)
             if ds is None:
                 continue
 
@@ -197,7 +218,7 @@ def _process_one_file(file_path: Path, fallback_year: int | None) -> pd.DataFram
             "irradiation": "mean",
             "air_temp": "mean",
             "pv_temp": "mean",
-            "power_raw": "sum",
+            "power_raw": "mean",
         })
         .reset_index()
     )

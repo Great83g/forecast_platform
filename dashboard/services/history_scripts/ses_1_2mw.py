@@ -39,12 +39,43 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+def _read_csv_flexible(file_path: Path) -> pd.DataFrame:
+    read_attempts = (
+        {"low_memory": False},
+        {"low_memory": False, "sep": ";", "decimal": ","},
+        {"low_memory": False, "sep": ";"},
+    )
+
+    for kwargs in read_attempts:
+        try:
+            return pd.read_csv(file_path, **kwargs)
+        except Exception:
+            continue
+
+    return pd.DataFrame()
+
+
 def build_history_dataframe(station) -> pd.DataFrame:
     folder = Path(getattr(station, "auto_history_folder", "") or "")
     if not folder.exists():
         return _empty_df()
 
+    # Для папок с парами meteo(D222*.csv.gz) + отчёт станции (*.xlsx)
+    # используем проверенную merge-логику общего обработчика.
+    meteo_files = [p for p in sorted(folder.glob("D222*.csv.gz")) if p.is_file()]
+    report_files = [p for p in sorted(folder.glob("*.xlsx")) if p.is_file() and not p.name.startswith("~$")]
+    if meteo_files and report_files:
+        try:
+            from dashboard.services.history_autofill import collect_share_history_dataframe
+
+            merged = collect_share_history_dataframe(folder)
+            if not merged.empty:
+                return merged[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
+        except Exception:
+            pass
+
     files = [p for p in sorted(folder.glob("*.csv")) if p.is_file()]
+    files += [p for p in sorted(folder.glob("*.csv.gz")) if p.is_file()]
     files += [p for p in sorted(folder.glob("*.xlsx")) if p.is_file() and not p.name.startswith("~$")]
     if not files:
         return _empty_df()
@@ -52,8 +83,8 @@ def build_history_dataframe(station) -> pd.DataFrame:
     parts: list[pd.DataFrame] = []
     for file_path in files:
         try:
-            if file_path.suffix.lower() == ".csv":
-                raw = pd.read_csv(file_path, low_memory=False)
+            if file_path.suffix.lower() == ".csv" or file_path.name.lower().endswith(".csv.gz"):
+                raw = _read_csv_flexible(file_path)
             else:
                 raw = pd.read_excel(file_path)
         except Exception:
