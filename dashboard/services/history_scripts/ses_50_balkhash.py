@@ -103,6 +103,15 @@ def _detect_header_row(ws) -> tuple[int, dict[str, int]]:
     return 0, {"time": 0, "power": 1, "irradiation": 2, "air_temp": 3, "pv_temp": 6}
 
 
+def _to_numeric_series(values: pd.Series) -> pd.Series:
+    # В прод-файлах часть чисел может приходить строками с запятой: "12,34"
+    # или с неразрывными пробелами. Нормализуем перед pd.to_numeric.
+    normalized = values.astype(str).str.replace("\xa0", "", regex=False).str.replace(" ", "", regex=False)
+    normalized = normalized.str.replace(",", ".", regex=False)
+    normalized = normalized.replace({"": None, "None": None, "nan": None, "NaN": None})
+    return pd.to_numeric(normalized, errors="coerce")
+
+
 def _parse_ds(value, fallback_year: int | None) -> pd.Timestamp | None:
     if isinstance(value, pd.Timestamp):
         ts = value
@@ -207,7 +216,7 @@ def _process_one_file(file_path: Path, fallback_year: int | None) -> pd.DataFram
 
     df = pd.DataFrame(rows)
     for col in ["power_raw", "irradiation", "air_temp", "pv_temp"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+        df[col] = _to_numeric_series(df[col])
 
     df["power_raw"] = df["power_raw"].clip(lower=0)
 
