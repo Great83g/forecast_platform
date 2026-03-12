@@ -1164,6 +1164,35 @@ class Ses88MwHistoryScriptTests(TestCase):
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
 
 class Ses12MwHistoryScriptTests(TestCase):
+    @patch("dashboard.services.history_autofill.collect_share_history_dataframe")
+    def test_build_history_dataframe_uses_share_merge_for_d222_and_report_files(self, collect_mock):
+        from dashboard.services.history_scripts.ses_1_2mw import build_history_dataframe
+
+        collect_mock.return_value = pd.DataFrame(
+            [
+                {
+                    "ds": pd.Timestamp("2026-03-12 06:00:00"),
+                    "irradiation": 123.4,
+                    "air_temp": 11.0,
+                    "pv_temp": 16.0,
+                    "power_kw": 77.7,
+                }
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "D222152_20260312_0000.csv.gz").write_text("dummy")
+            (folder / "reportSPP_JezSolar 1.2 MW_12-03-2026_Plant Statistics Report_by Time.xlsx").write_text("dummy")
+
+            station = SimpleNamespace(auto_history_folder=str(folder))
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 06:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 77.7)
+        collect_mock.assert_called_once()
+
     def test_build_history_dataframe_parses_standard_csv_columns(self):
         from dashboard.services.history_scripts.ses_1_2mw import build_history_dataframe
 
