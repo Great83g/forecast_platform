@@ -694,27 +694,33 @@ def station_train(request, pk: int):
     """
     Страница обучения (GET) + запуск обучения (POST).
     """
-    st = _get_station_or_404(request.user, pk)
-    if not _ensure_station_write_access(request, st):
-        return redirect("dashboard:station-detail", pk=st.pk)
+    try:
+        st = _get_station_or_404(request.user, pk)
+        if not _ensure_station_write_access(request, st):
+            return redirect("dashboard:station-detail", pk=st.pk)
 
-    if request.method == "POST":
-        if train_models_for_station is None:
-            messages.error(request, "train_models_for_station не найден. Проверь dashboard/services/train_models.py")
-            return redirect("dashboard:station-train", pk=pk)
+        if request.method == "POST":
+            if train_models_for_station is None:
+                messages.error(request, "train_models_for_station не найден. Проверь dashboard/services/train_models.py")
+                return redirect("dashboard:station-train", pk=pk)
 
-        try:
-            res = train_models_for_station(st)
-            # res может быть dict/str — покажем как есть
-            messages.success(request, f"Обучение запущено/выполнено: {res}")
-        except Exception as e:
-            messages.error(request, f"Ошибка обучения: {e}")
+            try:
+                res = train_models_for_station(st)
+                # res может быть dict/str — покажем как есть
+                messages.success(request, f"Обучение запущено/выполнено: {res}")
+            except Exception as e:
+                logger.exception("[TRAIN] station=%s train_models_for_station failed", st.pk)
+                messages.error(request, f"Ошибка обучения: {e}")
 
-        return redirect("dashboard:station-detail", pk=pk)
+            return redirect("dashboard:station-detail", pk=pk)
 
-    # GET
-    # покажем статус: есть ли модели в models_cache (если хочешь — добавим позже красиво)
-    return render(request, "dashboard/station_train.html", {"station": st})
+        # GET
+        # покажем статус: есть ли модели в models_cache (если хочешь — добавим позже красиво)
+        return render(request, "dashboard/station_train.html", {"station": st})
+    except Exception as e:
+        logger.exception("[TRAIN] station=%s unexpected train view error", pk)
+        messages.error(request, f"Внутренняя ошибка страницы обучения: {e}")
+        return redirect("dashboard:station-list")
 
 
 @login_required

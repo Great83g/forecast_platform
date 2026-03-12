@@ -10,9 +10,10 @@ from dashboard.services.forecast_engine import train_models_for_station
 
 
 def _get_station_model():
-    # В твоей БД модель станции сейчас: stations.StationsStation (см. inspectdb)
-    # Но на всякий случай ищем по кандидатам.
+    # Ищем рабочую модель станции среди известных вариантов.
+    # В текущем проекте обычно используется stations.Station.
     for (app_label, model_name) in [
+        ("stations", "Station"),
         ("stations", "StationsStation"),
         ("solar", "Station"),
         ("solar", "SolarStation"),
@@ -34,11 +35,11 @@ def station_train_models(request, pk: int):
     if request.method == "POST":
         try:
             # обучение NP + XGB (реализовано в forecast_engine.py)
-            train_models_for_station(st.pk)
+            train_models_for_station(st)
             messages.success(request, "Обучение моделей запущено/выполнено.")
         except Exception as e:
             messages.error(request, f"Ошибка обучения: {e}")
 
-        return redirect("dashboard:station-list")
+        return redirect("dashboard:station-detail", pk=st.pk)
 
     return render(request, "dashboard/station_train.html", {"station": st})
