@@ -291,6 +291,38 @@ class StationAutoHistoryCustomScriptTests(TestCase):
 
         self.assertEqual(normalized, "ses_1_2mw")
 
+    def test_script_value_with_dot_in_short_name_runs_history_builder(self):
+        self.station.auto_history_script = "ses_1.2mw"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            pd.DataFrame(
+                [
+                    {
+                        "ds": "2026-02-26 08:10:00",
+                        "Irradiation": 30.7,
+                        "Air_Temp": -9.1,
+                        "PV_Temp": -9.0,
+                        "Power_KW": 220.123,
+                    },
+                    {
+                        "ds": "2026-02-26 08:40:00",
+                        "Irradiation": 46.9,
+                        "Air_Temp": -9.1,
+                        "PV_Temp": -8.9,
+                        "Power_KW": 70.222,
+                    },
+                ]
+            ).to_csv(folder / "history_1_2.csv", index=False)
+            self.station.auto_history_folder = str(folder)
+            self.station.save(update_fields=["auto_history_script", "auto_history_folder"])
+
+            rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 1)
+        rec = SolarRecord.objects.get(station=self.station)
+        self.assertAlmostEqual(rec.power_kw, 70.22)
+
     def test_script_value_with_slashes_normalizes_to_short_module_name(self):
         self.station.auto_history_script = "/history_scripts/example_station"
 
