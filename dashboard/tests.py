@@ -13,6 +13,7 @@ from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import (
     _station_data_shift_hours as forecast_station_shift_hours,
     _target_offsets_for_weekday_calendar,
+    _postprocess_xgb_prediction,
     run_forecast_for_station,
 )
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
@@ -56,6 +57,24 @@ def build_custom_history_dataframe(station):
         ]
     )
 
+
+
+class ForecastEngineXgbPostprocessTests(TestCase):
+    def test_converts_per_mw_predictions_to_mw(self):
+        raw = [0.1, 0.5, 1.0]
+        meta = {"target": "y_per_MW = y / cap_mw", "cap_mw_used": 50.0}
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=49.0)
+
+        self.assertEqual(out.tolist(), [5.0, 25.0, 50.0])
+
+    def test_keeps_legacy_mw_predictions_without_scaling(self):
+        raw = [5.0, 10.0]
+        meta = {"target": "y_mw"}
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=50.0)
+
+        self.assertEqual(out.tolist(), [5.0, 10.0])
 
 
 class StationFormAutoHistoryFolderInitialTests(TestCase):
