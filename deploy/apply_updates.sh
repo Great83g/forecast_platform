@@ -38,6 +38,12 @@ if [ ! -f "$VENV_PATH" ]; then
   exit 1
 fi
 
+if [ ! -f "$VENV_PATH" ]; then
+  echo "[deploy] ERROR: virtualenv activation file not found: $VENV_PATH"
+  echo "[deploy] Set VENV_PATH explicitly, for example: VENV_PATH=/opt/venv/bin/activate"
+  exit 1
+fi
+
 echo "[deploy] Activating virtualenv: $VENV_PATH"
 # shellcheck disable=SC1090
 source "$VENV_PATH"
