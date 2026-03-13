@@ -5,17 +5,38 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/forecast_platform}"
 VENV_PATH="${VENV_PATH:-venv/bin/activate}"
 GUNICORN_PID_FILE_DEFAULT="${GUNICORN_PID_FILE_DEFAULT:-/run/gunicorn.pid}"
 GUNICORN_PORT_DEFAULT="${GUNICORN_PORT_DEFAULT:-8000}"
+AUTO_STASH="${AUTO_STASH:-0}"
 
 cd "$PROJECT_DIR"
 
+echo "[deploy] Current commit: $(git rev-parse --short HEAD)"
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  if [ "$AUTO_STASH" = "1" ]; then
+    echo "[deploy] Local changes detected -> stashing (including untracked files)"
+    git stash push -u -m "deploy-auto-stash $(date +%Y%m%d-%H%M%S)"
+  else
+    echo "[deploy] ERROR: local changes detected."
+    echo "[deploy] Commit/stash changes first, or run with AUTO_STASH=1"
+    echo "[deploy] Hint: git stash push -u && git pull --rebase --autostash"
+    exit 1
+  fi
+fi
+
+echo "[deploy] Pulling latest changes (rebase + autostash)..."
+git pull --rebase --autostash
+
 echo "[deploy] Running update sequence:"
 echo "[deploy]   cd $PROJECT_DIR"
-echo "[deploy]   git pull --rebase"
+echo "[deploy]   git pull --rebase --autostash"
 echo "[deploy]   source $VENV_PATH"
 echo "[deploy]   python3 manage.py migrate"
 
-echo "[deploy] Pulling latest changes (rebase)..."
-git pull --rebase
+if [ ! -f "$VENV_PATH" ]; then
+  echo "[deploy] ERROR: virtualenv activation file not found: $VENV_PATH"
+  echo "[deploy] Set VENV_PATH explicitly, for example: VENV_PATH=/opt/venv/bin/activate"
+  exit 1
+fi
 
 if [ ! -f "$VENV_PATH" ]; then
   echo "[deploy] ERROR: virtualenv activation file not found: $VENV_PATH"
@@ -26,6 +47,9 @@ fi
 echo "[deploy] Activating virtualenv: $VENV_PATH"
 # shellcheck disable=SC1090
 source "$VENV_PATH"
+
+echo "[deploy] Planned migrations..."
+python3 manage.py migrate --plan
 
 echo "[deploy] Applying migrations..."
 python3 manage.py migrate
@@ -38,4 +62,7 @@ else
   GUNICORN_PORT="$GUNICORN_PORT_DEFAULT" bash deploy/restart_portal.sh
 fi
 
-echo "[deploy] Done."
+echo "[deploy] Smoke check:"
+curl -I "http://127.0.0.1:${GUNICORN_PORT_DEFAULT}/" || true
+
+echo "[deploy] Done. Current commit: $(git rev-parse --short HEAD)"
