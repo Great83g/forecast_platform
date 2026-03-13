@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -27,6 +27,13 @@ from .vc_weather import fetch_visual_crossing_hourly
 
 MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
 logger = logging.getLogger(__name__)
+
+
+def _station_data_shift_hours(station: Station) -> int:
+    try:
+        return int(getattr(station, "data_shift_hours", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _station_model_dir(station: Station) -> Path:
@@ -668,6 +675,7 @@ def run_forecast_for_station(
     st = Station.objects.get(pk=station_id)
     capacity_mw = _station_capacity_mw(st)
     now = timezone.localtime(timezone.now())
+    data_shift_hours = _station_data_shift_hours(st)
 
     requested_target_dates = {d for d in (target_dates or []) if isinstance(d, date)}
     target_dates: Optional[set[date]] = requested_target_dates or None
@@ -1010,15 +1018,23 @@ def run_forecast_for_station(
     y_final_kw = y_final * 1000.0
 
     # ---- save ----
-    start = timezone.datetime.combine(
-        start_date,
+    base_cleanup_start = timezone.datetime.combine(
+        min(target_dates) if target_dates else start_date,
         timezone.datetime.min.time(),
     ).replace(tzinfo=now.tzinfo)
-    end = start + pd.Timedelta(days=effective_days)
-    if target_dates:
-        SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope, timestamp__date__in=list(target_dates)).delete()
-    else:
-        SolarForecast.objects.filter(station=st, forecast_scope=forecast_scope, timestamp__gte=start, timestamp__lt=end).delete()
+    base_cleanup_end = timezone.datetime.combine(
+        (max(target_dates) + timedelta(days=1)) if target_dates else (start_date + timedelta(days=effective_days)),
+        timezone.datetime.min.time(),
+    ).replace(tzinfo=now.tzinfo)
+    shifted_cleanup_start = base_cleanup_start + timedelta(hours=data_shift_hours)
+    shifted_cleanup_end = base_cleanup_end + timedelta(hours=data_shift_hours)
+
+    SolarForecast.objects.filter(
+        station=st,
+        forecast_scope=forecast_scope,
+        timestamp__gte=shifted_cleanup_start,
+        timestamp__lt=shifted_cleanup_end,
+    ).delete()
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
@@ -1030,7 +1046,7 @@ def run_forecast_for_station(
         objs.append(
             SolarForecast(
                 station=st,
-                timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
+                timestamp=pd.to_datetime(row["ds"]).to_pydatetime() + timedelta(hours=data_shift_hours),
                 forecast_scope=forecast_scope,
                 # Сохраняем в кВт (модель работает в MW, перевели выше)
                 pred_np=pred_np_kw,
@@ -1065,8 +1081,8 @@ def run_forecast_for_station(
     mirrored_qs = SolarForecast.objects.filter(
         station=st,
         forecast_scope=forecast_scope,
-        timestamp__gte=start,
-        timestamp__lt=end,
+        timestamp__gte=shifted_cleanup_start,
+        timestamp__lt=shifted_cleanup_end,
     ).order_by("id")
     sync_solar_forecasts(mirrored_qs)
 

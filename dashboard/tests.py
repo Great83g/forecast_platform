@@ -10,10 +10,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dashboard.models import ForecastSchedule
-from dashboard.services.forecast_engine import _target_offsets_for_weekday_calendar, run_forecast_for_station
+from dashboard.services.forecast_engine import (
+    _station_data_shift_hours as forecast_station_shift_hours,
+    _target_offsets_for_weekday_calendar,
+    run_forecast_for_station,
+)
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
+    _station_data_shift_hours as auto_history_station_shift_hours,
     _normalize_auto_history_script,
     _resolve_station_share_folder,
     collect_share_history_dataframe,
@@ -25,6 +30,16 @@ from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from solar.models import SolarRecord
 from stations.models import Organization, OrganizationMember, Station
+
+
+class StationDataShiftHoursTests(TestCase):
+    def test_forecast_shift_helper_reads_station_value(self):
+        station = SimpleNamespace(data_shift_hours=-1)
+        self.assertEqual(forecast_station_shift_hours(station), -1)
+
+    def test_auto_history_shift_helper_fallbacks_to_zero(self):
+        station = SimpleNamespace(data_shift_hours="bad")
+        self.assertEqual(auto_history_station_shift_hours(station), 0)
 
 
 def build_custom_history_dataframe(station):

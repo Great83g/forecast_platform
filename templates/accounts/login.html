@@ -1,85 +1,307 @@
 {% extends "base.html" %}
 {% block title %}Вход{% endblock %}
+{% block body_class %}auth-page-body{% endblock %}
+{% block page_nav %}{% endblock %}
+{% block page_container_class %}container-fluid p-0{% endblock %}
 
 {% block content %}
   <style>
-    body {
-      background-color: #08183a;
-      /* Опционально: положите файл в media/login-background.png, чтобы включить фон */
-      background-image: linear-gradient(rgba(8, 24, 58, 0.72), rgba(8, 24, 58, 0.72)), url('/media/login-background.png');
-      background-position: center;
-      background-repeat: no-repeat;
-      background-size: cover;
+    .auth-page-body {
+      margin: 0;
       min-height: 100vh;
+      color: #eef3ff;
+      background: #071638;
     }
 
-    .auth-login-wrapper {
-      min-height: calc(100vh - 120px);
+    .split-hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 42% 58%;
+      background: #06122e;
     }
 
-    .auth-login-card {
-      backdrop-filter: blur(2px);
-      background-color: rgba(255, 255, 255, 0.92);
+    .left-pane {
+      position: relative;
+      padding: 1.25rem clamp(1rem, 4vw, 3.5rem) clamp(1.4rem, 4vw, 2.4rem);
+      background: linear-gradient(165deg, #122a63 0%, #0b1c48 55%, #09173e 100%);
+      border-right: 1px solid rgba(145, 179, 255, 0.22);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .hero-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.6rem;
+    }
+
+    .hero-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.7rem;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .hero-brand img {
+      width: 56px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-menu {
+      list-style: none;
+      display: flex;
+      gap: 0.9rem;
+      margin: 0;
+      padding: 0;
+    }
+
+    .hero-menu a {
+      color: rgba(229, 237, 255, 0.92);
+      text-decoration: none;
+      font-size: 0.94rem;
+    }
+
+    .left-copy {
+      margin-top: auto;
+      margin-bottom: auto;
+      max-width: 560px;
+    }
+
+    .left-copy .kicker {
+      color: #8ef7d0;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.82rem;
+      font-weight: 700;
+      margin-bottom: 0.8rem;
+    }
+
+    .left-copy h1 {
+      margin: 0;
+      text-transform: uppercase;
+      font-size: clamp(1.7rem, 3.8vw, 3.05rem);
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+    }
+
+    .left-copy p {
+      margin: 1rem 0 1.4rem;
+      max-width: 510px;
+      color: rgba(224, 235, 255, 0.88);
+      font-size: 0.98rem;
+    }
+
+    .entry-block {
+      margin-top: 1rem;
+      max-width: 430px;
+      border: 1px solid rgba(160, 189, 255, 0.32);
+      background: rgba(7, 18, 46, 0.4);
+      padding: 1rem;
+    }
+
+    .entry-actions {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 0.9rem;
+    }
+
+    .entry-actions .btn {
+      flex: 1;
+      border-radius: 0;
+      font-weight: 600;
+    }
+
+    .entry-note {
+      margin: 0;
+      color: rgba(231, 239, 255, 0.82);
+      font-size: 0.9rem;
+    }
+
+    .auth-card {
+      margin-top: 1.2rem;
+      max-width: 430px;
+      border: 1px solid rgba(164, 192, 255, 0.38);
+      background: rgba(245, 249, 255, 0.96);
+      color: #1a2848;
+      border-radius: 10px;
+      box-shadow: 0 14px 36px rgba(2, 8, 22, 0.36);
+    }
+
+    .auth-card .form-label {
+      font-weight: 600;
+      color: #344c7a;
+    }
+
+    .auth-card .form-control {
+      min-height: 44px;
+      border-color: #b6c8eb;
+    }
+
+    .auth-card .btn-primary {
+      min-height: 44px;
+      border: none;
+      font-weight: 600;
+      background: linear-gradient(90deg, #1957ca, #2672e9);
+    }
+
+    .right-pane {
+      position: relative;
+      overflow: hidden;
+      background: #050b1c;
+      isolation: isolate;
+    }
+
+    .right-pane video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .right-pane {
+      background: radial-gradient(circle at 35% 20%, rgba(255, 180, 0, 0.5), transparent 32%),
+                  radial-gradient(circle at 60% 45%, rgba(140, 96, 255, 0.5), transparent 38%),
+                  linear-gradient(180deg, #0a1030 0%, #050914 100%);
+      animation: pulse-bg 9s ease-in-out infinite;
+    }
+
+    .right-pane::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(9, 20, 53, 0.56) 0%, rgba(9, 20, 53, 0.08) 28%, rgba(4, 10, 24, 0.45) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .video-caption {
+      position: absolute;
+      left: 1.2rem;
+      bottom: 1.2rem;
+      z-index: 2;
+      color: rgba(240, 246, 255, 0.9);
+      font-size: 0.98rem;
+      background: rgba(3, 8, 20, 0.45);
+      padding: 0.45rem 0.7rem;
+      border: 1px solid rgba(177, 202, 255, 0.24);
+    }
+
+    @keyframes pulse-bg {
+      0%, 100% { filter: saturate(1) brightness(1); }
+      50% { filter: saturate(1.15) brightness(1.12); }
+    }
+
+    @media (max-width: 1100px) {
+      .split-hero {
+        grid-template-columns: 1fr;
+      }
+
+      .left-pane {
+        border-right: none;
+        border-bottom: 1px solid rgba(145, 179, 255, 0.22);
+      }
+
+      .right-pane {
+        min-height: 42vh;
+      }
     }
   </style>
 
-  <div class="row justify-content-center align-items-center auth-login-wrapper">
-    <div class="col-md-5 col-lg-4">
-      <div class="card shadow auth-login-card border-0">
-        <div class="card-body">
-          <h1 class="h4 mb-3 text-center">Вход в систему</h1>
+  <section class="split-hero">
+    <div class="left-pane">
+      <header class="hero-topbar">
+        <a class="hero-brand" href="/dashboard/">
+          <img src="{% url 'brand-logo' %}" alt="InTech logo">
+          <span>InTech-Forecast</span>
+        </a>
+        <ul class="hero-menu">
+          <li><a href="{% url 'dashboard:station-list' %}">Станции</a></li>
+          <li><a href="{% url 'register' %}">Регистрация</a></li>
+        </ul>
+      </header>
 
-          {% if form.errors %}
-            <div class="alert alert-danger py-2">
-              Неверное имя пользователя или пароль. Попробуйте еще раз.
-            </div>
-          {% endif %}
+      <div class="left-copy">
+        <div class="kicker">Платформа прогноза солнечной и ветровой генерации</div>
+        <h1>Точные прогнозы солнца и ветра для уверенных решений</h1>
+        <p>
+          Следите за солнцем и ветром в одной системе: прогноз, факт и план в реальном времени.
+          Помогаем команде быстрее принимать точные решения по генерации и балансу.
+        </p>
 
-          {% if next %}
-            <p class="text-muted small text-center mb-3">
-              Пожалуйста, авторизуйтесь чтобы продолжить.
-            </p>
-          {% endif %}
+        <div class="entry-block">
+          <div class="entry-actions">
+            <button type="button" class="btn btn-light" disabled>Вход</button>
+            <a class="btn btn-success" href="{% url 'register' %}">Регистрация</a>
+          </div>
+          <p class="entry-note">Блок входа и регистрации: быстрый доступ для команды.</p>
+        </div>
 
-          <form method="post" novalidate>
-            {% csrf_token %}
+        <div class="card auth-card border-0">
+          <div class="card-body p-3 p-lg-4">
+            <h2 class="h4 mb-3 text-center">Вход в систему</h2>
 
-            <div class="mb-3">
-              <label for="id_username" class="form-label">Имя пользователя</label>
-              <input type="text"
-                     name="username"
-                     autofocus
-                     autocapitalize="none"
-                     autocomplete="username"
-                     maxlength="150"
-                     required
-                     id="id_username"
-                     class="form-control">
-            </div>
+            {% if form.errors %}
+              <div class="alert alert-danger py-2">
+                Неверное имя пользователя или пароль. Попробуйте еще раз.
+              </div>
+            {% endif %}
 
-            <div class="mb-3">
-              <label for="id_password" class="form-label">Пароль</label>
-              <input type="password"
-                     name="password"
-                     autocomplete="current-password"
-                     required
-                     id="id_password"
-                     class="form-control">
-            </div>
+            {% if next %}
+              <p class="text-muted small text-center mb-3">
+                Пожалуйста, авторизуйтесь чтобы продолжить.
+              </p>
+            {% endif %}
 
-            <input type="hidden" name="next" value="{{ next }}">
+            <form method="post" novalidate>
+              {% csrf_token %}
 
-            <button type="submit" class="btn btn-primary w-100">
-              Войти
-            </button>
-          </form>
+              <div class="mb-3">
+                <label for="id_username" class="form-label">Имя пользователя</label>
+                <input type="text"
+                       name="username"
+                       autofocus
+                       autocapitalize="none"
+                       autocomplete="username"
+                       maxlength="150"
+                       required
+                       id="id_username"
+                       class="form-control">
+              </div>
 
-          <p class="text-center text-muted small mt-3 mb-0">
-            Нет аккаунта?
-            <a href="{% url 'register' %}">Зарегистрироваться</a>
-          </p>
+              <div class="mb-3">
+                <label for="id_password" class="form-label">Пароль</label>
+                <input type="password"
+                       name="password"
+                       autocomplete="current-password"
+                       required
+                       id="id_password"
+                       class="form-control">
+              </div>
+
+              <input type="hidden" name="next" value="{{ next }}">
+
+              <button type="submit" class="btn btn-primary w-100">Войти</button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+
+    <div class="right-pane" aria-label="Видео анимация прогноза">
+      <video autoplay muted loop playsinline poster="/media/login-background.png">
+        <source src="/media/login-hero.mp4" type="video/mp4">
+      </video>
+      <div class="video-caption">Видео-анимация прогноза (как у Solcast)</div>
+    </div>
+  </section>
 {% endblock %}
