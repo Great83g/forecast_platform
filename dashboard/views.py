@@ -781,6 +781,19 @@ def station_forecast_list(request, pk: int):
             horizon_mode = schedule.horizon_mode or "weekday_calendar"
     if horizon_mode == "":
         horizon_mode = "weekday_calendar"
+    last_scheduled_email_message = ""
+    if schedule and schedule.last_email_sent_at:
+        sent_at_local = timezone.localtime(schedule.last_email_sent_at)
+        if schedule.last_email_forecast_date:
+            last_scheduled_email_message = (
+                f"Последняя отправка: прогноз за {schedule.last_email_forecast_date:%d.%m.%Y} "
+                f"отправлен в {sent_at_local:%H:%M}."
+            )
+        else:
+            last_scheduled_email_message = f"Последняя отправка отчёта: {sent_at_local:%d.%m.%Y %H:%M}."
+    elif schedule and schedule.last_email_status:
+        last_scheduled_email_message = schedule.last_email_status
+
     schedule_form = ForecastScheduleForm(
         initial={
             "enabled": schedule.enabled if schedule else False,
@@ -861,6 +874,7 @@ def station_forecast_list(request, pk: int):
             "horizon_mode": horizon_mode,
             "forecast_scope": forecast_scope,
             "schedule_form": schedule_form,
+            "last_scheduled_email_message": last_scheduled_email_message,
             "from": from_s,
             "to": to_s,
             "date": date_s,

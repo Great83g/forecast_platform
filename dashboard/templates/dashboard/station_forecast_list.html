@@ -64,6 +64,11 @@
       <div class="text-muted small mt-2">
         Автопрогноз запускается серверным планировщиком (cron/systemd/Celery) и использует эти настройки.
       </div>
+      {% if last_scheduled_email_message %}
+        <div class="alert alert-info py-2 px-3 mt-2 mb-0 small">
+          {{ last_scheduled_email_message }}
+        </div>
+      {% endif %}
     </div>
   </div>
 

@@ -2,7 +2,7 @@ from datetime import date, time
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 import pandas as pd
 import tempfile
@@ -654,6 +654,24 @@ class ForecastSchedulerForceRunTests(TestCase):
             emails="test@example.com",
         )
 
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email", return_value=True)
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub", "target_dates": ["2026-02-13"]},
+    )
+    def test_scheduler_saves_last_email_delivery_info(self, _run, _build, _send):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        count = run_scheduled_forecasts(now=now, force=True)
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(count, 1)
+        self.assertIsNotNone(self.schedule.last_email_sent_at)
+        self.assertEqual(str(self.schedule.last_email_forecast_date), "2026-02-13")
+        self.assertIn("Прогноз за 13.02.2026 отправлен", self.schedule.last_email_status)
+
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
     @patch(
@@ -705,6 +723,30 @@ class ForecastSchedulerForceRunTests(TestCase):
         )
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.args[3], 3)
+
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_first_run_respects_run_time_even_when_start_at_passed(self, run_mock, _build, _send):
+        today = timezone.localtime(timezone.now()).date()
+        self.schedule.start_at = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.strptime("00:01", "%H:%M").time()))
+        self.schedule.run_time = timezone.datetime.strptime("14:05", "%H:%M").time()
+        self.schedule.last_run_at = None
+        self.schedule.save(update_fields=["start_at", "run_time", "last_run_at"])
+
+        now_before = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.strptime("14:00", "%H:%M").time()))
+        now_due = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.strptime("14:05", "%H:%M").time()))
+
+        first = run_scheduled_forecasts(now=now_before, force=False)
+        second = run_scheduled_forecasts(now=now_due, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 1)
+        self.assertEqual(run_mock.call_count, 1)
 
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
@@ -775,6 +817,7 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertEqual(run_mock.call_count, 2)
 
 
+    @override_settings(FORECAST_EMAIL_MAX_ATTEMPTS=2, FORECAST_EMAIL_RETRY_DELAY_SECONDS=0)
     @patch("dashboard.services.forecast_scheduler.send_report_email", return_value=False)
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
     @patch(
@@ -792,6 +835,26 @@ class ForecastSchedulerForceRunTests(TestCase):
         self.assertEqual(second, 0)
         self.assertIsNone(self.schedule.last_run_at)
         self.assertEqual(run_mock.call_count, 2)
+        self.assertEqual(send_mock.call_count, 4)
+
+
+
+    @override_settings(FORECAST_EMAIL_MAX_ATTEMPTS=3, FORECAST_EMAIL_RETRY_DELAY_SECONDS=0)
+    @patch("dashboard.services.forecast_scheduler.send_report_email", side_effect=[False, True])
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_email_retry_success_marks_schedule_as_executed(self, run_mock, _build, send_mock):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        count = run_scheduled_forecasts(now=now, force=False)
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(count, 1)
+        self.assertIsNotNone(self.schedule.last_run_at)
+        self.assertEqual(run_mock.call_count, 1)
         self.assertEqual(send_mock.call_count, 2)
 
     @patch("dashboard.services.forecast_scheduler.send_report_email")
@@ -969,6 +1032,36 @@ class ForecastSchedulerTickViewTests(TestCase):
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
         self.assertIn(b'"auto_history_rows": 0', response.content)
+
+
+class StationForecastListLastEmailMessageTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="email-status-user", password="pass")
+        self.org = Organization.objects.create(name="Email Status Org", owner=self.user)
+        OrganizationMember.objects.create(
+            organization=self.org,
+            user=self.user,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+        self.station = Station.objects.create(org=self.org, name="Email Status Station", capacity_mw=1.2)
+        self.schedule = ForecastSchedule.objects.create(
+            station=self.station,
+            enabled=True,
+            days=1,
+            run_time=timezone.datetime.strptime("06:10", "%H:%M").time(),
+            emails="mail@example.com",
+            last_email_forecast_date=timezone.datetime(2026, 2, 13).date(),
+            last_email_sent_at=timezone.make_aware(timezone.datetime(2026, 2, 12, 6, 11)),
+            last_email_status="Прогноз за 13.02.2026 отправлен в 06:11",
+        )
+        self.client.login(username="email-status-user", password="pass")
+
+    def test_forecast_list_shows_last_email_message(self):
+        response = self.client.get(f"/dashboard/station/{self.station.pk}/forecast/list/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Прогноз за 13.02.2026")
+        self.assertContains(response, "отправлен в 06:11")
 
 
 class HistoryDatetimeParsingTests(TestCase):
@@ -1332,3 +1425,44 @@ class Ses12MwHistoryScriptTests(TestCase):
             self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 11:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 130.0)
 
+
+
+class InprocessSchedulerBootstrapTests(TestCase):
+    @patch("dashboard.services.inprocess_scheduler.threading.Thread")
+    @patch("dashboard.services.inprocess_scheduler._background_scheduler_enabled", return_value=True)
+    def test_start_background_scheduler_starts_daemon_thread_once(self, enabled_mock, thread_cls):
+        from dashboard.services import inprocess_scheduler
+
+        inprocess_scheduler._BACKGROUND_THREAD = None
+
+        thread_instance = thread_cls.return_value
+        thread_instance.is_alive.return_value = True
+
+        inprocess_scheduler.start_background_scheduler()
+        inprocess_scheduler.start_background_scheduler()
+
+        thread_cls.assert_called_once()
+        thread_instance.start.assert_called_once_with()
+        enabled_mock.assert_called()
+
+    @patch("dashboard.services.inprocess_scheduler._background_scheduler_enabled", return_value=False)
+    def test_start_background_scheduler_skips_when_disabled(self, _enabled):
+        from dashboard.services import inprocess_scheduler
+
+        inprocess_scheduler._BACKGROUND_THREAD = None
+
+        with patch("dashboard.services.inprocess_scheduler.threading.Thread") as thread_cls:
+            inprocess_scheduler.start_background_scheduler()
+
+        thread_cls.assert_not_called()
+
+    @patch("dashboard.services.inprocess_scheduler.run_scheduled_forecasts", return_value=2)
+    @patch("dashboard.services.inprocess_scheduler.run_auto_history_updates", return_value=5)
+    def test_tick_with_lock_runs_both_jobs(self, history_mock, forecast_mock):
+        from dashboard.services.inprocess_scheduler import _run_tick_with_file_lock
+
+        ok = _run_tick_with_file_lock()
+
+        self.assertTrue(ok)
+        history_mock.assert_called_once_with()
+        forecast_mock.assert_called_once_with()
