@@ -637,6 +637,35 @@ def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame, feature_names: Lis
     return pred
 
 
+def _postprocess_xgb_prediction(pred: np.ndarray, xgb_meta: Dict, capacity_mw: float) -> np.ndarray:
+    """
+    Приводим output XGB к MW.
+
+    Новые модели обучаются на target `y_permw = y / cap_mw`,
+    поэтому их предсказание нужно домножать на cap_mw_used.
+    Для legacy-моделей в MW оставляем как есть.
+    """
+    out = np.asarray(pred, dtype=float)
+    target = str((xgb_meta or {}).get("target", "")).lower()
+    is_per_mw = (
+        "per_mw" in target
+        or "permw" in target
+        or "y / cap_mw" in target
+    )
+    if not is_per_mw:
+        return out
+
+    cap_used = (xgb_meta or {}).get("cap_mw_used")
+    try:
+        cap_used = float(cap_used)
+    except (TypeError, ValueError):
+        cap_used = float(capacity_mw)
+    if cap_used <= 0:
+        cap_used = float(capacity_mw) if capacity_mw > 0 else 1.0
+
+    return out * cap_used
+
+
 def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
     """
     Простая эвристика: мощность ~ irradiation/1000 * capacity * k
@@ -879,6 +908,7 @@ def run_forecast_for_station(
             try:
                 feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
                 y_xgb = _predict_xgb(booster, feat, feature_names)
+                y_xgb = _postprocess_xgb_prediction(y_xgb, xgb_meta, capacity_mw=capacity_mw)
                 xgb_ok = True
             except Exception as e:
                 xgb_error = str(e)
