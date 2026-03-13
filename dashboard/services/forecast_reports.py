@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from datetime import date
+import re
 from typing import Iterable, List, Optional
 
 import pandas as pd
@@ -54,6 +55,13 @@ def _forecast_date_range(days: int) -> tuple:
     end = start + pd.Timedelta(days=days)
     return start, end
 
+
+
+
+def _safe_filename_part(value: str, fallback: str = "station") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", (value or "").strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or fallback
 
 def build_forecast_report(
     station: Station,
@@ -144,7 +152,8 @@ def build_forecast_report(
     out.seek(0)
 
     stamp = timezone.localtime(timezone.now()).strftime("%Y%m%d_%H%M%S")
-    filename = f"forecast_station_{station.pk}_{stamp}_mw.xlsx"
+    station_label = _safe_filename_part(station.name, fallback=f"station_{station.pk}")
+    filename = f"forecast_{station_label}_{stamp}_mw.xlsx"
     report = ForecastReport(
         station=station,
         days=days,

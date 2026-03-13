@@ -1481,3 +1481,23 @@ class InprocessSchedulerBootstrapTests(TestCase):
         self.assertTrue(ok)
         history_mock.assert_called_once_with()
         forecast_mock.assert_called_once_with()
+
+
+class ForecastReportFilenameTests(TestCase):
+    def test_report_filename_includes_station_name(self):
+        from dashboard.services.forecast_reports import build_forecast_report
+
+        user = User.objects.create_user(username="report-file", password="pass")
+        org = Organization.objects.create(name="Report Org", owner=user)
+        station = Station.objects.create(org=org, name="SES 10 MW")
+
+        report = build_forecast_report(
+            station=station,
+            days=1,
+            weather_source="stub",
+            recipients=["mail@example.com"],
+            forecast_scope="main",
+        )
+
+        self.assertIn("forecast_SES_10_MW_", report.file.name)
+        self.assertTrue(report.file.name.endswith("_mw.xlsx"))
