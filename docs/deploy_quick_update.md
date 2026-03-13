@@ -12,6 +12,25 @@ GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
 # GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```
 
+## Самый простой вариант (как вы просили)
+
+```bash
+cd ~/forecast_platform
+git pull --rebase
+source venv/bin/activate
+python3 manage.py migrate
+GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# если pid-файла нет:
+# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+```
+
+То же самое одной командой:
+
+```bash
+cd ~/forecast_platform
+bash deploy/apply_portal_update.sh
+```
+
 ## Автоматизированный вариант
 
 Можно использовать готовый скрипт:
@@ -97,3 +116,43 @@ bash deploy/apply_commit.sh 96bc888
 PROJECT_DIR=/opt/forecast_platform VENV_PATH=/opt/venv/bin/activate \
 bash deploy/apply_commit.sh <COMMIT_SHA>
 ```
+
+
+### Если `bash deploy/apply_commit.sh <sha>` пишет `No such file or directory`
+
+Это значит, что на сервере ещё не подтянут коммит, где добавлен этот скрипт.
+Сначала выполните обычное обновление:
+
+```bash
+cd ~/forecast_platform
+git pull --rebase
+```
+
+После этого скрипт появится. Если нужен просто стандартный деплой без checkout конкретного SHA — используйте:
+
+```bash
+bash deploy/apply_portal_update.sh
+```
+
+
+## КОПИПАСТА (ровно как нужно)
+
+```bash
+cd ~/forecast_platform
+git pull --rebase
+source venv/bin/activate
+python3 manage.py migrate
+GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# если pid-файла нет:
+# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+```
+
+Если после `git pull --rebase` всё ещё нет `deploy/restart_portal.sh`, значит вы не в том репозитории. Проверка:
+
+```bash
+pwd
+ls -la
+ls -la deploy
+```
+
+Должен существовать файл `deploy/restart_portal.sh`.
