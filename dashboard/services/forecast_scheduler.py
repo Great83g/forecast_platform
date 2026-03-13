@@ -85,15 +85,11 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
 
             if schedule.start_at:
                 start_at = timezone.localtime(schedule.start_at)
-                if schedule.last_run_at is None:
-                    if current < start_at:
-                        continue
-                else:
-                    if current.time() < schedule.run_time:
-                        continue
-            else:
-                if current.time() < schedule.run_time:
+                if current < start_at:
                     continue
+
+            if current.time() < schedule.run_time:
+                continue
 
         scheduled_dt = timezone.datetime.combine(today, schedule.run_time, tzinfo=current.tzinfo)
         delay_minutes = max(0, int((current - scheduled_dt).total_seconds() // 60))

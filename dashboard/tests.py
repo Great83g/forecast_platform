@@ -739,6 +739,30 @@ class ForecastSchedulerForceRunTests(TestCase):
         send_mock.assert_called_once()
         self.assertEqual(send_mock.call_args.args[3], 3)
 
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub"},
+    )
+    def test_first_run_respects_run_time_even_when_start_at_passed(self, run_mock, _build, _send):
+        today = timezone.localtime(timezone.now()).date()
+        self.schedule.start_at = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.strptime("00:01", "%H:%M").time()))
+        self.schedule.run_time = timezone.datetime.strptime("14:05", "%H:%M").time()
+        self.schedule.last_run_at = None
+        self.schedule.save(update_fields=["start_at", "run_time", "last_run_at"])
+
+        now_before = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.strptime("14:00", "%H:%M").time()))
+        now_due = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.strptime("14:05", "%H:%M").time()))
+
+        first = run_scheduled_forecasts(now=now_before, force=False)
+        second = run_scheduled_forecasts(now=now_due, force=False)
+
+        self.assertEqual(first, 0)
+        self.assertEqual(second, 1)
+        self.assertEqual(run_mock.call_count, 1)
+
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
     @patch(

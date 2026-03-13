@@ -9,34 +9,14 @@ AUTO_STASH="${AUTO_STASH:-0}"
 
 cd "$PROJECT_DIR"
 
-echo "[deploy] Current commit: $(git rev-parse --short HEAD)"
-
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  if [ "$AUTO_STASH" = "1" ]; then
-    echo "[deploy] Local changes detected -> stashing (including untracked files)"
-    git stash push -u -m "deploy-auto-stash $(date +%Y%m%d-%H%M%S)"
-  else
-    echo "[deploy] ERROR: local changes detected."
-    echo "[deploy] Commit/stash changes first, or run with AUTO_STASH=1"
-    echo "[deploy] Hint: git stash push -u && git pull --rebase --autostash"
-    exit 1
-  fi
-fi
-
-echo "[deploy] Pulling latest changes (rebase + autostash)..."
-git pull --rebase --autostash
-
 echo "[deploy] Running update sequence:"
 echo "[deploy]   cd $PROJECT_DIR"
-echo "[deploy]   git pull --rebase --autostash"
+echo "[deploy]   git pull --rebase"
 echo "[deploy]   source $VENV_PATH"
 echo "[deploy]   python3 manage.py migrate"
 
-if [ ! -f "$VENV_PATH" ]; then
-  echo "[deploy] ERROR: virtualenv activation file not found: $VENV_PATH"
-  echo "[deploy] Set VENV_PATH explicitly, for example: VENV_PATH=/opt/venv/bin/activate"
-  exit 1
-fi
+echo "[deploy] Pulling latest changes (rebase)..."
+git pull --rebase
 
 if [ ! -f "$VENV_PATH" ]; then
   echo "[deploy] ERROR: virtualenv activation file not found: $VENV_PATH"
