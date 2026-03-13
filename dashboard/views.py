@@ -39,6 +39,7 @@ from .models import ForecastSchedule
 
 logger = logging.getLogger(__name__)
 
+
 # ----------------------------
 # helpers
 # ----------------------------
@@ -121,6 +122,8 @@ def _localize_timestamp(value):
         return timezone.localtime(value)
     except Exception:
         return value
+
+
 
 def _station_queryset_for_user(user):
     org_ids = Organization.objects.filter(owner=user).values_list("id", flat=True)

@@ -5,6 +5,7 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/forecast_platform}"
 VENV_PATH="${VENV_PATH:-venv/bin/activate}"
 GUNICORN_PID_FILE_DEFAULT="${GUNICORN_PID_FILE_DEFAULT:-/run/gunicorn.pid}"
 GUNICORN_PORT_DEFAULT="${GUNICORN_PORT_DEFAULT:-8000}"
+AUTO_STASH="${AUTO_STASH:-0}"
 
 cd "$PROJECT_DIR"
 
@@ -27,6 +28,9 @@ echo "[deploy] Activating virtualenv: $VENV_PATH"
 # shellcheck disable=SC1090
 source "$VENV_PATH"
 
+echo "[deploy] Planned migrations..."
+python3 manage.py migrate --plan
+
 echo "[deploy] Applying migrations..."
 python3 manage.py migrate
 
@@ -38,4 +42,7 @@ else
   GUNICORN_PORT="$GUNICORN_PORT_DEFAULT" bash deploy/restart_portal.sh
 fi
 
-echo "[deploy] Done."
+echo "[deploy] Smoke check:"
+curl -I "http://127.0.0.1:${GUNICORN_PORT_DEFAULT}/" || true
+
+echo "[deploy] Done. Current commit: $(git rev-parse --short HEAD)"

@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 EARLY_FALLBACK_WINDOW_MINUTES = 120
 
 
+def _station_data_shift_hours(station: Station) -> int:
+    try:
+        return int(getattr(station, "data_shift_hours", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def extract_date_yyyymmdd_from_name(name: str) -> Optional[str]:
     m = re.search(r"(20\d{2})(\d{2})(\d{2})", name)
     if m:
@@ -512,6 +519,12 @@ def upsert_station_history_from_share(station: Station) -> int:
         df = collect_share_history_dataframe(folder)
     if df.empty:
         return 0
+
+    data_shift_hours = _station_data_shift_hours(station)
+    if data_shift_hours:
+        df = df.copy()
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce") + timedelta(hours=data_shift_hours)
+        df = df.dropna(subset=["ds"])
 
     ts_values = [_to_aware_dt(ts) for ts in df["ds"]]
     existing_qs = SolarRecord.objects.filter(

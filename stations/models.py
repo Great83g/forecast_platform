@@ -169,6 +169,11 @@ class Station(models.Model):
     )
 
     timezone = models.CharField(max_length=100, default="Asia/Almaty")
+    data_shift_hours = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(-12), MaxValueValidator(12)],
+        help_text="Сдвиг данных станции в часах (прогноз/автоистория/сопоставление с фактом).",
+    )
 
     # === Паспорт станции (MVP) ===
     # Мощности (кВт)
