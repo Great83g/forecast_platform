@@ -101,10 +101,26 @@ def get_history_dataframe(station) -> pd.DataFrame:
                 f"и масштабирована x{scale_factor:.3f}"
             )
         else:
-            print(
-                f"[TRAIN] station {station.pk}: история взята от {history_station.pk} "
-                "без масштабирования"
-            )
+            target_cap = _capacity_mw_from_fields(station)
+            source_cap = _capacity_mw_from_fields(history_station)
+            if target_cap and source_cap and source_cap > 0:
+                auto_ratio = target_cap / source_cap
+                if abs(auto_ratio - 1.0) >= 0.2:
+                    df["Power_KW"] = df["Power_KW"] * auto_ratio
+                    print(
+                        f"[TRAIN] station {station.pk}: история от {history_station.pk} "
+                        f"автомасштабирована по мощности x{auto_ratio:.3f}"
+                    )
+                else:
+                    print(
+                        f"[TRAIN] station {station.pk}: история взята от {history_station.pk} "
+                        "без масштабирования"
+                    )
+            else:
+                print(
+                    f"[TRAIN] station {station.pk}: история взята от {history_station.pk} "
+                    "без масштабирования"
+                )
 
     numeric_cols = ["Power_KW", "Irradiation", "Air_Temp"]
     before = len(df)
@@ -137,6 +153,28 @@ def station_capacity_mw(station, df: pd.DataFrame) -> float:
         return capacity_from_fields
 
     return compute_cap_mw(df)
+
+
+def _prepare_xgb_training_frame(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame:
+    """
+    Подготовка выборки XGB:
+    - обучаем на отношении к ожидаемой мощности (y_over_expected),
+      чтобы убрать зависимость от масштаба станции и снизить риск "мелкого" XGB;
+    - отсекаем явную ночную/нулевую часть.
+    """
+    out = df.copy()
+    out["y_permw"] = (out["y"] / cap_mw).clip(lower=0)
+
+    irr = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0)
+    is_day_or_active = (irr > 20.0) | (out["y_permw"] > 0.02)
+    out = out.loc[is_day_or_active].copy()
+
+    y_expected = pd.to_numeric(out.get("y_expected"), errors="coerce").fillna(0.0)
+    expected_floor_mw = max(0.05 * float(cap_mw), 0.15)
+    expected_base = np.maximum(y_expected, expected_floor_mw)
+    out["y_over_expected"] = (out["y"] / np.maximum(expected_base, 1e-6)).clip(0.0, 1.6)
+
+    return out.dropna(subset=["y_over_expected"])
 
 
 def add_sun_geometry(df: pd.DataFrame, ds_col: str = "ds", lat_deg: float = 47.86) -> pd.DataFrame:
@@ -250,8 +288,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         if col not in df.columns:
             df[col] = np.nan
 
-    df["y_permw"] = (df["y"] / cap_mw).clip(lower=0)
-    df_xgb = df.dropna(subset=["y_permw"]).copy()
+    df_xgb = _prepare_xgb_training_frame(df, cap_mw=cap_mw)
 
     model_dir = _station_model_dir(station)
     xgb_path: Path | None = None
@@ -260,15 +297,18 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     else:
         try:
             model_xgb = xgb.XGBRegressor(
-                n_estimators=700,
+                n_estimators=900,
                 max_depth=6,
                 learning_rate=0.05,
                 subsample=0.9,
                 colsample_bytree=0.9,
                 reg_lambda=1.0,
+                min_child_weight=3,
                 random_state=42,
             )
-            model_xgb.fit(df_xgb[X_cols], df_xgb["y_permw"])
+            irr = pd.to_numeric(df_xgb.get("Irradiation"), errors="coerce").fillna(0.0)
+            sample_weight = 1.0 + 3.0 * np.clip(irr / 800.0, 0.0, 1.0) + 2.0 * (df_xgb["y_over_expected"] > 0.80).astype(float)
+            model_xgb.fit(df_xgb[X_cols], df_xgb["y_over_expected"], sample_weight=sample_weight)
 
             xgb_path = model_dir / "xgb_model.json"
             model_xgb.save_model(str(xgb_path))
@@ -277,7 +317,12 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 "station_id": station.pk,
                 "X_cols": X_cols,
                 "cap_mw_used": cap_mw,
-                "target": "y_per_MW = y / cap_mw",
+                "target": "y_over_expected = y / max(y_expected, floor)",
+                "y_expected_floor_mw": max(0.05 * float(cap_mw), 0.15),
+                "train_filter": "(Irradiation > 20) or (y_permw > 0.02)",
+                "weighted_fit": "1 + 3*clip(Irradiation/800,0,1) + 2*(y_over_expected>0.80)",
+                "train_rows_total": int(len(df)),
+                "train_rows_used": int(len(df_xgb)),
                 "xgb_version": getattr(xgb, "__version__", "unknown"),
             }
             meta_path = model_dir / "xgb_model.meta.json"
