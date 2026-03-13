@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
+from django.conf import settings
 from django.utils import timezone
 
 from dashboard.models import ForecastSchedule
@@ -37,6 +39,27 @@ def _normalize_schedule_providers(value: str) -> tuple[Optional[list[str]], bool
             providers = ["open_meteo"]
     return (providers or None, heuristic_only)
 
+
+
+
+def _send_report_with_retries(report, recipients, station_name: str, days: int) -> bool:
+    max_attempts = max(1, int(getattr(settings, "FORECAST_EMAIL_MAX_ATTEMPTS", 3)))
+    retry_delay_seconds = max(0, int(getattr(settings, "FORECAST_EMAIL_RETRY_DELAY_SECONDS", 15)))
+
+    for attempt in range(1, max_attempts + 1):
+        if send_report_email(report, recipients, station_name, days):
+            return True
+
+        logger.warning(
+            "Scheduled report email attempt failed station=%s attempt=%s/%s",
+            station_name,
+            attempt,
+            max_attempts,
+        )
+        if attempt < max_attempts and retry_delay_seconds:
+            time.sleep(retry_delay_seconds)
+
+    return False
 
 def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool = False) -> int:
     current = now or timezone.localtime(timezone.now())
@@ -134,7 +157,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
             continue
 
         recipients_configured = bool((schedule.emails or "").strip())
-        if recipients_configured and not send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days):
+        if recipients_configured and not _send_report_with_retries(report, [schedule.emails], schedule.station.name, effective_report_days):
             logger.warning(
                 "Scheduled report email failed station_id=%s schedule_id=%s recipients=%s",
                 schedule.station_id,
