@@ -37,6 +37,7 @@ class StationForm(forms.ModelForm):
             "latitude",
             "longitude",
             "timezone",
+            "data_shift_hours",
 
             # === Паспорт станции (MVP) ===
             "capacity_dc_kw",
@@ -67,6 +68,7 @@ class StationForm(forms.ModelForm):
         self.fields["latitude"].label = "Широта"
         self.fields["longitude"].label = "Долгота"
         self.fields["timezone"].label = "Часовой пояс"
+        self.fields["data_shift_hours"].label = "Сдвиг данных (часы)"
 
         self.fields["capacity_dc_kw"].label = "DC мощность (кВт)"
         self.fields["capacity_ac_kw"].label = "AC мощность (кВт)"
@@ -107,8 +109,13 @@ class StationForm(forms.ModelForm):
         self.fields["auto_history_run_time"].help_text = (
             "Ежедневно в это время станция будет проверяться на новые файлы истории."
         )
+        self.fields["data_shift_hours"].help_text = (
+            "Единый сдвиг времени для прогноза (main/test) и автоистории. "
+            "Например, -1 или +1 для выравнивания после смены времени."
+        )
         self.fields["auto_history_run_time"].input_formats = AUTO_HISTORY_TIME_INPUT_FORMATS
         self.fields["auto_history_run_time"].widget = forms.TimeInput(attrs={"type": "time", "step": "60"})
+        self.fields["data_shift_hours"].required = False
 
         # ---------- ДЕФОЛТЫ (только при создании) ----------
         if not self.instance.pk and not self.is_bound:
@@ -119,6 +126,7 @@ class StationForm(forms.ModelForm):
             self.fields["azimuth_deg"].initial = 180.0
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["timezone"].initial = "Asia/Almaty"
+            self.fields["data_shift_hours"].initial = 0
             self.fields["auto_history_folder"].initial = "/mnt/share"
         if self.instance.pk and not self.is_bound:
             folder = (self.instance.auto_history_folder or "").rstrip("/")
@@ -142,6 +150,9 @@ class StationForm(forms.ModelForm):
         capacity_ac_kw = cleaned_data.get("capacity_ac_kw")
         if capacity_mw and capacity_ac_kw and capacity_mw > 100:
             cleaned_data["capacity_mw"] = capacity_ac_kw / 1000.0
+
+        if cleaned_data.get("data_shift_hours") in (None, ""):
+            cleaned_data["data_shift_hours"] = 0
         return cleaned_data
 
 
