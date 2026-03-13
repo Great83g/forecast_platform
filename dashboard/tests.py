@@ -654,6 +654,24 @@ class ForecastSchedulerForceRunTests(TestCase):
             emails="test@example.com",
         )
 
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email", return_value=True)
+    @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
+    @patch(
+        "dashboard.services.forecast_scheduler.run_forecast_for_station",
+        return_value={"ok": True, "weather_source": "stub", "target_dates": ["2026-02-13"]},
+    )
+    def test_scheduler_saves_last_email_delivery_info(self, _run, _build, _send):
+        now = timezone.now().replace(hour=23, minute=59, second=0, microsecond=0)
+
+        count = run_scheduled_forecasts(now=now, force=True)
+        self.schedule.refresh_from_db()
+
+        self.assertEqual(count, 1)
+        self.assertIsNotNone(self.schedule.last_email_sent_at)
+        self.assertEqual(str(self.schedule.last_email_forecast_date), "2026-02-13")
+        self.assertIn("Прогноз за 13.02.2026 отправлен", self.schedule.last_email_status)
+
     @patch("dashboard.services.forecast_scheduler.send_report_email")
     @patch("dashboard.services.forecast_scheduler.build_forecast_report", return_value=object())
     @patch(
@@ -990,6 +1008,36 @@ class ForecastSchedulerTickViewTests(TestCase):
         run_mock.assert_called_once_with(force=False)
         self.assertIn(b'"force": false', response.content)
         self.assertIn(b'"auto_history_rows": 0', response.content)
+
+
+class StationForecastListLastEmailMessageTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="email-status-user", password="pass")
+        self.org = Organization.objects.create(name="Email Status Org", owner=self.user)
+        OrganizationMember.objects.create(
+            organization=self.org,
+            user=self.user,
+            role=OrganizationMember.ROLE_OWNER,
+        )
+        self.station = Station.objects.create(org=self.org, name="Email Status Station", capacity_mw=1.2)
+        self.schedule = ForecastSchedule.objects.create(
+            station=self.station,
+            enabled=True,
+            days=1,
+            run_time=timezone.datetime.strptime("06:10", "%H:%M").time(),
+            emails="mail@example.com",
+            last_email_forecast_date=timezone.datetime(2026, 2, 13).date(),
+            last_email_sent_at=timezone.make_aware(timezone.datetime(2026, 2, 12, 6, 11)),
+            last_email_status="Прогноз за 13.02.2026 отправлен в 06:11",
+        )
+        self.client.login(username="email-status-user", password="pass")
+
+    def test_forecast_list_shows_last_email_message(self):
+        response = self.client.get(f"/dashboard/station/{self.station.pk}/forecast/list/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Прогноз за 13.02.2026")
+        self.assertContains(response, "отправлен в 06:11")
 
 
 class HistoryDatetimeParsingTests(TestCase):
