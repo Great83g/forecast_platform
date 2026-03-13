@@ -91,6 +91,7 @@ class StationSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "timezone",
+            "data_shift_hours",
             "org",
             "history_source",
             "history_scale_by_capacity",
@@ -101,6 +102,9 @@ class StationSerializer(serializers.ModelSerializer):
             "auto_history_last_run_date",
         ]
         read_only_fields = ["auto_history_last_run_date"]
+        extra_kwargs = {
+            "data_shift_hours": {"required": False},
+        }
 
     def validate(self, attrs):
         org = attrs.get("org") or getattr(self.instance, "org", None)
