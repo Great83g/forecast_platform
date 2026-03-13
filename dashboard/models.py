@@ -31,6 +31,9 @@ class ForecastSchedule(models.Model):
     manual_snow_factor = models.FloatField(default=1.0)
     manual_snow_dates = models.TextField(blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    last_email_sent_at = models.DateTimeField(null=True, blank=True)
+    last_email_forecast_date = models.DateField(null=True, blank=True)
+    last_email_status = models.TextField(blank=True)
 
     def __str__(self) -> str:
         return f"ForecastSchedule(station={self.station_id}, run_time={self.run_time})"

@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import logging
+import time
+from datetime import timedelta
 from typing import Optional
 
+from django.conf import settings
 from django.utils import timezone
 
 from dashboard.models import ForecastSchedule
@@ -37,6 +40,38 @@ def _normalize_schedule_providers(value: str) -> tuple[Optional[list[str]], bool
             providers = ["open_meteo"]
     return (providers or None, heuristic_only)
 
+
+
+
+def _send_report_with_retries(report, recipients, station_name: str, days: int) -> bool:
+    max_attempts = max(1, int(getattr(settings, "FORECAST_EMAIL_MAX_ATTEMPTS", 3)))
+    retry_delay_seconds = max(0, int(getattr(settings, "FORECAST_EMAIL_RETRY_DELAY_SECONDS", 15)))
+
+    for attempt in range(1, max_attempts + 1):
+        if send_report_email(report, recipients, station_name, days):
+            return True
+
+        logger.warning(
+            "Scheduled report email attempt failed station=%s attempt=%s/%s",
+            station_name,
+            attempt,
+            max_attempts,
+        )
+        if attempt < max_attempts and retry_delay_seconds:
+            time.sleep(retry_delay_seconds)
+
+    return False
+
+
+
+def _resolve_report_forecast_date(result: dict, current: timezone.datetime):
+    target_dates = result.get("target_dates") or []
+    for value in target_dates:
+        try:
+            return timezone.datetime.fromisoformat(str(value)).date()
+        except (TypeError, ValueError):
+            continue
+    return (current + timedelta(days=1)).date()
 
 def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool = False) -> int:
     current = now or timezone.localtime(timezone.now())
@@ -134,17 +169,29 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
             continue
 
         recipients_configured = bool((schedule.emails or "").strip())
-        if recipients_configured and not send_report_email(report, [schedule.emails], schedule.station.name, effective_report_days):
-            logger.warning(
-                "Scheduled report email failed station_id=%s schedule_id=%s recipients=%s",
-                schedule.station_id,
-                schedule.pk,
-                schedule.emails,
-            )
-            continue
+        if recipients_configured:
+            sent_ok = _send_report_with_retries(report, [schedule.emails], schedule.station.name, effective_report_days)
+            if not sent_ok:
+                schedule.last_email_status = "Ошибка отправки email"
+                schedule.save(update_fields=["last_email_status"])
+                logger.warning(
+                    "Scheduled report email failed station_id=%s schedule_id=%s recipients=%s",
+                    schedule.station_id,
+                    schedule.pk,
+                    schedule.emails,
+                )
+                continue
+
+            forecast_date = _resolve_report_forecast_date(res, current)
+            schedule.last_email_sent_at = current
+            schedule.last_email_forecast_date = forecast_date
+            schedule.last_email_status = f"Прогноз за {forecast_date:%d.%m.%Y} отправлен в {current:%H:%M}"
 
         schedule.last_run_at = current
-        schedule.save(update_fields=["last_run_at"])
+        update_fields = ["last_run_at"]
+        if recipients_configured:
+            update_fields.extend(["last_email_sent_at", "last_email_forecast_date", "last_email_status"])
+        schedule.save(update_fields=update_fields)
         run_count += 1
 
     return run_count
