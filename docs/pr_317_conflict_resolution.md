@@ -82,3 +82,35 @@ rg -n "^(<<<<<<<|=======|>>>>>>>)" dashboard/services/forecast_engine.py dashboa
 ```
 
 Команда должна вернуть пустой результат.
+
+
+## Суперкоротко (без воды)
+
+### Что выбирать в конфликт-редакторе GitHub
+
+**`dashboard/services/forecast_engine.py`**
+1. `_postprocess_xgb_prediction(...)` -> **Accept current change**
+2. блок `is_over_expected` -> **Accept current change**
+3. `_xgb_is_systematically_low(...)` -> **Accept current change**
+4. вызов постпроцесса -> оставить строку:
+   `y_xgb = _postprocess_xgb_prediction(y_xgb, xgb_meta, capacity_mw=capacity_mw, df_feat=feat)`
+
+**`dashboard/tests.py`**
+1. import conflict -> оставить оба: `_xgb_is_systematically_low` и `_prepare_xgb_training_frame`
+2. тест `test_converts_over_expected_predictions_to_mw` -> оставить (**current**)
+
+Потом: **Mark as resolved** -> **Commit merge**.
+
+### Как применить на сервере
+
+```bash
+cd ~/forecast_platform
+git pull --rebase
+source venv/bin/activate
+python3 manage.py migrate
+python3 manage.py train_station_models 10
+python3 manage.py train_station_models 50
+GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# если pid-файла нет:
+# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+```
