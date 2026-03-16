@@ -1064,6 +1064,29 @@ class StationForecastRunTargetDatesTests(TestCase):
 
     @patch("dashboard.views.send_report_email", return_value=False)
     @patch("dashboard.views.build_forecast_report")
+    @patch("dashboard.views.run_forecast_for_station")
+    def test_station_forecast_run_retries_without_models_on_failure(self, run_mock, _build, _send):
+        run_mock.side_effect = [
+            RuntimeError("model crash"),
+            {"ok": True, "weather_source": "stub", "days": 2},
+        ]
+
+        response = self.client.get(
+            f"/dashboard/station/{self.station.pk}/forecast/run/",
+            {
+                "days": "2",
+                "scope": "main",
+                "providers": ["visual_crossing"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(run_mock.call_count, 2)
+        self.assertTrue(run_mock.call_args_list[0].kwargs["use_models"])
+        self.assertFalse(run_mock.call_args_list[1].kwargs["use_models"])
+
+    @patch("dashboard.views.send_report_email", return_value=False)
+    @patch("dashboard.views.build_forecast_report")
     @patch("dashboard.views.run_forecast_for_station", return_value={"ok": True, "weather_source": "stub", "days": 1, "target_dates": ["2026-02-22"]})
     def test_station_forecast_run_target_dates_override_days(self, run_mock, build_mock, _send):
         response = self.client.get(
