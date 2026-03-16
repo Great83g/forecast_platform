@@ -103,6 +103,19 @@ class ForecastEngineXgbPostprocessTests(TestCase):
         self.assertAlmostEqual(float(out[0]), 27.0, places=2)
         self.assertAlmostEqual(float(out[1]), 1.25, places=2)
 
+
+    def test_applies_xgb_calibration_multiplier(self):
+        raw = [1.0]
+        meta = {
+            "target": "y_per_MW = y / cap_mw",
+            "cap_mw_used": 10.0,
+            "xgb_calib_mult": 2.0,
+        }
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=10.0)
+
+        self.assertEqual(out.tolist(), [20.0])
+
     def test_keeps_legacy_mw_predictions_without_scaling(self):
         raw = [5.0, 10.0]
         meta = {"target": "y_mw"}

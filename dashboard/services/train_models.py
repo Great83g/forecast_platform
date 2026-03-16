@@ -310,6 +310,17 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             sample_weight = 1.0 + 3.0 * np.clip(irr / 800.0, 0.0, 1.0) + 2.0 * (df_xgb["y_over_expected"] > 0.80).astype(float)
             model_xgb.fit(df_xgb[X_cols], df_xgb["y_over_expected"], sample_weight=sample_weight)
 
+            # Простая пост-калибровка масштаба XGB по train-набору,
+            # чтобы избежать систематического занижения (microscopic XGB).
+            pred_train = pd.to_numeric(model_xgb.predict(df_xgb[X_cols]), errors="coerce").astype(float)
+            pred_train = np.clip(pred_train, 1e-4, None)
+            ratio = pd.to_numeric(df_xgb["y_over_expected"], errors="coerce").astype(float) / pred_train
+            ratio = ratio.replace([np.inf, -np.inf], np.nan).dropna()
+            if len(ratio) > 0:
+                calib_mult = float(np.clip(np.median(ratio), 0.5, 8.0))
+            else:
+                calib_mult = 1.0
+
             xgb_path = model_dir / "xgb_model.json"
             model_xgb.save_model(str(xgb_path))
 
@@ -321,6 +332,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 "y_expected_floor_mw": max(0.05 * float(cap_mw), 0.15),
                 "train_filter": "(Irradiation > 20) or (y_permw > 0.02)",
                 "weighted_fit": "1 + 3*clip(Irradiation/800,0,1) + 2*(y_over_expected>0.80)",
+                "xgb_calib_mult": calib_mult,
                 "train_rows_total": int(len(df)),
                 "train_rows_used": int(len(df_xgb)),
                 "xgb_version": getattr(xgb, "__version__", "unknown"),

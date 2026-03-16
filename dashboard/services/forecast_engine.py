@@ -655,6 +655,13 @@ def _postprocess_xgb_prediction(
     out = np.asarray(pred, dtype=float)
     target = str((xgb_meta or {}).get("target", "")).lower()
 
+    calib_mult = (xgb_meta or {}).get("xgb_calib_mult", 1.0)
+    try:
+        calib_mult = float(calib_mult)
+    except (TypeError, ValueError):
+        calib_mult = 1.0
+    calib_mult = float(np.clip(calib_mult, 0.25, 12.0))
+
     is_over_expected = ("over_expected" in target) or ("y / max(y_expected" in target)
     if is_over_expected:
         cap_used = (xgb_meta or {}).get("cap_mw_used")
@@ -678,7 +685,7 @@ def _postprocess_xgb_prediction(
             irr = pd.to_numeric(df_feat.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
             expected = np.clip(cap_used * (irr / 1000.0) * PR_FOR_EXPECTED, 0.0, cap_used * 0.95)
             expected = np.maximum(expected, floor)
-        return out * expected
+        return out * expected * calib_mult
 
     is_per_mw = (
         "per_mw" in target
@@ -696,7 +703,7 @@ def _postprocess_xgb_prediction(
     if cap_used <= 0:
         cap_used = float(capacity_mw) if capacity_mw > 0 else 1.0
 
-    return out * cap_used
+    return out * cap_used * calib_mult
 
 
 
