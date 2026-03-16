@@ -452,6 +452,12 @@ def station_detail(request, pk: int):
         | set(temp_fact_map.keys())
         | set(temp_plan_map.keys())
     )
+
+    comparison_timestamps = sorted(set(history_map.keys()) & set(forecast_map.keys()))
+    first_comparison_timestamp = comparison_timestamps[0] if comparison_timestamps else None
+    if first_comparison_timestamp is not None:
+        all_timestamps = [ts for ts in all_timestamps if ts >= first_comparison_timestamp]
+
     for ts in all_timestamps:
         fact_kw = history_map.get(ts)
         plan_kw = forecast_map.get(ts)
