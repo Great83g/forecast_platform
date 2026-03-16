@@ -637,16 +637,49 @@ def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame, feature_names: Lis
     return pred
 
 
-def _postprocess_xgb_prediction(pred: np.ndarray, xgb_meta: Dict, capacity_mw: float) -> np.ndarray:
+def _postprocess_xgb_prediction(
+    pred: np.ndarray,
+    xgb_meta: Dict,
+    capacity_mw: float,
+    df_feat: Optional[pd.DataFrame] = None,
+) -> np.ndarray:
     """
     Приводим output XGB к MW.
 
-    Новые модели обучаются на target `y_permw = y / cap_mw`,
-    поэтому их предсказание нужно домножать на cap_mw_used.
+    Поддерживаем 2 современных target:
+    1) y_permw = y / cap_mw                -> pred * cap_mw_used
+    2) y_over_expected = y / max(expected) -> pred * max(y_expected, floor)
+
     Для legacy-моделей в MW оставляем как есть.
     """
     out = np.asarray(pred, dtype=float)
     target = str((xgb_meta or {}).get("target", "")).lower()
+
+    is_over_expected = ("over_expected" in target) or ("y / max(y_expected" in target)
+    if is_over_expected:
+        cap_used = (xgb_meta or {}).get("cap_mw_used")
+        try:
+            cap_used = float(cap_used)
+        except (TypeError, ValueError):
+            cap_used = float(capacity_mw)
+        if cap_used <= 0:
+            cap_used = float(capacity_mw) if capacity_mw > 0 else 1.0
+
+        floor = (xgb_meta or {}).get("y_expected_floor_mw")
+        try:
+            floor = float(floor)
+        except (TypeError, ValueError):
+            floor = max(0.05 * cap_used, 0.15)
+        floor = max(floor, 1e-3)
+
+        if df_feat is None:
+            expected = np.full(len(out), floor, dtype=float)
+        else:
+            irr = pd.to_numeric(df_feat.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            expected = np.clip(cap_used * (irr / 1000.0) * PR_FOR_EXPECTED, 0.0, cap_used * 0.95)
+            expected = np.maximum(expected, floor)
+        return out * expected
+
     is_per_mw = (
         "per_mw" in target
         or "permw" in target
@@ -665,6 +698,41 @@ def _postprocess_xgb_prediction(pred: np.ndarray, xgb_meta: Dict, capacity_mw: f
 
     return out * cap_used
 
+
+
+
+def _xgb_is_systematically_low(
+    y_xgb: np.ndarray,
+    y_heur: np.ndarray,
+    y_np: np.ndarray,
+    np_ok: bool,
+    capacity_mw: float,
+) -> bool:
+    """
+    Детектор аномально низкого XGB относительно других сигналов.
+
+    Срабатывает только когда NP доступен (иначе XGB может быть единственной моделью).
+    Если в большинстве "дневных" точек XGB существенно ниже reference,
+    считаем XGB недостоверным для данного прогона.
+    """
+    if not np_ok:
+        return False
+
+    x = np.asarray(y_xgb, dtype=float)
+    h = np.asarray(y_heur, dtype=float)
+    n = np.asarray(y_np, dtype=float)
+    if len(x) == 0:
+        return False
+
+    ref = np.maximum(h, n)
+    # интересуют точки, где есть значимая генерация
+    daytime = ref >= max(0.15 * float(capacity_mw), 0.2)
+    if daytime.sum() < 3:
+        return False
+
+    ratio = np.divide(x, np.maximum(ref, 1e-6))
+    low = daytime & (ratio < 0.35)
+    return float(low.mean()) >= 0.5
 
 def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
     """
@@ -908,7 +976,7 @@ def run_forecast_for_station(
             try:
                 feature_names = xgb_meta.get("X_cols") or XGB_EXPECTED_FEATURES
                 y_xgb = _predict_xgb(booster, feat, feature_names)
-                y_xgb = _postprocess_xgb_prediction(y_xgb, xgb_meta, capacity_mw=capacity_mw)
+                y_xgb = _postprocess_xgb_prediction(y_xgb, xgb_meta, capacity_mw=capacity_mw, df_feat=feat)
                 xgb_ok = True
             except Exception as e:
                 xgb_error = str(e)
@@ -982,6 +1050,12 @@ def run_forecast_for_station(
     if use_models:
         y_np = np.clip(y_np, 0, capacity_mw)
         y_xgb = np.clip(y_xgb, 0, capacity_mw)
+
+    # если XGB системно сильно ниже NP/эвристики, не даём ему тянуть итог вниз
+    if use_models and xgb_ok and _xgb_is_systematically_low(y_xgb, y_heur, y_np, np_ok=np_ok, capacity_mw=capacity_mw):
+        logger.warning("[XGB] low-confidence: systematically below NP/heuristic, skip in ensemble")
+        xgb_ok = False
+        xgb_error = "XGB low-confidence vs NP/heuristic"
 
     # ансамбль:
     y_final = y_heur.copy()
