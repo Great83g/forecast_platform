@@ -980,18 +980,32 @@ def station_forecast_run(request, pk: int):
                     providers = ["visual_crossing"]
                 else:
                     providers = ["open_meteo"]
-            res = run_forecast_for_station(
-                st.pk,
-                days=run_days,
-                providers=providers,
-                manual_snow_enable=manual_snow_enable,
-                manual_snow_factor=manual_snow_factor,
-                manual_snow_dates=manual_snow_dates,
-                use_models=not heuristic_only,
-                horizon_mode=horizon_mode,
-                forecast_scope=forecast_scope,
-                target_dates=target_dates,
-            )
+            run_kwargs = {
+                "days": run_days,
+                "providers": providers,
+                "manual_snow_enable": manual_snow_enable,
+                "manual_snow_factor": manual_snow_factor,
+                "manual_snow_dates": manual_snow_dates,
+                "horizon_mode": horizon_mode,
+                "forecast_scope": forecast_scope,
+                "target_dates": target_dates,
+            }
+            try:
+                res = run_forecast_for_station(st.pk, use_models=not heuristic_only, **run_kwargs)
+            except Exception:
+                logger.exception(
+                    "[FORECAST] primary run failed station=%s use_models=%s",
+                    st.pk,
+                    not heuristic_only,
+                )
+                if heuristic_only:
+                    raise
+                messages.warning(
+                    request,
+                    "Ошибка моделей для станции. Пробуем построить прогноз по эвристике (без NP/XGB).",
+                )
+                res = run_forecast_for_station(st.pk, use_models=False, **run_kwargs)
+
             if res.get("ok"):
                 actual_days = res.get("days") or run_days
                 msg = f"Прогноз построен: {res.get('count')} строк, days={actual_days}, weather={res.get('weather_source')}, scope={forecast_scope}"
