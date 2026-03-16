@@ -13,9 +13,12 @@ from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import (
     _station_data_shift_hours as forecast_station_shift_hours,
     _target_offsets_for_weekday_calendar,
+    _postprocess_xgb_prediction,
+    _xgb_is_systematically_low,
     run_forecast_for_station,
 )
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
+from dashboard.services.train_models import _prepare_xgb_training_frame
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
     _station_data_shift_hours as auto_history_station_shift_hours,
@@ -30,6 +33,24 @@ from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from solar.models import SolarRecord
 from stations.models import Organization, OrganizationMember, Station
+
+
+class TrainModelsXgbFramePreparationTests(TestCase):
+    def test_preparation_filters_night_zeros_and_keeps_active_rows(self):
+        df = pd.DataFrame(
+            [
+                {"y": 0.0, "Irradiation": 0.0},
+                {"y": 0.0, "Irradiation": 10.0},
+                {"y": 1000.0, "Irradiation": 120.0},
+                {"y": 500.0, "Irradiation": 5.0},
+            ]
+        )
+
+        out = _prepare_xgb_training_frame(df, cap_mw=50.0)
+
+        self.assertEqual(len(out), 2)
+        self.assertIn("y_over_expected", out.columns)
+        self.assertTrue((out["y_permw"] > 0).all())
 
 
 class StationDataShiftHoursTests(TestCase):
@@ -56,6 +77,52 @@ def build_custom_history_dataframe(station):
         ]
     )
 
+
+
+class ForecastEngineXgbPostprocessTests(TestCase):
+    def test_converts_per_mw_predictions_to_mw(self):
+        raw = [0.1, 0.5, 1.0]
+        meta = {"target": "y_per_MW = y / cap_mw", "cap_mw_used": 50.0}
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=49.0)
+
+        self.assertEqual(out.tolist(), [5.0, 25.0, 50.0])
+
+
+    def test_converts_over_expected_predictions_to_mw(self):
+        raw = [1.0, 0.5]
+        meta = {
+            "target": "y_over_expected = y / max(y_expected, floor)",
+            "cap_mw_used": 50.0,
+            "y_expected_floor_mw": 2.5,
+        }
+        feat = pd.DataFrame({"Irradiation": [600.0, 0.0]})
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=49.0, df_feat=feat)
+
+        self.assertAlmostEqual(float(out[0]), 27.0, places=2)
+        self.assertAlmostEqual(float(out[1]), 1.25, places=2)
+
+
+    def test_applies_xgb_calibration_multiplier(self):
+        raw = [1.0]
+        meta = {
+            "target": "y_per_MW = y / cap_mw",
+            "cap_mw_used": 10.0,
+            "xgb_calib_mult": 2.0,
+        }
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=10.0)
+
+        self.assertEqual(out.tolist(), [20.0])
+
+    def test_keeps_legacy_mw_predictions_without_scaling(self):
+        raw = [5.0, 10.0]
+        meta = {"target": "y_mw"}
+
+        out = _postprocess_xgb_prediction(raw, meta, capacity_mw=50.0)
+
+        self.assertEqual(out.tolist(), [5.0, 10.0])
 
 
 class StationFormAutoHistoryFolderInitialTests(TestCase):
@@ -537,6 +604,26 @@ class StationAutoHistoryStandardFileTests(TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-17 12:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 140.0)
+
+
+class ForecastEngineXgbLowConfidenceTests(TestCase):
+    def test_marks_xgb_low_when_it_is_much_lower_than_np_and_heuristic(self):
+        y_xgb = [5.3, 5.2, 5.1]
+        y_heur = [213.8, 215.7, 217.3]
+        y_np = [258.2, 256.1, 258.8]
+
+        low = _xgb_is_systematically_low(y_xgb, y_heur, y_np, np_ok=True, capacity_mw=50.0)
+
+        self.assertTrue(low)
+
+    def test_does_not_mark_low_when_np_is_unavailable(self):
+        y_xgb = [5.3, 5.2, 5.1]
+        y_heur = [213.8, 215.7, 217.3]
+        y_np = [0.0, 0.0, 0.0]
+
+        low = _xgb_is_systematically_low(y_xgb, y_heur, y_np, np_ok=False, capacity_mw=50.0)
+
+        self.assertFalse(low)
 
 
 class ForecastEngineIndexRegressionTests(TestCase):
