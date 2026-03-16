@@ -901,151 +901,156 @@ def station_forecast_list(request, pk: int):
 
 @login_required
 def station_forecast_run(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
-    if not _ensure_station_write_access(request, st):
-        return redirect("dashboard:station-detail", pk=st.pk)
-    days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
-    providers = request.GET.getlist("providers") or None
-    emails_raw = request.GET.get("emails", "")
-    open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
-    visual_crossing_only = request.GET.get("visual_crossing_only") in {"1", "true", "on", "yes"}
-    horizon_mode = request.GET.get("horizon_mode") or ""
-    manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
-    manual_snow_factor_raw = request.GET.get("manual_snow_factor")
-    manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
-    target_dates_raw = request.GET.get("target_dates") or ""
-    manual_auto_send = request.GET.get("manual_auto_send") in {"1", "true", "on", "yes"}
-    forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
-    schedule = ForecastSchedule.objects.filter(station=st).first()
-    if schedule:
-        if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
-            manual_snow_enable = schedule.manual_snow_enable
-        if manual_snow_factor_raw in (None, "") and schedule.manual_snow_factor is not None:
-            manual_snow_factor_raw = f"{schedule.manual_snow_factor:g}"
-        if manual_snow_dates_raw == "" and schedule.manual_snow_dates:
-            manual_snow_dates_raw = schedule.manual_snow_dates
-        if horizon_mode == "":
-            horizon_mode = schedule.horizon_mode or "weekday_calendar"
-    if horizon_mode == "":
-        horizon_mode = "weekday_calendar"
-    if schedule and schedule.providers and (not open_meteo_only) and (not visual_crossing_only):
-        schedule_providers = [p.strip() for p in schedule.providers.split(",") if p.strip()]
-        open_meteo_only = "open_meteo_only" in schedule_providers
-        visual_crossing_only = "visual_crossing_only" in schedule_providers
-        if open_meteo_only or visual_crossing_only:
-            explicit_providers = [p for p in schedule_providers if p not in {"open_meteo_only", "visual_crossing_only"}]
-            if explicit_providers:
-                providers = explicit_providers
-            elif visual_crossing_only and open_meteo_only:
-                providers = ["visual_crossing", "open_meteo"]
-            elif visual_crossing_only:
-                providers = ["visual_crossing"]
-            else:
-                providers = ["open_meteo"]
-    manual_snow_factor = None
-    if manual_snow_factor_raw not in (None, ""):
-        try:
-            manual_snow_factor = float(manual_snow_factor_raw)
-        except ValueError:
-            manual_snow_factor = None
-    manual_snow_dates = []
-    if manual_snow_dates_raw:
-        for value in manual_snow_dates_raw.split(","):
-            value = value.strip()
-            if not value:
-                continue
-            parsed = _parse_date(value)
-            if parsed:
-                manual_snow_dates.append(parsed.date())
-
-    target_dates = []
-    if target_dates_raw:
-        for value in target_dates_raw.split(","):
-            value = value.strip()
-            if not value:
-                continue
-            parsed = _parse_date(value)
-            if parsed:
-                target_dates.append(parsed.date())
-    target_dates = sorted(set(target_dates))
-    run_days = 1 if target_dates else days
-
     try:
-        heuristic_only = open_meteo_only or visual_crossing_only
-        if heuristic_only and not providers:
-            if visual_crossing_only and open_meteo_only:
-                providers = ["visual_crossing", "open_meteo"]
-            elif visual_crossing_only:
-                providers = ["visual_crossing"]
-            else:
-                providers = ["open_meteo"]
-        res = run_forecast_for_station(
-            st.pk,
-            days=run_days,
-            providers=providers,
-            manual_snow_enable=manual_snow_enable,
-            manual_snow_factor=manual_snow_factor,
-            manual_snow_dates=manual_snow_dates,
-            use_models=not heuristic_only,
-            horizon_mode=horizon_mode,
-            forecast_scope=forecast_scope,
-            target_dates=target_dates,
-        )
-        if res.get("ok"):
-            actual_days = res.get("days") or run_days
-            msg = f"Прогноз построен: {res.get('count')} строк, days={actual_days}, weather={res.get('weather_source')}, scope={forecast_scope}"
-            if target_dates:
-                msg += " | режим: фиксированные даты (параметр days игнорируется)"
-            if open_meteo_only:
-                msg += " | режим: Open-Meteo без истории"
-            if visual_crossing_only:
-                msg += " | режим: Visual Crossing без истории"
-            report = build_forecast_report(
-                station=st,
-                days=run_days,
-                weather_source=res.get("weather_source"),
-                recipients=[emails_raw],
-                forecast_scope=forecast_scope,
-                target_dates=res.get("target_dates") or [],
-            )
-            msg += f" | Отчёт сохранён: {report.file.name}"
-            if manual_auto_send and emails_raw:
-                if send_report_email(report, [emails_raw], st.name, days):
-                    msg += f" | Email: {emails_raw}"
+        st = _get_station_or_404(request.user, pk)
+        if not _ensure_station_write_access(request, st):
+            return redirect("dashboard:station-detail", pk=st.pk)
+        days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
+        providers = request.GET.getlist("providers") or None
+        emails_raw = request.GET.get("emails", "")
+        open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
+        visual_crossing_only = request.GET.get("visual_crossing_only") in {"1", "true", "on", "yes"}
+        horizon_mode = request.GET.get("horizon_mode") or ""
+        manual_snow_enable = request.GET.get("manual_snow_enable") in {"1", "true", "on", "yes"}
+        manual_snow_factor_raw = request.GET.get("manual_snow_factor")
+        manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
+        target_dates_raw = request.GET.get("target_dates") or ""
+        manual_auto_send = request.GET.get("manual_auto_send") in {"1", "true", "on", "yes"}
+        forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
+        schedule = ForecastSchedule.objects.filter(station=st).first()
+        if schedule:
+            if not manual_snow_enable and request.GET.get("manual_snow_enable") is None:
+                manual_snow_enable = schedule.manual_snow_enable
+            if manual_snow_factor_raw in (None, "") and schedule.manual_snow_factor is not None:
+                manual_snow_factor_raw = f"{schedule.manual_snow_factor:g}"
+            if manual_snow_dates_raw == "" and schedule.manual_snow_dates:
+                manual_snow_dates_raw = schedule.manual_snow_dates
+            if horizon_mode == "":
+                horizon_mode = schedule.horizon_mode or "weekday_calendar"
+        if horizon_mode == "":
+            horizon_mode = "weekday_calendar"
+        if schedule and schedule.providers and (not open_meteo_only) and (not visual_crossing_only):
+            schedule_providers = [p.strip() for p in schedule.providers.split(",") if p.strip()]
+            open_meteo_only = "open_meteo_only" in schedule_providers
+            visual_crossing_only = "visual_crossing_only" in schedule_providers
+            if open_meteo_only or visual_crossing_only:
+                explicit_providers = [p for p in schedule_providers if p not in {"open_meteo_only", "visual_crossing_only"}]
+                if explicit_providers:
+                    providers = explicit_providers
+                elif visual_crossing_only and open_meteo_only:
+                    providers = ["visual_crossing", "open_meteo"]
+                elif visual_crossing_only:
+                    providers = ["visual_crossing"]
                 else:
-                    msg += " | Email: ошибка отправки"
-            elif emails_raw:
-                msg += " | Email: авто-отправка выключена"
-            if not res.get("np_ok"):
-                np_err = res.get("np_error") or "FAIL"
-                msg += f" | NP: {np_err}"
-            if not res.get("xgb_ok"):
-                xgb_err = res.get("xgb_error") or "FAIL"
-                msg += f" | XGB: {xgb_err}"
-            messages.success(request, msg)
-        else:
-            messages.error(request, f"Ошибка прогноза: {res}")
-    except Exception as e:
-        messages.error(request, f"Ошибка запуска прогноза: {e}")
+                    providers = ["open_meteo"]
+        manual_snow_factor = None
+        if manual_snow_factor_raw not in (None, ""):
+            try:
+                manual_snow_factor = float(manual_snow_factor_raw)
+            except ValueError:
+                manual_snow_factor = None
+        manual_snow_dates = []
+        if manual_snow_dates_raw:
+            for value in manual_snow_dates_raw.split(","):
+                value = value.strip()
+                if not value:
+                    continue
+                parsed = _parse_date(value)
+                if parsed:
+                    manual_snow_dates.append(parsed.date())
 
-    query = urlencode(
-        {
-            "days": days,
-            "providers": providers or [],
-            "emails": emails_raw,
-            "manual_snow_enable": "1" if manual_snow_enable else "",
-            "manual_snow_factor": manual_snow_factor_raw or "",
-            "manual_snow_dates": manual_snow_dates_raw,
-            "target_dates": target_dates_raw,
-            "manual_auto_send": "1" if manual_auto_send else "",
-            "open_meteo_only": "1" if open_meteo_only else "",
-            "visual_crossing_only": "1" if visual_crossing_only else "",
-            "horizon_mode": horizon_mode,
-            "scope": forecast_scope,
-        },
-        doseq=True,
-    )
-    return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?{query}")
+        target_dates = []
+        if target_dates_raw:
+            for value in target_dates_raw.split(","):
+                value = value.strip()
+                if not value:
+                    continue
+                parsed = _parse_date(value)
+                if parsed:
+                    target_dates.append(parsed.date())
+        target_dates = sorted(set(target_dates))
+        run_days = 1 if target_dates else days
+
+        try:
+            heuristic_only = open_meteo_only or visual_crossing_only
+            if heuristic_only and not providers:
+                if visual_crossing_only and open_meteo_only:
+                    providers = ["visual_crossing", "open_meteo"]
+                elif visual_crossing_only:
+                    providers = ["visual_crossing"]
+                else:
+                    providers = ["open_meteo"]
+            res = run_forecast_for_station(
+                st.pk,
+                days=run_days,
+                providers=providers,
+                manual_snow_enable=manual_snow_enable,
+                manual_snow_factor=manual_snow_factor,
+                manual_snow_dates=manual_snow_dates,
+                use_models=not heuristic_only,
+                horizon_mode=horizon_mode,
+                forecast_scope=forecast_scope,
+                target_dates=target_dates,
+            )
+            if res.get("ok"):
+                actual_days = res.get("days") or run_days
+                msg = f"Прогноз построен: {res.get('count')} строк, days={actual_days}, weather={res.get('weather_source')}, scope={forecast_scope}"
+                if target_dates:
+                    msg += " | режим: фиксированные даты (параметр days игнорируется)"
+                if open_meteo_only:
+                    msg += " | режим: Open-Meteo без истории"
+                if visual_crossing_only:
+                    msg += " | режим: Visual Crossing без истории"
+                report = build_forecast_report(
+                    station=st,
+                    days=run_days,
+                    weather_source=res.get("weather_source"),
+                    recipients=[emails_raw],
+                    forecast_scope=forecast_scope,
+                    target_dates=res.get("target_dates") or [],
+                )
+                msg += f" | Отчёт сохранён: {report.file.name}"
+                if manual_auto_send and emails_raw:
+                    if send_report_email(report, [emails_raw], st.name, days):
+                        msg += f" | Email: {emails_raw}"
+                    else:
+                        msg += " | Email: ошибка отправки"
+                elif emails_raw:
+                    msg += " | Email: авто-отправка выключена"
+                if not res.get("np_ok"):
+                    np_err = res.get("np_error") or "FAIL"
+                    msg += f" | NP: {np_err}"
+                if not res.get("xgb_ok"):
+                    xgb_err = res.get("xgb_error") or "FAIL"
+                    msg += f" | XGB: {xgb_err}"
+                messages.success(request, msg)
+            else:
+                messages.error(request, f"Ошибка прогноза: {res}")
+        except Exception as e:
+            messages.error(request, f"Ошибка запуска прогноза: {e}")
+
+        query = urlencode(
+            {
+                "days": days,
+                "providers": providers or [],
+                "emails": emails_raw,
+                "manual_snow_enable": "1" if manual_snow_enable else "",
+                "manual_snow_factor": manual_snow_factor_raw or "",
+                "manual_snow_dates": manual_snow_dates_raw,
+                "target_dates": target_dates_raw,
+                "manual_auto_send": "1" if manual_auto_send else "",
+                "open_meteo_only": "1" if open_meteo_only else "",
+                "visual_crossing_only": "1" if visual_crossing_only else "",
+                "horizon_mode": horizon_mode,
+                "scope": forecast_scope,
+            },
+            doseq=True,
+        )
+        return redirect(f"{reverse('dashboard:station-forecast-list', kwargs={'pk': st.pk})}?{query}")
+    except Exception as exc:
+        logger.exception("[FORECAST] station=%s run failed. query=%s", pk, request.GET.urlencode())
+        messages.error(request, f"Ошибка запуска прогноза: {exc}")
+        return redirect("dashboard:station-list")
 
 
 @login_required
