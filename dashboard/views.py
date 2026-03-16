@@ -54,6 +54,13 @@ def _parse_date(s: str) -> Optional[datetime]:
     return None
 
 
+def _parse_int_query(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 
 
 def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
@@ -762,7 +769,7 @@ def station_train_models(request, pk: int):
 def station_forecast_list(request, pk: int):
     st = _get_station_or_404(request.user, pk)
 
-    days = int(request.GET.get("days", "7") or 7)
+    days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
     visual_crossing_only = request.GET.get("visual_crossing_only") in {"1", "true", "on", "yes"}
     horizon_mode = request.GET.get("horizon_mode") or ""
@@ -897,7 +904,7 @@ def station_forecast_run(request, pk: int):
     st = _get_station_or_404(request.user, pk)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
-    days = int(request.GET.get("days", "7") or 7)
+    days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
     providers = request.GET.getlist("providers") or None
     emails_raw = request.GET.get("emails", "")
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
