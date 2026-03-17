@@ -2,6 +2,7 @@ from datetime import date, time
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
+from django.db.models import Max
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 import pandas as pd
@@ -15,6 +16,7 @@ from dashboard.services.forecast_engine import (
     _target_offsets_for_weekday_calendar,
     _postprocess_xgb_prediction,
     _xgb_is_systematically_low,
+    WeatherFetchResult,
     run_forecast_for_station,
 )
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
@@ -31,7 +33,7 @@ from dashboard.services.history_autofill import (
 
 from dashboard.forms import StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
-from solar.models import SolarRecord
+from solar.models import SolarForecast, SolarRecord
 from stations.models import Organization, OrganizationMember, Station
 
 
@@ -655,6 +657,59 @@ class ForecastEngineIndexRegressionTests(TestCase):
 
         self.assertTrue(result["ok"])
         self.assertGreater(result["count"], 0)
+
+
+class ForecastEngineHourlyWeatherFallbackTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="hourly-fallback", password="pass")
+        org = Organization.objects.create(name="Hourly Fallback Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Hourly Fallback Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=50.0,
+            longitude=30.0,
+        )
+
+    @patch("dashboard.services.forecast_engine.fetch_open_meteo_hourly")
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_run_forecast_uses_hourly_weather_profile_when_target_date_has_no_direct_weather(self, now_mock, meteo_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+
+        weather_df = pd.DataFrame(
+            {
+                "ds": [
+                    timezone.datetime(2026, 2, 26, 9, 0, tzinfo=timezone.get_current_timezone()),
+                    timezone.datetime(2026, 2, 26, 10, 0, tzinfo=timezone.get_current_timezone()),
+                ],
+                "irradiation": [400.0, 500.0],
+                "air_temp": [8.0, 10.0],
+                "wind_speed": [2.0, 2.5],
+                "cloudcover": [30.0, 20.0],
+                "humidity": [55.0, 50.0],
+                "precip": [0.0, 0.0],
+                "snowfall": [0.0, 0.0],
+                "snowdepth": [0.0, 0.0],
+                "weather_code": [1, 1],
+            }
+        )
+        meteo_mock.return_value = WeatherFetchResult(ok=True, source="open_meteo", df=weather_df)
+
+        result = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            providers=["open_meteo"],
+            use_models=False,
+            target_dates=[date(2026, 2, 24)],
+        )
+
+        self.assertTrue(result["ok"])
+        forecasts = SolarForecast.objects.filter(station=self.station)
+        self.assertTrue(forecasts.exists())
+        self.assertGreater(forecasts.aggregate(Max("pred_heur"))["pred_heur__max"], 0)
 
 
 class ForecastEngineHistoryBackfillFallbackTests(TestCase):
