@@ -6,12 +6,28 @@ PROJECT_DIR="${PROJECT_DIR:-$HOME/forecast_platform}"
 VENV_PATH="${VENV_PATH:-venv/bin/activate}"
 GUNICORN_PID_FILE_DEFAULT="${GUNICORN_PID_FILE_DEFAULT:-/run/gunicorn.pid}"
 GUNICORN_PORT_DEFAULT="${GUNICORN_PORT_DEFAULT:-8000}"
+STASH_LOCAL_CHANGES="${STASH_LOCAL_CHANGES:-0}"
+AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-codex-auto-stash-before-portal-update}"
 
 cd "$PROJECT_DIR"
 
 if [ ! -d .git ]; then
   echo "[portal-update] ERROR: not a git repository: $PROJECT_DIR"
   exit 1
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+  if [ "$STASH_LOCAL_CHANGES" = "1" ]; then
+    echo "[portal-update] dirty worktree detected; stashing local changes"
+    git stash push --include-untracked -m "$AUTO_STASH_MESSAGE"
+  else
+    echo "[portal-update] ERROR: local unstaged/uncommitted changes detected"
+    echo "[portal-update] Run one of the following:"
+    echo "[portal-update]   git status --short"
+    echo "[portal-update]   git stash push --include-untracked -m 'manual-before-update'"
+    echo "[portal-update] or rerun with: STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh"
+    exit 1
+  fi
 fi
 
 echo "[portal-update] git pull --rebase"
