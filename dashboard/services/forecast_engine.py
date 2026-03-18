@@ -326,6 +326,9 @@ def _merge_weather_with_hourly_profile_fallback(base: pd.DataFrame, weather: pd.
         "snowdepth",
         "weather_code",
     ]
+    for col in weather_cols:
+        if col not in w.columns:
+            w[col] = np.nan
     profile = w.groupby("hour", as_index=False)[weather_cols].mean(numeric_only=True)
 
     base_with_hour = base.copy()
