@@ -860,8 +860,10 @@ def run_forecast_for_station(
     start_date = min(target_dates) if target_dates else (now + pd.Timedelta(days=1)).date()
 
     if target_dates and max(target_dates) < (now + pd.Timedelta(days=1)).date():
-        weather_df = _weather_from_history(st, target_dates, forecast_scope=forecast_scope)
-        weather_source = "history_backfill" if not weather_df.empty else weather_source
+        history_weather_df = _weather_from_history(st, target_dates, forecast_scope=forecast_scope)
+        if not history_weather_df.empty:
+            weather_df = history_weather_df
+            weather_source = "history_backfill"
 
     solar_hours = _solar_hours_from_weather(weather_df, start_date, effective_days) or _solar_hours_from_history(st)
 

@@ -726,6 +726,50 @@ class ForecastEngineHistoryBackfillFallbackTests(TestCase):
             longitude=None,
         )
 
+    @patch("dashboard.services.forecast_engine.fetch_open_meteo_hourly")
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_run_forecast_keeps_provider_weather_when_history_backfill_is_empty(self, now_mock, meteo_mock):
+        self.station.latitude = 50.0
+        self.station.longitude = 30.0
+        self.station.save(update_fields=["latitude", "longitude"])
+
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+
+        weather_df = pd.DataFrame(
+            {
+                "ds": [
+                    timezone.datetime(2026, 2, 26, 11, 0, tzinfo=timezone.get_current_timezone()),
+                    timezone.datetime(2026, 2, 26, 12, 0, tzinfo=timezone.get_current_timezone()),
+                ],
+                "irradiation": [450.0, 600.0],
+                "air_temp": [9.0, 11.0],
+                "wind_speed": [2.0, 2.3],
+                "cloudcover": [20.0, 10.0],
+                "humidity": [55.0, 50.0],
+                "precip": [0.0, 0.0],
+                "snowfall": [0.0, 0.0],
+                "snowdepth": [0.0, 0.0],
+                "weather_code": [1, 1],
+            }
+        )
+        meteo_mock.return_value = WeatherFetchResult(ok=True, source="open_meteo", df=weather_df)
+
+        result = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            providers=["open_meteo"],
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 24)],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["weather_source"], "open_meteo")
+        forecasts = SolarForecast.objects.filter(station=self.station)
+        self.assertTrue(forecasts.exists())
+        self.assertGreater(forecasts.aggregate(Max("pred_heur"))["pred_heur__max"], 0)
+
     @patch("dashboard.services.forecast_engine.timezone.now")
     def test_run_forecast_uses_main_history_when_test_scope_missing(self, now_mock):
         now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
