@@ -63,59 +63,34 @@ def _parse_int_query(value, default: int) -> int:
 
 def _build_training_status(station: Station) -> dict:
     paths = _model_paths_for_station(station)
-    definitions = [
-        {
-            "name": "XGBoost",
-            "primary_file": paths["xgb"],
-            "legacy_file": paths["legacy_xgb"],
-        },
-        {
-            "name": "NeuralProphet",
-            "primary_file": paths["np"],
-            "legacy_file": paths["legacy_np"],
-        },
-    ]
+    models = []
 
-    models: list[dict] = []
-    trained_count = 0
-    latest_trained_at = None
+    for name, primary_key, legacy_key in [
+        ("NeuralProphet", "np", "legacy_np"),
+        ("XGBoost", "xgb", "legacy_xgb"),
+    ]:
+        model_file = paths[primary_key]
+        if not model_file.exists() and paths[legacy_key].exists():
+            model_file = paths[legacy_key]
 
-    for definition in definitions:
-        model_file = definition["primary_file"]
-        source_label = "Основная"
-        if not model_file.exists() and definition["legacy_file"].exists():
-            model_file = definition["legacy_file"]
-            source_label = "Legacy"
-
-        exists = model_file.exists()
-        if exists:
-            trained_count += 1
+        is_trained = model_file.exists()
+        trained_at = None
+        if is_trained:
             trained_at = datetime.fromtimestamp(
                 model_file.stat().st_mtime,
                 tz=timezone.get_current_timezone(),
             )
-            if latest_trained_at is None or trained_at > latest_trained_at:
-                latest_trained_at = trained_at
-        else:
-            trained_at = None
 
         models.append(
             {
-                "name": definition["name"],
-                "status_label": "Обучена" if exists else "Не обучена",
-                "status_class": "success" if exists else "secondary",
+                "name": name,
+                "is_trained": is_trained,
+                "status_label": "модель обучена" if is_trained else "модель не обучена",
                 "trained_at": trained_at,
-                "source_label": source_label if exists else "",
             }
         )
 
-    return {
-        "total_count": len(definitions),
-        "trained_count": trained_count,
-        "is_ready": trained_count == len(definitions),
-        "latest_trained_at": latest_trained_at,
-        "models": models,
-    }
+    return {"models": models}
 
 
 

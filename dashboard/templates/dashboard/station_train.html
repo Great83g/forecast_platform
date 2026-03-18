@@ -6,41 +6,23 @@
 
   <div class="card shadow-sm border-0 mb-4">
     <div class="card-body">
-      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-        <div>
-          <div class="text-muted small mb-1">Статус моделей</div>
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="badge text-bg-{{ training_status.is_ready|yesno:'success,warning' }} fs-6">
-              Обучено {{ training_status.trained_count }} из {{ training_status.total_count }}
-            </span>
-            {% if training_status.latest_trained_at %}
-              <span class="text-muted small">
-                Последнее обучение: {{ training_status.latest_trained_at|date:"d.m.Y H:i" }}
-              </span>
-            {% else %}
-              <span class="text-muted small">Модели ещё не обучены.</span>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mt-1">
+      <div class="text-muted small mb-3">Статус моделей для этой станции</div>
+      <div class="row g-3">
         {% for model in training_status.models %}
           <div class="col-md-6">
             <div class="border rounded-3 h-100 p-3 bg-light">
-              <div class="d-flex justify-content-between align-items-center gap-2">
-                <strong>{{ model.name }}</strong>
-                <span class="badge text-bg-{{ model.status_class }}">{{ model.status_label }}</span>
+              <div class="fw-semibold">{{ model.name }}</div>
+              <div class="mt-2">
+                {% if model.is_trained %}
+                  <span class="badge text-bg-success">{{ model.status_label }}</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">{{ model.status_label }}</span>
+                {% endif %}
               </div>
               {% if model.trained_at %}
                 <div class="small text-muted mt-2">
                   Обновлена: {{ model.trained_at|date:"d.m.Y H:i" }}
                 </div>
-                {% if model.source_label %}
-                  <div class="small text-muted">
-                    Источник: {{ model.source_label }}
-                  </div>
-                {% endif %}
               {% else %}
                 <div class="small text-muted mt-2">
                   Файл модели пока не найден.
