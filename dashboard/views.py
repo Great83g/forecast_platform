@@ -31,7 +31,7 @@ from solar.org_sync import sync_solar_records
 from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
 
 # forecast service (обязательно должен быть)
-from .services.forecast_engine import run_forecast_for_station
+from .services.forecast_engine import _model_paths_for_station, run_forecast_for_station
 from .services.forecast_reports import build_forecast_report, send_report_email
 from .services.forecast_scheduler import run_scheduled_forecasts
 from .services.history_autofill import run_auto_history_updates
@@ -59,6 +59,63 @@ def _parse_int_query(value, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _build_training_status(station: Station) -> dict:
+    paths = _model_paths_for_station(station)
+    definitions = [
+        {
+            "name": "XGBoost",
+            "primary_file": paths["xgb"],
+            "legacy_file": paths["legacy_xgb"],
+        },
+        {
+            "name": "NeuralProphet",
+            "primary_file": paths["np"],
+            "legacy_file": paths["legacy_np"],
+        },
+    ]
+
+    models: list[dict] = []
+    trained_count = 0
+    latest_trained_at = None
+
+    for definition in definitions:
+        model_file = definition["primary_file"]
+        source_label = "Основная"
+        if not model_file.exists() and definition["legacy_file"].exists():
+            model_file = definition["legacy_file"]
+            source_label = "Legacy"
+
+        exists = model_file.exists()
+        if exists:
+            trained_count += 1
+            trained_at = datetime.fromtimestamp(
+                model_file.stat().st_mtime,
+                tz=timezone.get_current_timezone(),
+            )
+            if latest_trained_at is None or trained_at > latest_trained_at:
+                latest_trained_at = trained_at
+        else:
+            trained_at = None
+
+        models.append(
+            {
+                "name": definition["name"],
+                "status_label": "Обучена" if exists else "Не обучена",
+                "status_class": "success" if exists else "secondary",
+                "trained_at": trained_at,
+                "source_label": source_label if exists else "",
+            }
+        )
+
+    return {
+        "total_count": len(definitions),
+        "trained_count": trained_count,
+        "is_ready": trained_count == len(definitions),
+        "latest_trained_at": latest_trained_at,
+        "models": models,
+    }
 
 
 
@@ -783,8 +840,12 @@ def station_train(request, pk: int):
             return redirect("dashboard:station-detail", pk=pk)
 
         # GET
-        # покажем статус: есть ли модели в models_cache (если хочешь — добавим позже красиво)
-        return render(request, "dashboard/station_train.html", {"station": st})
+        training_status = _build_training_status(st)
+        return render(
+            request,
+            "dashboard/station_train.html",
+            {"station": st, "training_status": training_status},
+        )
     except Exception as e:
         logger.exception("[TRAIN] station=%s unexpected train view error", pk)
         messages.error(request, f"Внутренняя ошибка страницы обучения: {e}")
