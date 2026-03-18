@@ -300,6 +300,44 @@ def _merge_weather(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _merge_weather_with_hourly_profile_fallback(base: pd.DataFrame, weather: pd.DataFrame) -> pd.DataFrame:
+    out = _merge_weather(base, weather)
+    if weather.empty:
+        return out
+
+    if "irradiation" in out.columns and out["irradiation"].notna().any():
+        return out
+
+    w = weather.copy()
+    w["ds"] = pd.to_datetime(w["ds"], errors="coerce")
+    w = w.dropna(subset=["ds"])
+    if w.empty:
+        return out
+
+    w["hour"] = w["ds"].dt.hour
+    weather_cols = [
+        "irradiation",
+        "air_temp",
+        "wind_speed",
+        "cloudcover",
+        "humidity",
+        "precip",
+        "snowfall",
+        "snowdepth",
+        "weather_code",
+    ]
+    for col in weather_cols:
+        if col not in w.columns:
+            w[col] = np.nan
+    profile = w.groupby("hour", as_index=False)[weather_cols].mean(numeric_only=True)
+
+    base_with_hour = base.copy()
+    base_with_hour["ds"] = pd.to_datetime(base_with_hour["ds"], errors="coerce")
+    base_with_hour["hour"] = base_with_hour["ds"].dt.hour
+    projected = base_with_hour.merge(profile, on="hour", how="left")
+    return projected.drop(columns=["hour"])
+
+
 def _add_sun_geometry(df: pd.DataFrame, lat_deg: float) -> pd.DataFrame:
     lat = np.deg2rad(lat_deg)
     doy = df["ds"].dt.dayofyear
@@ -825,8 +863,10 @@ def run_forecast_for_station(
     start_date = min(target_dates) if target_dates else (now + pd.Timedelta(days=1)).date()
 
     if target_dates and max(target_dates) < (now + pd.Timedelta(days=1)).date():
-        weather_df = _weather_from_history(st, target_dates, forecast_scope=forecast_scope)
-        weather_source = "history_backfill" if not weather_df.empty else weather_source
+        history_weather_df = _weather_from_history(st, target_dates, forecast_scope=forecast_scope)
+        if not history_weather_df.empty:
+            weather_df = history_weather_df
+            weather_source = "history_backfill"
 
     solar_hours = _solar_hours_from_weather(weather_df, start_date, effective_days) or _solar_hours_from_history(st)
 
@@ -834,7 +874,7 @@ def run_forecast_for_station(
         base = _make_base_grid_for_dates(target_dates, solar_hours=solar_hours, tzinfo=now.tzinfo)
     else:
         base = _make_base_grid(days=effective_days, solar_hours=solar_hours)
-    merged = _merge_weather(base, weather_df)
+    merged = _merge_weather_with_hourly_profile_fallback(base, weather_df)
     lat_deg = float(lat) if lat is not None else 47.86
     feat = _compute_features(merged, capacity_mw, lat_deg)
     feat = _compute_winter_factors(feat)
