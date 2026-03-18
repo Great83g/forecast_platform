@@ -18,12 +18,9 @@
                 Последнее обучение: {{ training_status.latest_trained_at|date:"d.m.Y H:i" }}
               </span>
             {% else %}
-              <span class="text-muted small">Модели ещё не обучались.</span>
+              <span class="text-muted small">Модели ещё не обучены.</span>
             {% endif %}
           </div>
-        </div>
-        <div class="text-muted small">
-          Людям сразу видно, какие модели уже готовы для прогноза.
         </div>
       </div>
 
@@ -39,18 +36,15 @@
                 <div class="small text-muted mt-2">
                   Обновлена: {{ model.trained_at|date:"d.m.Y H:i" }}
                 </div>
+                {% if model.source_label %}
+                  <div class="small text-muted">
+                    Источник: {{ model.source_label }}
+                  </div>
+                {% endif %}
               {% else %}
                 <div class="small text-muted mt-2">
                   Файл модели пока не найден.
                 </div>
-              {% endif %}
-
-              {% if model.details %}
-                <ul class="small mt-2 mb-0 ps-3">
-                  {% for detail in model.details %}
-                    <li>{{ detail }}</li>
-                  {% endfor %}
-                </ul>
               {% endif %}
             </div>
           </div>

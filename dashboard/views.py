@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 import importlib
-import json
 import logging
 import subprocess
 import sys
@@ -32,7 +31,7 @@ from solar.org_sync import sync_solar_records
 from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
 
 # forecast service (обязательно должен быть)
-from .services.forecast_engine import run_forecast_for_station
+from .services.forecast_engine import _model_paths_for_station, run_forecast_for_station
 from .services.forecast_reports import build_forecast_report, send_report_email
 from .services.forecast_scheduler import run_scheduled_forecasts
 from .services.history_autofill import run_auto_history_updates
@@ -62,38 +61,18 @@ def _parse_int_query(value, default: int) -> int:
         return default
 
 
-def _station_model_dir(station: Station) -> Path:
-    from django.utils.text import slugify
-
-    slug = slugify(getattr(station, "name", "")) or "station"
-    base_dir = Path(getattr(settings, "BASE_DIR", "."))
-    model_dir = Path(getattr(settings, "MODEL_DIR", base_dir / "models_cache"))
-    return model_dir / f"{station.pk}_{slug}"
-
-
-def _read_json_file(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
 def _build_training_status(station: Station) -> dict:
-    model_dir = _station_model_dir(station)
+    paths = _model_paths_for_station(station)
     definitions = [
         {
-            "code": "xgb",
             "name": "XGBoost",
-            "file": model_dir / "xgb_model.json",
-            "meta_file": model_dir / "xgb_model.meta.json",
+            "primary_file": paths["xgb"],
+            "legacy_file": paths["legacy_xgb"],
         },
         {
-            "code": "np",
             "name": "NeuralProphet",
-            "file": model_dir / "np_model.np",
-            "meta_file": model_dir / "np_model.meta.json",
+            "primary_file": paths["np"],
+            "legacy_file": paths["legacy_np"],
         },
     ]
 
@@ -102,8 +81,12 @@ def _build_training_status(station: Station) -> dict:
     latest_trained_at = None
 
     for definition in definitions:
-        model_file = definition["file"]
-        meta = _read_json_file(definition["meta_file"])
+        model_file = definition["primary_file"]
+        source_label = "Основная"
+        if not model_file.exists() and definition["legacy_file"].exists():
+            model_file = definition["legacy_file"]
+            source_label = "Legacy"
+
         exists = model_file.exists()
         if exists:
             trained_count += 1
@@ -116,26 +99,13 @@ def _build_training_status(station: Station) -> dict:
         else:
             trained_at = None
 
-        if definition["code"] == "xgb":
-            details = []
-            train_rows_total = meta.get("train_rows_total")
-            train_rows_used = meta.get("train_rows_used")
-            if train_rows_total:
-                details.append(f"История: {train_rows_total}")
-            if train_rows_used:
-                details.append(f"В обучении: {train_rows_used}")
-        else:
-            cap_mw = meta.get("cap_mw") or meta.get("cap_mw_used")
-            details = [f"Мощность: {cap_mw:.2f} MW"] if isinstance(cap_mw, (int, float)) else []
-
         models.append(
             {
                 "name": definition["name"],
-                "is_trained": exists,
                 "status_label": "Обучена" if exists else "Не обучена",
                 "status_class": "success" if exists else "secondary",
                 "trained_at": trained_at,
-                "details": details,
+                "source_label": source_label if exists else "",
             }
         )
 
