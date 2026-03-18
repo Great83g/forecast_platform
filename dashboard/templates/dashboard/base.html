@@ -46,6 +46,11 @@
   min-height:78px;
 }
 
+.navbar .nav-link.active{
+  color:#fff;
+  font-weight:600;
+}
+
 @media (max-width: 991.98px) {
   .navbar {
     min-height: auto;
@@ -97,7 +102,13 @@
     <div class="collapse navbar-collapse" id="mainNavbar">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link" href="{% url 'dashboard:station-list' %}">Станции</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}">Станции</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}">О компании</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts">Контакты</a>
         </li>
       </ul>
 
