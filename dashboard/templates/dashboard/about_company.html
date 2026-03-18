@@ -1,0 +1,264 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<section class="company-page mb-5">
+  <div class="company-topbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <div>
+      <div class="section-label mb-2">TGS Energy</div>
+      <div class="company-subtitle">Инжиниринговая группа компаний в области ВИЭ и энергопрогнозирования</div>
+    </div>
+    <div class="company-topbar__actions d-flex flex-wrap gap-2">
+      <a href="mailto:{{ contacts.email }}" class="btn btn-outline-primary">Написать на e-mail</a>
+      <a href="tel:+77014090810" class="btn btn-primary">Позвонить</a>
+    </div>
+  </div>
+  <div class="company-hero card border-0 shadow-sm overflow-hidden mb-4">
+    <div class="card-body p-4 p-lg-5">
+      <div class="row g-4 align-items-center">
+        <div class="col-lg-8">
+          <span class="company-badge">TGS Energy</span>
+          <h1 class="company-title mt-3 mb-3">О компании</h1>
+          <p class="company-lead mb-0">{{ company_description }}</p>
+        </div>
+        <div class="col-lg-4">
+          <div class="company-accent-card ms-lg-auto">
+            <div class="company-accent-card__label">Инжиниринг и ВИЭ</div>
+            <div class="company-accent-card__value">Опыт, качество и современные решения для энергетических проектов</div>
+            <a href="#contacts" class="btn btn-light btn-sm mt-3">Связаться с нами</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4 align-items-stretch">
+    <div class="col-xl-8">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body p-4 p-lg-5">
+          <div class="section-label mb-2">Преимущества</div>
+          <h2 class="section-title mb-4">Почему выбирают ТГС</h2>
+          <div class="company-feature-list">
+            {% for point in company_points %}
+              <article class="company-feature-item">
+                <div class="company-feature-item__icon">✓</div>
+                <div class="company-feature-item__text">{{ point }}</div>
+              </article>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-xl-4">
+      <div id="contacts" class="card border-0 shadow-sm h-100 company-contacts-card">
+        <div class="card-body p-4 p-lg-5 d-flex flex-column">
+          <div class="section-label mb-2">Контакты</div>
+          <h2 class="section-title mb-4">Свяжитесь с нами</h2>
+
+          <div class="contact-block mb-3">
+            <div class="contact-label">Адрес</div>
+            <div class="contact-value">
+              {{ contacts.country }}<br>
+              {{ contacts.postal_code }}, {{ contacts.city }}<br>
+              {{ contacts.business_center }}<br>
+              {{ contacts.street }}
+            </div>
+          </div>
+
+          <div class="contact-block mb-3">
+            <div class="contact-label">E-mail</div>
+            <a class="contact-link" href="mailto:{{ contacts.email }}">{{ contacts.email }}</a>
+          </div>
+
+          <div class="contact-block mb-4">
+            <div class="contact-label">Телефон</div>
+            <a class="contact-link" href="tel:+77014090810">{{ contacts.phone }}</a>
+          </div>
+
+          <div class="company-note mt-auto">
+            Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+.company-page {
+  color: #12385c;
+}
+
+.company-topbar {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(33, 79, 151, 0.08);
+  border-radius: 1.25rem;
+  padding: 1rem 1.15rem;
+}
+
+.company-subtitle {
+  color: #4b678d;
+  line-height: 1.6;
+}
+
+.company-hero {
+  background:
+    radial-gradient(circle at top right, rgba(87, 146, 255, 0.18), transparent 32%),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 45%, #ffffff 100%);
+}
+
+.company-badge,
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(36, 92, 173, 0.1);
+  color: #2f5fb5;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.company-title,
+.section-title {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.company-title {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+}
+
+.section-title {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+}
+
+.company-lead {
+  font-size: 1.15rem;
+  line-height: 1.8;
+  max-width: 960px;
+}
+
+.company-accent-card {
+  background: linear-gradient(135deg, #214f97 0%, #3f73c9 100%);
+  color: #fff;
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  box-shadow: 0 18px 45px rgba(33, 79, 151, 0.25);
+}
+
+.company-accent-card__label {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+  margin-bottom: 0.75rem;
+}
+
+.company-accent-card__value {
+  font-size: 1.1rem;
+  line-height: 1.7;
+  font-weight: 600;
+}
+
+.company-feature-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.company-feature-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(33, 79, 151, 0.1);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.95) 0%, #ffffff 100%);
+}
+
+.company-feature-item__icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(52, 118, 219, 0.12);
+  color: #2f5fb5;
+  font-weight: 800;
+}
+
+.company-feature-item__text {
+  line-height: 1.65;
+}
+
+.company-contacts-card {
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+}
+
+.contact-block {
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: #fff;
+  border: 1px solid rgba(33, 79, 151, 0.09);
+}
+
+.contact-label {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #5a76a7;
+  margin-bottom: 0.45rem;
+  font-weight: 700;
+}
+
+.contact-value,
+.contact-link,
+.company-note {
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.contact-link {
+  color: #214f97;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contact-link:hover {
+  color: #17396f;
+  text-decoration: underline;
+}
+
+.company-note {
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: rgba(36, 92, 173, 0.08);
+}
+
+@media (max-width: 767.98px) {
+  .company-lead {
+    font-size: 1rem;
+  }
+
+  .company-topbar,
+  .company-accent-card,
+  .company-feature-item,
+  .contact-block,
+  .company-note {
+    padding: 0.95rem;
+  }
+
+  .company-topbar__actions {
+    width: 100%;
+  }
+
+  .company-topbar__actions .btn {
+    width: 100%;
+  }
+}
+</style>
+{% endblock %}
