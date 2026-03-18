@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import importlib
+import json
 import logging
 import subprocess
 import sys
@@ -59,6 +60,92 @@ def _parse_int_query(value, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _station_model_dir(station: Station) -> Path:
+    from django.utils.text import slugify
+
+    slug = slugify(getattr(station, "name", "")) or "station"
+    base_dir = Path(getattr(settings, "BASE_DIR", "."))
+    model_dir = Path(getattr(settings, "MODEL_DIR", base_dir / "models_cache"))
+    return model_dir / f"{station.pk}_{slug}"
+
+
+def _read_json_file(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _build_training_status(station: Station) -> dict:
+    model_dir = _station_model_dir(station)
+    definitions = [
+        {
+            "code": "xgb",
+            "name": "XGBoost",
+            "file": model_dir / "xgb_model.json",
+            "meta_file": model_dir / "xgb_model.meta.json",
+        },
+        {
+            "code": "np",
+            "name": "NeuralProphet",
+            "file": model_dir / "np_model.np",
+            "meta_file": model_dir / "np_model.meta.json",
+        },
+    ]
+
+    models: list[dict] = []
+    trained_count = 0
+    latest_trained_at = None
+
+    for definition in definitions:
+        model_file = definition["file"]
+        meta = _read_json_file(definition["meta_file"])
+        exists = model_file.exists()
+        if exists:
+            trained_count += 1
+            trained_at = datetime.fromtimestamp(
+                model_file.stat().st_mtime,
+                tz=timezone.get_current_timezone(),
+            )
+            if latest_trained_at is None or trained_at > latest_trained_at:
+                latest_trained_at = trained_at
+        else:
+            trained_at = None
+
+        if definition["code"] == "xgb":
+            details = []
+            train_rows_total = meta.get("train_rows_total")
+            train_rows_used = meta.get("train_rows_used")
+            if train_rows_total:
+                details.append(f"История: {train_rows_total}")
+            if train_rows_used:
+                details.append(f"В обучении: {train_rows_used}")
+        else:
+            cap_mw = meta.get("cap_mw") or meta.get("cap_mw_used")
+            details = [f"Мощность: {cap_mw:.2f} MW"] if isinstance(cap_mw, (int, float)) else []
+
+        models.append(
+            {
+                "name": definition["name"],
+                "is_trained": exists,
+                "status_label": "Обучена" if exists else "Не обучена",
+                "status_class": "success" if exists else "secondary",
+                "trained_at": trained_at,
+                "details": details,
+            }
+        )
+
+    return {
+        "total_count": len(definitions),
+        "trained_count": trained_count,
+        "is_ready": trained_count == len(definitions),
+        "latest_trained_at": latest_trained_at,
+        "models": models,
+    }
 
 
 
@@ -783,8 +870,12 @@ def station_train(request, pk: int):
             return redirect("dashboard:station-detail", pk=pk)
 
         # GET
-        # покажем статус: есть ли модели в models_cache (если хочешь — добавим позже красиво)
-        return render(request, "dashboard/station_train.html", {"station": st})
+        training_status = _build_training_status(st)
+        return render(
+            request,
+            "dashboard/station_train.html",
+            {"station": st, "training_status": training_status},
+        )
     except Exception as e:
         logger.exception("[TRAIN] station=%s unexpected train view error", pk)
         messages.error(request, f"Внутренняя ошибка страницы обучения: {e}")
