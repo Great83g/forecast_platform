@@ -31,7 +31,7 @@ from solar.org_sync import sync_solar_records
 from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastScheduleForm
 
 # forecast service (обязательно должен быть)
-from .services.forecast_engine import run_forecast_for_station
+from .services.forecast_engine import _model_paths_for_station, run_forecast_for_station
 from .services.forecast_reports import build_forecast_report, send_report_email
 from .services.forecast_scheduler import run_scheduled_forecasts
 from .services.history_autofill import run_auto_history_updates
@@ -59,6 +59,38 @@ def _parse_int_query(value, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _build_training_status(station: Station) -> dict:
+    paths = _model_paths_for_station(station)
+    models = []
+
+    for name, primary_key, legacy_key in [
+        ("NeuralProphet", "np", "legacy_np"),
+        ("XGBoost", "xgb", "legacy_xgb"),
+    ]:
+        model_file = paths[primary_key]
+        if not model_file.exists() and paths[legacy_key].exists():
+            model_file = paths[legacy_key]
+
+        is_trained = model_file.exists()
+        trained_at = None
+        if is_trained:
+            trained_at = datetime.fromtimestamp(
+                model_file.stat().st_mtime,
+                tz=timezone.get_current_timezone(),
+            )
+
+        models.append(
+            {
+                "name": name,
+                "is_trained": is_trained,
+                "status_label": "модель обучена" if is_trained else "модель не обучена",
+                "trained_at": trained_at,
+            }
+        )
+
+    return {"models": models}
 
 
 
@@ -783,8 +815,12 @@ def station_train(request, pk: int):
             return redirect("dashboard:station-detail", pk=pk)
 
         # GET
-        # покажем статус: есть ли модели в models_cache (если хочешь — добавим позже красиво)
-        return render(request, "dashboard/station_train.html", {"station": st})
+        training_status = _build_training_status(st)
+        return render(
+            request,
+            "dashboard/station_train.html",
+            {"station": st, "training_status": training_status},
+        )
     except Exception as e:
         logger.exception("[TRAIN] station=%s unexpected train view error", pk)
         messages.error(request, f"Внутренняя ошибка страницы обучения: {e}")

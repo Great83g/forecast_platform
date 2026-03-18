@@ -3,6 +3,38 @@
 <div class="container py-4">
   <h2>Обучение моделей: {{ station.name|default:station }}</h2>
   <p class="text-muted">Нажми кнопку — запустится обучение NeuralProphet и XGBoost для этой станции.</p>
+
+  <div class="card shadow-sm border-0 mb-4">
+    <div class="card-body">
+      <div class="text-muted small mb-3">Статус моделей для этой станции</div>
+      <div class="row g-3">
+        {% for model in training_status.models %}
+          <div class="col-md-6">
+            <div class="border rounded-3 h-100 p-3 bg-light">
+              <div class="fw-semibold">{{ model.name }}</div>
+              <div class="mt-2">
+                {% if model.is_trained %}
+                  <span class="badge text-bg-success">{{ model.status_label }}</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">{{ model.status_label }}</span>
+                {% endif %}
+              </div>
+              {% if model.trained_at %}
+                <div class="small text-muted mt-2">
+                  Обновлена: {{ model.trained_at|date:"d.m.Y H:i" }}
+                </div>
+              {% else %}
+                <div class="small text-muted mt-2">
+                  Файл модели пока не найден.
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
   <form method="post">
     {% csrf_token %}
     <button class="btn btn-warning" type="submit">Запустить обучение</button>
