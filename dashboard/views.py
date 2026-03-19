@@ -6,14 +6,14 @@ import importlib
 import logging
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 from django.db.models import Q
-from django.db.models import Avg
+from django.db.models import Avg, Sum
 from django.db.models.functions import TruncHour
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -23,6 +23,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.conf import settings
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from stations.models import Organization, OrganizationMember, Station
 from solar.models import SolarRecord, SolarForecast
@@ -340,15 +341,56 @@ def onboarding_guide(request):
     )
 
 
+CO2_KZ_GRID_FACTOR_KG_PER_KWH = 0.53
+
+
+def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
+    qs = SolarRecord.objects.filter(
+        station=station,
+        history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+        power_kw__isnull=False,
+    )
+
+    total_generation_kwh = float(qs.aggregate(total=Sum("power_kw")).get("total") or 0.0)
+
+    station_tz_name = getattr(station, "timezone", "") or str(timezone.get_current_timezone())
+    try:
+        station_tz = ZoneInfo(station_tz_name)
+    except Exception:
+        station_tz = timezone.get_current_timezone()
+
+    now_station_tz = timezone.localtime(timezone.now(), station_tz)
+    yesterday_start = now_station_tz.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    today_start = yesterday_start + timedelta(days=1)
+
+    yesterday_generation_kwh = float(
+        qs.filter(timestamp__gte=yesterday_start, timestamp__lt=today_start).aggregate(total=Sum("power_kw")).get("total") or 0.0
+    )
+
+    return {
+        "factor_kg_per_kwh": CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        "total_kg": total_generation_kwh * CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        "yesterday_kg": yesterday_generation_kwh * CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        "has_history": total_generation_kwh > 0,
+    }
+
+
 @login_required
 def station_list(request):
-    stations = _station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id")
+    stations = list(_station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id"))
+    for station in stations:
+        station.co2_metrics = _station_co2_metrics(station)
+
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
     blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
     return render(
         request,
         "dashboard/station_list.html",
-        {"stations": stations, "blocked_orgs": blocked_orgs},
+        {
+            "stations": stations,
+            "blocked_orgs": blocked_orgs,
+            "co2_grid_factor_kg_per_kwh": CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        },
     )
 
 
