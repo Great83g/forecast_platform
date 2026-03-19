@@ -31,7 +31,7 @@ from dashboard.services.history_autofill import (
     upsert_station_history_from_share,
 )
 
-from dashboard.forms import StationForm
+from dashboard.forms import ForecastScheduleForm, StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from solar.models import SolarForecast, SolarRecord
 from stations.models import Organization, OrganizationMember, Station
@@ -125,6 +125,48 @@ class ForecastEngineXgbPostprocessTests(TestCase):
         out = _postprocess_xgb_prediction(raw, meta, capacity_mw=50.0)
 
         self.assertEqual(out.tolist(), [5.0, 10.0])
+
+
+
+
+class ForecastScheduleFormManualSnowFactorTests(TestCase):
+    def test_accepts_manual_snow_factor_above_one(self):
+        form = ForecastScheduleForm(
+            data={
+                "enabled": "on",
+                "start_at": "",
+                "run_time": "06:00",
+                "days": 1,
+                "horizon_mode": "weekday_calendar",
+                "providers": ["visual_crossing"],
+                "emails": "",
+                "manual_snow_enable": "on",
+                "manual_snow_factor": "1.15",
+                "manual_snow_dates": "",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["manual_snow_factor"], 1.15)
+
+    def test_rejects_manual_snow_factor_above_safe_limit(self):
+        form = ForecastScheduleForm(
+            data={
+                "enabled": "on",
+                "start_at": "",
+                "run_time": "06:00",
+                "days": 1,
+                "horizon_mode": "weekday_calendar",
+                "providers": ["visual_crossing"],
+                "emails": "",
+                "manual_snow_enable": "on",
+                "manual_snow_factor": "1.6",
+                "manual_snow_dates": "",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("manual_snow_factor", form.errors)
 
 
 class StationFormAutoHistoryFolderInitialTests(TestCase):
@@ -834,6 +876,87 @@ class ForecastEngineHistoryBackfillFallbackTests(TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["weather_source"], "history_backfill")
         self.assertGreater(result["count"], 0)
+
+
+
+
+class ForecastEngineManualSnowFactorIncreaseTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="manual-snow-up", password="pass")
+        org = Organization.objects.create(name="Manual Snow Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Manual Snow Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_manual_snow_factor_can_increase_forecast_but_not_above_station_capacity(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+        SolarRecord.objects.create(
+            station=self.station,
+            timestamp=timezone.datetime(2026, 2, 25, 12, 0, tzinfo=timezone.get_current_timezone()),
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            irradiation=620.0,
+            air_temp=11.0,
+        )
+
+        baseline = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+        )
+        self.assertTrue(baseline["ok"])
+        baseline_max = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+
+        increased = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+            manual_snow_enable=True,
+            manual_snow_factor=1.15,
+        )
+        self.assertTrue(increased["ok"])
+
+        boosted_max = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+
+        self.assertGreaterEqual(boosted_max, baseline_max)
+        self.assertLessEqual(boosted_max, self.station.capacity_mw * 1000)
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_manual_snow_factor_is_clipped_to_safe_upper_bound(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+        SolarRecord.objects.create(
+            station=self.station,
+            timestamp=timezone.datetime(2026, 2, 25, 12, 0, tzinfo=timezone.get_current_timezone()),
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            irradiation=620.0,
+            air_temp=11.0,
+        )
+
+        result = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+            manual_snow_enable=True,
+            manual_snow_factor=9.0,
+        )
+
+        self.assertTrue(result["ok"])
+        applied_factor = SolarForecast.objects.filter(station=self.station).aggregate(Max("winter_factor_applied"))["winter_factor_applied__max"]
+        self.assertEqual(applied_factor, 1.5)
 
 
 class ForecastEngineWeekdayCalendarTests(TestCase):
