@@ -263,7 +263,6 @@ def about_company(request):
 
 
 def onboarding_guide(request):
-    onboarding_items = _dashboard_onboarding_items()
     support_steps = [
         "Создайте станцию с корректными параметрами мощности и координат.",
         "Загрузите историю генерации через раздел «Загрузить историю».",
@@ -273,7 +272,7 @@ def onboarding_guide(request):
         request,
         "dashboard/onboarding_guide.html",
         {
-            "onboarding_items": onboarding_items,
+            "onboarding_items": _dashboard_onboarding_items(),
             "support_steps": support_steps,
         },
     )
@@ -283,12 +282,11 @@ def onboarding_guide(request):
 def station_list(request):
     stations = _station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id")
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
-    onboarding_items = _dashboard_onboarding_items()
     blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
     return render(
         request,
         "dashboard/station_list.html",
-        {"stations": stations, "onboarding_items": onboarding_items, "blocked_orgs": blocked_orgs},
+        {"stations": stations, "blocked_orgs": blocked_orgs},
     )
 
 
