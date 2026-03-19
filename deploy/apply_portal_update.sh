@@ -7,7 +7,7 @@ VENV_PATH="${VENV_PATH:-venv/bin/activate}"
 GUNICORN_PID_FILE_DEFAULT="${GUNICORN_PID_FILE_DEFAULT:-/run/gunicorn.pid}"
 GUNICORN_PORT_DEFAULT="${GUNICORN_PORT_DEFAULT:-8000}"
 STASH_LOCAL_CHANGES="${STASH_LOCAL_CHANGES:-0}"
-AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-codex-auto-stash-before-portal-update}"
+AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-manual-before-update}"
 
 cd "$PROJECT_DIR"
 
@@ -30,6 +30,9 @@ if [ -n "$(git status --porcelain)" ]; then
   fi
 fi
 
+echo "[portal-update] git status --short"
+git status --short
+
 echo "[portal-update] git pull --rebase"
 git pull --rebase
 
@@ -44,6 +47,9 @@ source "$VENV_PATH"
 
 echo "[portal-update] python3 manage.py migrate"
 python3 manage.py migrate
+
+echo "[portal-update] python3 manage.py collectstatic --noinput"
+python3 manage.py collectstatic --noinput
 
 if [ -f "$GUNICORN_PID_FILE_DEFAULT" ]; then
   echo "[portal-update] restart via pid file: $GUNICORN_PID_FILE_DEFAULT"
