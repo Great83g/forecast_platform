@@ -75,6 +75,7 @@ PR_FOR_EXPECTED = 0.90
 AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
 AUTO_TEMP_MAX_FOR_SNOW = 2.0
 AUTO_SNOW_FACTOR = 1.0
+MANUAL_SNOW_FACTOR_MAX = 1.5
 AUTO_FOG_FACTOR = 1.0
 FOG_CODES = {45, 48}
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
@@ -1142,7 +1143,7 @@ def run_forecast_for_station(
             manual_factor_value = float(manual_snow_factor)
         except (TypeError, ValueError):
             manual_factor_value = 1.0
-    manual_factor_value = float(np.clip(manual_factor_value, 0.0, 1.0))
+    manual_factor_value = float(np.clip(manual_factor_value, 0.0, MANUAL_SNOW_FACTOR_MAX))
 
     feat["manual_snow_factor"] = manual_factor_value
     manual_dates = manual_snow_dates or []
@@ -1158,10 +1159,10 @@ def run_forecast_for_station(
             winter_factor = np.full(len(feat), manual_factor_value, dtype=float)
 
     feat["winter_factor_applied"] = winter_factor
-    y_np = y_np * winter_factor
-    y_xgb = y_xgb * winter_factor
-    y_heur = y_heur * winter_factor
-    y_final = y_final * winter_factor
+    y_np = np.clip(y_np * winter_factor, 0, capacity_mw)
+    y_xgb = np.clip(y_xgb * winter_factor, 0, capacity_mw)
+    y_heur = np.clip(y_heur * winter_factor, 0, capacity_mw)
+    y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
 
     y_np_kw = y_np * 1000.0
     y_xgb_kw = y_xgb * 1000.0

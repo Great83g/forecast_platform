@@ -226,8 +226,17 @@ class ForecastScheduleForm(forms.Form):
         label="Снег фактор",
         required=False,
         min_value=0.0,
-        max_value=1.0,
-        widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
+        max_value=1.5,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control form-control-sm",
+                "style": "width: 90px;",
+                "step": "0.05",
+                "placeholder": "1.10",
+                "max": "1.5",
+                "title": "< 1 уменьшает прогноз, > 1 увеличивает прогноз (до 1.5)",
+            }
+        ),
     )
     manual_snow_dates = forms.CharField(
         label="Даты снега",
