@@ -24,15 +24,11 @@
   </div>
 {% endif %}
 
-<div class="card mb-3">
-  <div class="card-body">
-    <h5 class="card-title mb-2">Онбординг нового клиента</h5>
-    <ul class="mb-0">
-      {% for item in onboarding_items %}
-        <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-  </div>
+<div class="station-guide-link mb-3">
+  <a class="station-guide-link__anchor" href="{% url 'dashboard:onboarding-guide' %}">
+    <span class="station-guide-link__label">Инструкция</span>
+    <span class="station-guide-link__text">Как добавить станцию, загрузить историю и запустить прогноз</span>
+  </a>
 </div>
 
 {% if messages %}
@@ -107,6 +103,42 @@
 {% endif %}
 
 <style>
+.station-guide-link__anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(13, 110, 253, 0.14);
+  color: #0d6efd;
+  text-decoration: none;
+  box-shadow: 0 8px 24px rgba(13, 110, 253, 0.08);
+}
+
+.station-guide-link__anchor:hover {
+  color: #0a58ca;
+  border-color: rgba(13, 110, 253, 0.28);
+}
+
+.station-guide-link__label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.32rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.1);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.station-guide-link__text {
+  color: #4f6788;
+  line-height: 1.5;
+}
+
 @media (max-width: 767.98px) {
   .station-list-header__actions {
     width: 100%;
@@ -114,6 +146,12 @@
 
   .station-list-header__actions .btn {
     width: 100%;
+  }
+
+  .station-guide-link__anchor {
+    width: 100%;
+    border-radius: 1rem;
+    align-items: flex-start;
   }
 
   .station-list-card {
