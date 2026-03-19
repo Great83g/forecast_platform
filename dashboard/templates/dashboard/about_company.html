@@ -50,33 +50,73 @@
     </div>
 
     <div class="col-xl-4">
-      <div id="contacts" class="card border-0 shadow-sm h-100 company-contacts-card">
-        <div class="card-body p-4 p-lg-5 d-flex flex-column">
-          <div class="section-label mb-2">Контакты</div>
-          <h2 class="section-title mb-4">Свяжитесь с нами</h2>
+      <div class="company-side-stack d-grid gap-4 h-100">
+        <div id="contacts" class="card border-0 shadow-sm company-contacts-card">
+          <div class="card-body p-4 p-lg-5 d-flex flex-column h-100">
+            <div class="section-label mb-2">Контакты</div>
+            <h2 class="section-title mb-4">Свяжитесь с нами</h2>
 
-          <div class="contact-block mb-3">
-            <div class="contact-label">Адрес</div>
-            <div class="contact-value">
-              {{ contacts.country }}<br>
-              {{ contacts.postal_code }}, {{ contacts.city }}<br>
-              {{ contacts.business_center }}<br>
-              {{ contacts.street }}
+            <div class="contact-block mb-3">
+              <div class="contact-label">Адрес</div>
+              <div class="contact-value">
+                {{ contacts.country }}<br>
+                {{ contacts.postal_code }}, {{ contacts.city }}<br>
+                {{ contacts.business_center }}<br>
+                {{ contacts.street }}
+              </div>
+            </div>
+
+            <div class="contact-block mb-3">
+              <div class="contact-label">E-mail</div>
+              <a class="contact-link" href="mailto:{{ contacts.email }}">{{ contacts.email }}</a>
+            </div>
+
+            <div class="contact-block mb-4">
+              <div class="contact-label">Телефон</div>
+              <a class="contact-link" href="tel:+77014090810">{{ contacts.phone }}</a>
+            </div>
+
+            <div class="company-note mt-auto">
+              Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
             </div>
           </div>
+        </div>
 
-          <div class="contact-block mb-3">
-            <div class="contact-label">E-mail</div>
-            <a class="contact-link" href="mailto:{{ contacts.email }}">{{ contacts.email }}</a>
-          </div>
+        <div class="card border-0 shadow-sm company-guide-card">
+          <div class="card-body p-4 p-lg-5">
+            <div class="section-label mb-2">Как пользоваться</div>
+            <h2 class="section-title mb-3">Краткая инструкция для новых пользователей</h2>
+            <p class="company-note mb-4">
+              Начать работу можно за несколько минут: добавьте станцию, загрузите историю и откройте прогноз в личном кабинете.
+            </p>
 
-          <div class="contact-block mb-4">
-            <div class="contact-label">Телефон</div>
-            <a class="contact-link" href="tel:+77014090810">{{ contacts.phone }}</a>
-          </div>
+            <div class="company-guide-list">
+              <article class="company-guide-item">
+                <div class="company-guide-item__step">1</div>
+                <div>
+                  <div class="company-guide-item__title">Добавьте станцию</div>
+                  <div class="company-guide-item__text">Откройте раздел «Станции» и создайте объект с основными параметрами вашей СЭС или ВЭС.</div>
+                </div>
+              </article>
+              <article class="company-guide-item">
+                <div class="company-guide-item__step">2</div>
+                <div>
+                  <div class="company-guide-item__title">Загрузите данные</div>
+                  <div class="company-guide-item__text">Импортируйте исторические значения мощности, чтобы система подготовила базу для прогнозирования.</div>
+                </div>
+              </article>
+              <article class="company-guide-item">
+                <div class="company-guide-item__step">3</div>
+                <div>
+                  <div class="company-guide-item__title">Проверьте прогноз</div>
+                  <div class="company-guide-item__text">Откройте карточку станции, чтобы увидеть почасовой прогноз, статус модели и доступные обновления.</div>
+                </div>
+              </article>
+            </div>
 
-          <div class="company-note mt-auto">
-            Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
+            <div class="company-guide-tip mt-4">
+              Если понадобится помощь с настройкой — напишите или позвоните нам, и мы подскажем оптимальный порядок запуска.
+            </div>
           </div>
         </div>
       </div>
@@ -195,8 +235,63 @@
   line-height: 1.65;
 }
 
+.company-side-stack {
+  grid-template-rows: repeat(2, minmax(0, auto));
+}
+
 .company-contacts-card {
   background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+}
+
+.company-guide-card {
+  background:
+    radial-gradient(circle at top right, rgba(87, 146, 255, 0.16), transparent 30%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.company-guide-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.company-guide-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(33, 79, 151, 0.09);
+}
+
+.company-guide-item__step {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #214f97 0%, #3f73c9 100%);
+  color: #fff;
+  font-weight: 800;
+}
+
+.company-guide-item__title {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.company-guide-item__text,
+.company-guide-tip {
+  color: #4b678d;
+  line-height: 1.65;
+}
+
+.company-guide-tip {
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: rgba(33, 79, 151, 0.06);
+  border: 1px dashed rgba(33, 79, 151, 0.18);
 }
 
 .contact-block {

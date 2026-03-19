@@ -13,7 +13,7 @@ VENV_PATH="${VENV_PATH:-venv/bin/activate}"
 GUNICORN_PID_FILE_DEFAULT="${GUNICORN_PID_FILE_DEFAULT:-/run/gunicorn.pid}"
 GUNICORN_PORT_DEFAULT="${GUNICORN_PORT_DEFAULT:-8000}"
 STASH_LOCAL_CHANGES="${STASH_LOCAL_CHANGES:-0}"
-AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-codex-auto-stash-before-apply-commit}"
+AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-manual-before-apply-commit}"
 
 cd "$PROJECT_DIR"
 
@@ -43,7 +43,6 @@ echo "[apply-commit] Fetching origin..."
 git fetch --all --tags --prune
 
 if ! git rev-parse --verify --quiet "$TARGET_REF^{commit}" >/dev/null; then
-  # try origin/<ref>
   if git rev-parse --verify --quiet "origin/$TARGET_REF^{commit}" >/dev/null; then
     TARGET_REF="origin/$TARGET_REF"
   else
@@ -69,6 +68,9 @@ python3 manage.py migrate --plan
 
 echo "[apply-commit] Applying migrations..."
 python3 manage.py migrate
+
+echo "[apply-commit] Collecting static files..."
+python3 manage.py collectstatic --noinput
 
 if [ -f "$GUNICORN_PID_FILE_DEFAULT" ]; then
   echo "[apply-commit] Restarting portal via PID file: $GUNICORN_PID_FILE_DEFAULT"
