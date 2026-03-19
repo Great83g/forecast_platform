@@ -1,4 +1,5 @@
 {% extends "dashboard/base.html" %}
+{% load static %}
 
 {% block content %}
 <section class="guide-page mb-5">
@@ -30,11 +31,32 @@
           <div class="guide-eyebrow mb-2">Шаги</div>
           <h2 class="guide-section-title mb-4">Основной порядок работы</h2>
           <div class="guide-step-list">
-            {% for item in onboarding_items %}
-              <article class="guide-step-item">
-                <div class="guide-step-item__number">{{ forloop.counter }}</div>
-                <div class="guide-step-item__text">{{ item }}</div>
-              </article>
+            {% for step in guide_steps %}
+              <details class="guide-step-item"{% if forloop.first %} open{% endif %}>
+                <summary class="guide-step-item__summary">
+                  <span class="guide-step-item__number">{{ forloop.counter }}</span>
+                  <span>
+                    <span class="guide-step-item__title">{{ step.title }}</span>
+                    <span class="guide-step-item__text">{{ step.summary }}</span>
+                  </span>
+                </summary>
+
+                <div class="guide-step-item__body">
+                  <div class="guide-step-item__details">
+                    {% for detail in step.details %}
+                      <p class="mb-2">{{ detail }}</p>
+                    {% endfor %}
+                  </div>
+
+                  <div class="guide-step-gallery">
+                    {% for image in step.images %}
+                      <figure class="guide-step-gallery__item">
+                        <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                      </figure>
+                    {% endfor %}
+                  </div>
+                </div>
+              </details>
             {% endfor %}
           </div>
         </div>
@@ -133,14 +155,31 @@
 
 .guide-step-item,
 .guide-tip-item {
+  border-radius: 1rem;
+  border: 1px solid rgba(33, 79, 151, 0.09);
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, #ffffff 100%);
+}
+
+.guide-tip-item {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 0.9rem;
   align-items: start;
   padding: 1rem 1.1rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(33, 79, 151, 0.09);
-  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, #ffffff 100%);
+}
+
+.guide-step-item__summary {
+  list-style: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+}
+
+.guide-step-item__summary::-webkit-details-marker {
+  display: none;
 }
 
 .guide-step-item__number,
@@ -164,11 +203,42 @@
   color: #0d6efd;
 }
 
+.guide-step-item__title {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
 .guide-step-item__text,
 .guide-tip-item__text,
 .guide-note {
   line-height: 1.7;
   color: #4f6788;
+}
+
+.guide-step-item__body {
+  padding: 0 1.1rem 1.1rem 4rem;
+}
+
+.guide-step-item__details {
+  color: #4f6788;
+}
+
+.guide-step-gallery {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.guide-step-gallery__item {
+  margin: 0;
+}
+
+.guide-step-gallery__image {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(33, 79, 151, 0.12);
+  box-shadow: 0 10px 24px rgba(33, 79, 151, 0.08);
 }
 
 .guide-note {
@@ -179,10 +249,17 @@
 
 @media (max-width: 767.98px) {
   .guide-hero-card,
-  .guide-step-item,
   .guide-tip-item,
   .guide-note {
     padding: 0.95rem;
+  }
+
+  .guide-step-item__summary {
+    padding: 0.95rem;
+  }
+
+  .guide-step-item__body {
+    padding: 0 0.95rem 0.95rem 0.95rem;
   }
 }
 </style>
