@@ -24,14 +24,30 @@
   </div>
 {% endif %}
 
-<div class="card mb-3">
-  <div class="card-body">
-    <h5 class="card-title mb-2">Онбординг нового клиента</h5>
-    <ul class="mb-0">
+<div class="card mb-3 border-0 shadow-sm station-onboarding-card">
+  <div class="card-body p-4">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+      <div>
+        <div class="station-onboarding-card__eyebrow mb-2">Как начать работу</div>
+        <h5 class="card-title mb-2">Инструкция для нового клиента</h5>
+        <p class="station-onboarding-card__lead mb-0">
+          Выполните эти шаги по порядку, чтобы быстро запустить прогнозирование на платформе.
+        </p>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'dashboard:onboarding-guide' %}">Открыть инструкцию</a>
+        <a class="btn btn-primary btn-sm" href="{% url 'dashboard:station-create' %}">Добавить станцию</a>
+      </div>
+    </div>
+
+    <div class="station-onboarding-list">
       {% for item in onboarding_items %}
-        <li>{{ item }}</li>
+        <article class="station-onboarding-item">
+          <div class="station-onboarding-item__step">{{ forloop.counter }}</div>
+          <div class="station-onboarding-item__text">{{ item }}</div>
+        </article>
       {% endfor %}
-    </ul>
+    </div>
   </div>
 </div>
 
@@ -107,12 +123,72 @@
 {% endif %}
 
 <style>
+.station-onboarding-card {
+  background:
+    radial-gradient(circle at top right, rgba(13, 110, 253, 0.12), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.station-onboarding-card__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.1);
+  color: #0d6efd;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.station-onboarding-card__lead {
+  color: #5b6576;
+  max-width: 760px;
+}
+
+.station-onboarding-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.station-onboarding-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+  align-items: start;
+  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(13, 110, 253, 0.1);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.station-onboarding-item__step {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d6efd;
+  color: #fff;
+  font-weight: 700;
+}
+
+.station-onboarding-item__text {
+  line-height: 1.55;
+}
+
 @media (max-width: 767.98px) {
   .station-list-header__actions {
     width: 100%;
   }
 
   .station-list-header__actions .btn {
+    width: 100%;
+  }
+
+  .station-onboarding-card .btn {
     width: 100%;
   }
 
