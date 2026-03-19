@@ -1,0 +1,266 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+
+{% block content %}
+<section class="guide-page mb-5">
+  <div class="guide-hero card border-0 shadow-sm overflow-hidden mb-4">
+    <div class="card-body p-4 p-lg-5">
+      <div class="row g-4 align-items-center">
+        <div class="col-lg-8">
+          <div class="guide-eyebrow mb-2">Инструкция</div>
+          <h1 class="guide-title mb-3">Как пользоваться платформой</h1>
+          <p class="guide-lead mb-0">
+            Здесь собраны основные шаги для нового пользователя: от создания станции до запуска прогноза и проверки результата.
+          </p>
+        </div>
+        <div class="col-lg-4">
+          <div class="guide-hero-card">
+            <div class="guide-hero-card__title">Быстрый старт</div>
+            <div class="guide-hero-card__text">Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.</div>
+            <a class="btn btn-light btn-sm mt-3" href="{% url 'dashboard:station-create' %}">Добавить станцию</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body p-4 p-lg-5">
+          <div class="guide-eyebrow mb-2">Шаги</div>
+          <h2 class="guide-section-title mb-4">Основной порядок работы</h2>
+          <div class="guide-step-list">
+            {% for step in guide_steps %}
+              <details class="guide-step-item"{% if forloop.first %} open{% endif %}>
+                <summary class="guide-step-item__summary">
+                  <span class="guide-step-item__number">{{ forloop.counter }}</span>
+                  <span>
+                    <span class="guide-step-item__title">{{ step.title }}</span>
+                    <span class="guide-step-item__text">{{ step.summary }}</span>
+                  </span>
+                </summary>
+
+                <div class="guide-step-item__body">
+                  <div class="guide-step-item__details">
+                    {% for detail in step.details %}
+                      <p class="mb-2">{{ detail }}</p>
+                    {% endfor %}
+                  </div>
+
+                  <div class="guide-step-gallery">
+                    {% for image in step.images %}
+                      <figure class="guide-step-gallery__item">
+                        <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                      </figure>
+                    {% endfor %}
+                  </div>
+                </div>
+              </details>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body p-4 p-lg-5">
+          <div class="guide-eyebrow mb-2">Подсказки</div>
+          <h2 class="guide-section-title mb-4">Что важно не пропустить</h2>
+          <div class="guide-tip-list">
+            {% for item in support_steps %}
+              <article class="guide-tip-item">
+                <div class="guide-tip-item__icon">✓</div>
+                <div class="guide-tip-item__text">{{ item }}</div>
+              </article>
+            {% endfor %}
+          </div>
+          <div class="guide-note mt-4">
+            Если нужна помощь, перейдите в раздел «Контакты» и свяжитесь с нами удобным способом.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+.guide-page {
+  color: #12385c;
+}
+
+.guide-hero {
+  background:
+    radial-gradient(circle at top right, rgba(13, 110, 253, 0.18), transparent 30%),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 45%, #ffffff 100%);
+}
+
+.guide-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.1);
+  color: #0d6efd;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.guide-title,
+.guide-section-title {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.guide-title {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+}
+
+.guide-section-title {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.guide-lead {
+  font-size: 1.08rem;
+  line-height: 1.8;
+  color: #4f6788;
+}
+
+.guide-hero-card {
+  background: linear-gradient(135deg, #214f97 0%, #3f73c9 100%);
+  color: #fff;
+  border-radius: 1.4rem;
+  padding: 1.5rem;
+  box-shadow: 0 18px 45px rgba(33, 79, 151, 0.25);
+}
+
+.guide-hero-card__title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.75rem;
+}
+
+.guide-hero-card__text {
+  line-height: 1.7;
+}
+
+.guide-step-list,
+.guide-tip-list {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.guide-step-item,
+.guide-tip-item {
+  border-radius: 1rem;
+  border: 1px solid rgba(33, 79, 151, 0.09);
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, #ffffff 100%);
+}
+
+.guide-tip-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+}
+
+.guide-step-item__summary {
+  list-style: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+}
+
+.guide-step-item__summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-step-item__number,
+.guide-tip-item__icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.guide-step-item__number {
+  background: #0d6efd;
+  color: #fff;
+}
+
+.guide-tip-item__icon {
+  background: rgba(13, 110, 253, 0.12);
+  color: #0d6efd;
+}
+
+.guide-step-item__title {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.guide-step-item__text,
+.guide-tip-item__text,
+.guide-note {
+  line-height: 1.7;
+  color: #4f6788;
+}
+
+.guide-step-item__body {
+  padding: 0 1.1rem 1.1rem 4rem;
+}
+
+.guide-step-item__details {
+  color: #4f6788;
+}
+
+.guide-step-gallery {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.guide-step-gallery__item {
+  margin: 0;
+}
+
+.guide-step-gallery__image {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(33, 79, 151, 0.12);
+  box-shadow: 0 10px 24px rgba(33, 79, 151, 0.08);
+}
+
+.guide-note {
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: rgba(33, 79, 151, 0.08);
+}
+
+@media (max-width: 767.98px) {
+  .guide-hero-card,
+  .guide-tip-item,
+  .guide-note {
+    padding: 0.95rem;
+  }
+
+  .guide-step-item__summary {
+    padding: 0.95rem;
+  }
+
+  .guide-step-item__body {
+    padding: 0 0.95rem 0.95rem 0.95rem;
+  }
+}
+</style>
+{% endblock %}

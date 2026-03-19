@@ -177,6 +177,15 @@ def _get_station_or_404(user, pk: int):
 
 
 
+def _dashboard_onboarding_items() -> list[str]:
+    return [
+        "Добавьте первую станцию",
+        "Загрузите исторические данные",
+        "Запустите прогноз и проверьте отчёт",
+        "Пригласите коллег в организацию",
+    ]
+
+
 def _station_write_denied_message(station):
     org = station.org
     if hasattr(org, "write_access_reason"):
@@ -253,21 +262,93 @@ def about_company(request):
     )
 
 
+def onboarding_guide(request):
+    guide_steps = [
+        {
+            "title": "Добавьте первую станцию",
+            "summary": "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».",
+            "details": [
+                "Заполните название станции, мощность, координаты и организацию.",
+                "После сохранения проверьте, что станция появилась в общем списке.",
+            ],
+            "images": [
+                "dashboard/img/guide/step-1-screen-1.svg",
+                "dashboard/img/guide/step-1-screen-2.svg",
+            ],
+        },
+        {
+            "title": "Заполните параметры станции",
+            "summary": "Проверьте мощность, координаты, организацию и остальные обязательные поля.",
+            "details": [
+                "Сверьте технические параметры перед сохранением карточки станции.",
+                "Если есть несколько станций, используйте понятные названия для каждой из них.",
+            ],
+            "images": [
+                "dashboard/img/guide/step-2-screen-1.svg",
+                "dashboard/img/guide/step-2-screen-2.svg",
+            ],
+        },
+        {
+            "title": "Загрузите исторические данные",
+            "summary": "Перейдите в карточку станции и откройте раздел загрузки истории.",
+            "details": [
+                "Подготовьте файл с историей генерации в нужном формате.",
+                "После импорта убедитесь, что данные появились без ошибок.",
+            ],
+            "images": [
+                "dashboard/img/guide/step-3-screen-1.svg",
+                "dashboard/img/guide/step-3-screen-2.svg",
+            ],
+        },
+        {
+            "title": "Запустите прогноз",
+            "summary": "Откройте прогноз станции и убедитесь, что модель отработала корректно.",
+            "details": [
+                "При необходимости запустите обучение модели перед просмотром прогноза.",
+                "Проверьте расчёт прогноза и статус доступных моделей.",
+            ],
+            "images": [
+                "dashboard/img/guide/step-4-screen-1.svg",
+                "dashboard/img/guide/step-4-screen-2.svg",
+            ],
+        },
+        {
+            "title": "Проверьте отчёт и доступы",
+            "summary": "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.",
+            "details": [
+                "Проверьте почасовой прогноз, отчёт и экспортируемые данные.",
+                "Выдайте доступ коллегам, если они тоже будут работать со станцией.",
+            ],
+            "images": [
+                "dashboard/img/guide/step-5-screen-1.svg",
+                "dashboard/img/guide/step-5-screen-2.svg",
+            ],
+        },
+    ]
+    support_steps = [
+        "Создайте станцию с корректными параметрами мощности и координат.",
+        "Загрузите историю генерации через раздел «Загрузить историю».",
+        "Откройте прогноз станции и при необходимости обучите модели.",
+    ]
+    return render(
+        request,
+        "dashboard/onboarding_guide.html",
+        {
+            "guide_steps": guide_steps,
+            "support_steps": support_steps,
+        },
+    )
+
+
 @login_required
 def station_list(request):
     stations = _station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id")
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
-    onboarding_items = [
-        "Добавьте первую станцию",
-        "Загрузите исторические данные",
-        "Запустите прогноз и проверьте отчёт",
-        "Пригласите коллег в организацию",
-    ]
     blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
     return render(
         request,
         "dashboard/station_list.html",
-        {"stations": stations, "onboarding_items": onboarding_items, "blocked_orgs": blocked_orgs},
+        {"stations": stations, "blocked_orgs": blocked_orgs},
     )
 
 
