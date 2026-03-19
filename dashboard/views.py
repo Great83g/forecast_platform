@@ -177,6 +177,15 @@ def _get_station_or_404(user, pk: int):
 
 
 
+def _dashboard_onboarding_items() -> list[str]:
+    return [
+        "Добавьте первую станцию",
+        "Загрузите исторические данные",
+        "Запустите прогноз и проверьте отчёт",
+        "Пригласите коллег в организацию",
+    ]
+
+
 def _station_write_denied_message(station):
     org = station.org
     if hasattr(org, "write_access_reason"):
@@ -253,16 +262,28 @@ def about_company(request):
     )
 
 
+def onboarding_guide(request):
+    onboarding_items = _dashboard_onboarding_items()
+    support_steps = [
+        "Создайте станцию с корректными параметрами мощности и координат.",
+        "Загрузите историю генерации через раздел «Загрузить историю».",
+        "Откройте прогноз станции и при необходимости обучите модели.",
+    ]
+    return render(
+        request,
+        "dashboard/onboarding_guide.html",
+        {
+            "onboarding_items": onboarding_items,
+            "support_steps": support_steps,
+        },
+    )
+
+
 @login_required
 def station_list(request):
     stations = _station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id")
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
-    onboarding_items = [
-        "Добавьте первую станцию",
-        "Загрузите исторические данные",
-        "Запустите прогноз и проверьте отчёт",
-        "Пригласите коллег в организацию",
-    ]
+    onboarding_items = _dashboard_onboarding_items()
     blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
     return render(
         request,
