@@ -13,6 +13,7 @@ from unittest.mock import patch
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import (
     _station_data_shift_hours as forecast_station_shift_hours,
+    _station_model_dir as forecast_station_model_dir,
     _target_offsets_for_weekday_calendar,
     _postprocess_xgb_prediction,
     _xgb_is_systematically_low,
@@ -20,7 +21,12 @@ from dashboard.services.forecast_engine import (
     run_forecast_for_station,
 )
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
-from dashboard.services.train_models import _prepare_xgb_training_frame
+from dashboard.services.model_storage import (
+    canonical_station_model_dir,
+    legacy_station_model_dir,
+    resolve_station_model_dir,
+)
+from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
 from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
     _station_data_shift_hours as auto_history_station_shift_hours,
@@ -63,6 +69,43 @@ class StationDataShiftHoursTests(TestCase):
     def test_auto_history_shift_helper_fallbacks_to_zero(self):
         station = SimpleNamespace(data_shift_hours="bad")
         self.assertEqual(auto_history_station_shift_hours(station), 0)
+
+
+class StationModelDirResolutionTests(TestCase):
+    def test_canonical_model_dir_is_stable_even_if_name_changes(self):
+        station = SimpleNamespace(pk=50, name="SES Balkhash")
+
+        first = canonical_station_model_dir(Path("/tmp/models_cache"), station)
+        station.name = "SES Balkhash updated"
+        second = canonical_station_model_dir(Path("/tmp/models_cache"), station)
+
+        self.assertEqual(first, Path("/tmp/models_cache/50"))
+        self.assertEqual(second, first)
+
+    def test_resolve_uses_legacy_slug_dir_when_it_already_exists(self):
+        station = SimpleNamespace(pk=50, name="SES Balkhash")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            legacy_dir = legacy_station_model_dir(model_root, station)
+            legacy_dir.mkdir(parents=True, exist_ok=True)
+
+            resolved = resolve_station_model_dir(model_root, station)
+
+        self.assertEqual(resolved, legacy_dir)
+
+    def test_train_and_forecast_share_same_stable_dir(self):
+        station = SimpleNamespace(pk=50, name="SES Balkhash")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with override_settings(MODEL_DIR=Path(tmpdir)):
+                with patch("dashboard.services.train_models.MODEL_DIR", Path(tmpdir)):
+                    with patch("dashboard.services.forecast_engine.MODEL_DIR", Path(tmpdir)):
+                        train_dir = train_station_model_dir(station)
+                        forecast_dir = forecast_station_model_dir(station)
+
+        self.assertEqual(train_dir, Path(tmpdir) / "50")
+        self.assertEqual(forecast_dir, train_dir)
 
 
 def build_custom_history_dataframe(station):
