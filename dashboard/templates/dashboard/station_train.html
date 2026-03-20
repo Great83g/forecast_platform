@@ -4,6 +4,23 @@
   <h2>Обучение моделей: {{ station.name|default:station }}</h2>
   <p class="text-muted">Нажми кнопку — запустится обучение NeuralProphet и XGBoost для этой станции.</p>
 
+  <div class="alert alert-secondary py-2 px-3 small">
+    <div><strong>ID станции:</strong> {{ training_status.station_id }}</div>
+    <div><strong>Папка модели:</strong> <code>{{ training_status.resolved_model_dir }}</code></div>
+    <div>
+      <strong>Источник пути:</strong>
+      {% if training_status.resolved_model_dir_source == "canonical" %}
+        канонический каталог по ID станции
+      {% elif training_status.resolved_model_dir_source == "legacy_current_slug" %}
+        legacy-каталог по текущему имени станции
+      {% elif training_status.resolved_model_dir_source == "legacy_previous_slug" %}
+        legacy-каталог по старому имени станции
+      {% else %}
+        канонический каталог по ID станции (пока файлов нет)
+      {% endif %}
+    </div>
+  </div>
+
   <div class="card shadow-sm border-0 mb-4">
     <div class="card-body">
       <div class="text-muted small mb-3">Статус моделей для этой станции</div>
