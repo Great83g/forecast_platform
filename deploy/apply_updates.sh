@@ -22,6 +22,7 @@ echo "[deploy]   git stash push --include-untracked -m '$AUTO_STASH_MESSAGE'   #
 echo "[deploy]   git pull --rebase"
 echo "[deploy]   source $VENV_PATH"
 echo "[deploy]   python3 manage.py migrate"
+echo "[deploy]   python3 manage.py cleanup_model_cache"
 echo "[deploy]   python3 manage.py collectstatic --noinput"
 
 if [ -n "$(git status --porcelain)" ]; then
@@ -59,6 +60,9 @@ python3 manage.py migrate --plan
 
 echo "[deploy] Applying migrations..."
 python3 manage.py migrate
+
+echo "[deploy] Normalizing model cache..."
+python3 manage.py cleanup_model_cache
 
 echo "[deploy] Collecting static files..."
 python3 manage.py collectstatic --noinput

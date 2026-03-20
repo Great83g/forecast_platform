@@ -12,10 +12,11 @@ git reset --hard origin/main
 git clean -fd
 source venv/bin/activate
 python3 manage.py migrate
+python3 manage.py cleanup_model_cache
 python3 manage.py collectstatic --noinput
-GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
 # если pid-файла нет:
-# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+# sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```
 
 используй одну команду:
@@ -25,7 +26,7 @@ cd ~/forecast_platform
 bash deploy/force_sync_and_restart.sh
 ```
 
-Скрипт делает именно destructive sync с `origin/main`: забирает свежие refs, делает `checkout main`, `reset --hard origin/main`, `git clean -fd`, затем запускает `migrate`, `collectstatic` и рестарт через `restart_portal.sh`.
+Скрипт делает именно destructive sync с `origin/main`: забирает свежие refs, делает `checkout main`, `reset --hard origin/main`, `git clean -fd`, затем запускает `migrate`, `cleanup_model_cache`, `collectstatic` и рестарт через `restart_portal.sh`. Это важно, потому что обычный `git clean -fd` не удаляет ignored-файлы из `models_cache`.
 
 ## Рекомендуемый вариант — одной командой
 
@@ -58,11 +59,13 @@ git status --short
 git pull --rebase
 source venv/bin/activate
 python3 manage.py migrate
+python3 manage.py cleanup_model_cache
 python3 manage.py collectstatic --noinput
 GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
 # если pid-файл существует, restart_portal.sh теперь сначала делает прямой HUP gunicorn
 # и не лезет в systemctl, поэтому не должен спрашивать пароль администратора
 # если pid-файла нет, скрипт сам попробует fallback через порт 8000
+# при ручном запуске на сервере можно использовать sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```
 
 ## Полностью вручную
@@ -76,9 +79,11 @@ git stash push --include-untracked -m 'manual-before-update'   # только е
 git pull --rebase
 source venv/bin/activate
 python3 manage.py migrate
+python3 manage.py cleanup_model_cache
 python3 manage.py collectstatic --noinput
-GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# cleanup_model_cache нужен, потому что git clean -fd не удаляет ignored-файлы из models_cache
 # если pid-файл есть, будет прямой reload gunicorn без systemctl/password prompt
 # если pid-файла нет:
-# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+# sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```

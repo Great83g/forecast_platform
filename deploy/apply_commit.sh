@@ -69,6 +69,9 @@ python3 manage.py migrate --plan
 echo "[apply-commit] Applying migrations..."
 python3 manage.py migrate
 
+echo "[apply-commit] Normalizing model cache..."
+python3 manage.py cleanup_model_cache
+
 echo "[apply-commit] Collecting static files..."
 python3 manage.py collectstatic --noinput
 

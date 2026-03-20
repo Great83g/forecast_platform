@@ -69,6 +69,9 @@ source "$VENV_PATH"
 echo "[portal-update] python3 manage.py migrate"
 python3 manage.py migrate
 
+echo "[portal-update] python3 manage.py cleanup_model_cache"
+python3 manage.py cleanup_model_cache
+
 echo "[portal-update] python3 manage.py collectstatic --noinput"
 python3 manage.py collectstatic --noinput
 

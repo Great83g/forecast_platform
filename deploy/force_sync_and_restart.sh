@@ -78,6 +78,9 @@ source "$VENV_PATH"
 echo "[force-sync] Running migrations..."
 python3 manage.py migrate
 
+echo "[force-sync] Normalizing model cache..."
+python3 manage.py cleanup_model_cache
+
 echo "[force-sync] Collecting static files..."
 python3 manage.py collectstatic --noinput
 
