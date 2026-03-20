@@ -6,10 +6,12 @@ SERVICE_CANDIDATES="${SERVICE_CANDIDATES:-gunicorn forecast-platform forecast_po
 SUPERVISOR_PROGRAM="${SUPERVISOR_PROGRAM:-forecast_portal}"
 DOCKER_CONTAINER="${DOCKER_CONTAINER:-forecast_portal_web}"
 ALLOW_RUNSERVER_FALLBACK="${ALLOW_RUNSERVER_FALLBACK:-0}"
+GUNICORN_PORT_EXPLICIT="${GUNICORN_PORT:-}"
 GUNICORN_PORT="${GUNICORN_PORT:-8000}"
 GUNICORN_PID_FILE="${GUNICORN_PID_FILE:-}"
 GUNICORN_MATCH="${GUNICORN_MATCH:-gunicorn}"
 SKIP_CONFLICT_CHECK="${SKIP_CONFLICT_CHECK:-0}"
+PREFER_DIRECT_GUNICORN_RELOAD="${PREFER_DIRECT_GUNICORN_RELOAD:-auto}"
 
 cd "$PROJECT_DIR"
 
@@ -36,6 +38,24 @@ restart_systemd_user() {
   echo "[restart] Using user systemd unit ${unit}.service"
   systemctl --user restart "${unit}.service"
   systemctl --user --no-pager --lines=20 status "${unit}.service"
+}
+
+
+prefer_direct_gunicorn_reload() {
+  case "$PREFER_DIRECT_GUNICORN_RELOAD" in
+    1|true|yes|on)
+      return 0
+      ;;
+    0|false|no|off)
+      return 1
+      ;;
+  esac
+
+  if [ -n "$GUNICORN_PID_FILE" ] || [ -n "$GUNICORN_PORT_EXPLICIT" ]; then
+    return 0
+  fi
+
+  return 1
 }
 
 reload_gunicorn_master() {
@@ -97,6 +117,14 @@ reload_gunicorn_master() {
 
   return 1
 }
+
+if prefer_direct_gunicorn_reload; then
+  echo "[restart] Explicit gunicorn reload requested; skipping systemd/supervisor/docker detection"
+  if reload_gunicorn_master; then
+    exit 0
+  fi
+  echo "[restart] Direct gunicorn reload requested but no matching process was found; falling back to manager detection"
+fi
 
 if command -v systemctl >/dev/null 2>&1; then
   for service in $SERVICE_CANDIDATES; do

@@ -33,6 +33,8 @@ source venv/bin/activate
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# если pid-файл существует, restart_portal.sh теперь сначала делает прямой HUP gunicorn
+# и не лезет в systemctl, поэтому не должен спрашивать пароль администратора
 # если pid-файла нет, скрипт сам попробует fallback через порт 8000
 ```
 
@@ -49,6 +51,7 @@ source venv/bin/activate
 python3 manage.py migrate
 python3 manage.py collectstatic --noinput
 GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# если pid-файл есть, будет прямой reload gunicorn без systemctl/password prompt
 # если pid-файла нет:
 # GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```

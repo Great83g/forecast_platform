@@ -14,6 +14,10 @@ Environment variables:
   AUTO_STASH_MESSAGE        Stash message (default: manual-before-update)
   GUNICORN_PID_FILE_DEFAULT Gunicorn pid file path (default: /run/gunicorn.pid)
   GUNICORN_PORT_DEFAULT     Fallback app port for restart/smoke-check (default: 8000)
+
+Note:
+  When GUNICORN_PID_FILE_DEFAULT exists, restart_portal.sh will now prefer
+  direct gunicorn HUP reload first, without going through systemctl.
 HELP
   exit 0
 fi
