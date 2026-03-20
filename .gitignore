@@ -20,6 +20,10 @@ __pycache__/
 # ML/runtime artifacts
 lightning_logs/
 media/forecast_reports/
+models_cache/[0-9]*/
+models_cache/train_station_*.log
+org_databases/*.sqlite3
+.forecast_scheduler.lock
 
 lightning_logs/
 media/forecast_reports/
