@@ -1,5 +1,32 @@
 # Быстро применить код на сайте
 
+## Жёсткая синхронизация с `origin/main`
+
+Если нужно **в точности** повторить последовательность:
+
+```bash
+cd ~/forecast_platform
+git fetch --all --prune
+git checkout main
+git reset --hard origin/main
+git clean -fd
+source venv/bin/activate
+python3 manage.py migrate
+python3 manage.py collectstatic --noinput
+GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# если pid-файла нет:
+# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+```
+
+используй одну команду:
+
+```bash
+cd ~/forecast_platform
+bash deploy/force_sync_and_restart.sh
+```
+
+Скрипт делает именно destructive sync с `origin/main`: забирает свежие refs, делает `checkout main`, `reset --hard origin/main`, `git clean -fd`, затем запускает `migrate`, `collectstatic` и рестарт через `restart_portal.sh`.
+
 ## Рекомендуемый вариант — одной командой
 
 ```bash
