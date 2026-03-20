@@ -23,9 +23,12 @@ from dashboard.services.forecast_engine import (
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.services.model_storage import (
     canonical_station_model_dir,
+    cleanup_orphan_model_artifacts,
     describe_station_model_dir,
     find_any_legacy_station_model_dir,
+    legacy_root_model_paths,
     legacy_station_model_dir,
+    normalize_model_cache,
     resolve_station_model_dir,
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
@@ -136,6 +139,44 @@ class StationModelDirResolutionTests(TestCase):
 
         self.assertEqual(train_dir, Path(tmpdir) / "50")
         self.assertEqual(forecast_dir, train_dir)
+
+
+    def test_normalize_moves_legacy_dirs_and_root_files_into_canonical_dir(self):
+        station = SimpleNamespace(pk=50, name="SES Balkhash")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            legacy_dir = model_root / "50_old-name"
+            legacy_dir.mkdir(parents=True, exist_ok=True)
+            (legacy_dir / "xgb_model.json").write_text("{}", encoding="utf-8")
+            root_legacy = legacy_root_model_paths(model_root, station)
+            root_legacy["legacy_np"].write_text("np", encoding="utf-8")
+
+            result = normalize_model_cache(model_root, [station])
+
+            canonical_dir = model_root / "50"
+            self.assertTrue((canonical_dir / "xgb_model.json").exists())
+            self.assertTrue((canonical_dir / "np_model.np").exists())
+            self.assertFalse(legacy_dir.exists())
+            self.assertFalse(root_legacy["legacy_np"].exists())
+            self.assertTrue(any("50_old-name/xgb_model.json" in entry for entry in result["moved"]))
+
+    def test_cleanup_removes_orphan_station_dirs_and_legacy_root_files(self):
+        active_station = SimpleNamespace(pk=50, name="SES Balkhash")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            (model_root / "77").mkdir()
+            (model_root / "88_old-station").mkdir()
+            orphan_root = model_root / "xgb_model_99.json"
+            orphan_root.write_text("{}", encoding="utf-8")
+
+            result = cleanup_orphan_model_artifacts(model_root, [active_station])
+
+            self.assertFalse((model_root / "77").exists())
+            self.assertFalse((model_root / "88_old-station").exists())
+            self.assertFalse(orphan_root.exists())
+            self.assertGreaterEqual(len(result["removed"]), 3)
 
 
 def build_custom_history_dataframe(station):
