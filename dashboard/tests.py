@@ -621,6 +621,36 @@ class StationAutoHistoryScheduleTests(TestCase):
         self.station.refresh_from_db()
         self.assertEqual(str(self.station.auto_history_last_run_date), "2026-02-20")
 
+    @patch("dashboard.services.history_autofill._safe_upsert_station", return_value=(1, True))
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_uses_station_timezone(self, localtime_mock, upsert_mock):
+        self.station.timezone = "Asia/Almaty"
+        self.station.auto_history_last_run_date = None
+        self.station.auto_history_run_time = time(8, 0)
+        self.station.save(update_fields=["timezone", "auto_history_last_run_date", "auto_history_run_time"])
+        localtime_mock.return_value = timezone.datetime(2026, 3, 20, 3, 35, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 1)
+        upsert_mock.assert_called_once()
+        self.station.refresh_from_db()
+        self.assertEqual(str(self.station.auto_history_last_run_date), "2026-03-20")
+
+    @patch("dashboard.services.history_autofill.timezone.localtime")
+    def test_run_auto_history_updates_skip_message_uses_station_timezone(self, localtime_mock):
+        self.station.timezone = "Asia/Almaty"
+        self.station.auto_history_last_run_date = None
+        self.station.auto_history_run_time = time(8, 0)
+        self.station.save(update_fields=["timezone", "auto_history_last_run_date", "auto_history_run_time"])
+        localtime_mock.return_value = timezone.datetime(2026, 3, 20, 2, 59, tzinfo=timezone.get_current_timezone())
+
+        rows = run_auto_history_updates()
+
+        self.assertEqual(rows, 0)
+        self.station.refresh_from_db()
+        self.assertEqual(self.station.auto_history_last_status, "skipped")
+        self.assertIn("station_now=07:59 < run_time=08:00", self.station.auto_history_last_message)
 
 
 class StationAutoHistoryConfigChangeResetTests(TestCase):
