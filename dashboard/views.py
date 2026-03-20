@@ -33,6 +33,7 @@ from .forms import StationForm, UploadHistoryForm, ForecastEmailForm, ForecastSc
 
 # forecast service (обязательно должен быть)
 from .services.forecast_engine import _model_paths_for_station, run_forecast_for_station
+from .services.model_storage import describe_station_model_dir
 from .services.forecast_reports import build_forecast_report, send_report_email
 from .services.forecast_scheduler import run_scheduled_forecasts
 from .services.history_autofill import run_auto_history_updates
@@ -64,6 +65,10 @@ def _parse_int_query(value, default: int) -> int:
 
 def _build_training_status(station: Station) -> dict:
     paths = _model_paths_for_station(station)
+    resolved_dir, resolved_source = describe_station_model_dir(
+        Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache")),
+        station,
+    )
     models = []
 
     for name, primary_key, legacy_key in [
@@ -91,7 +96,13 @@ def _build_training_status(station: Station) -> dict:
             }
         )
 
-    return {"models": models}
+    return {
+        "models": models,
+        "station_id": station.pk,
+        "resolved_model_dir": str(resolved_dir),
+        "resolved_model_dir_name": resolved_dir.name,
+        "resolved_model_dir_source": resolved_source,
+    }
 
 
 
