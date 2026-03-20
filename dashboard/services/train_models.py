@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Tuple
 
 from django.conf import settings
-from django.utils.text import slugify
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -14,6 +13,7 @@ import neuralprophet
 from neuralprophet import NeuralProphet, save as np_save
 
 from solar.models import SolarRecord
+from .model_storage import resolve_station_model_dir
 
 
 def _capacity_mw_from_fields(station) -> float | None:
@@ -55,10 +55,7 @@ PR_FOR_EXPECTED = 0.90
 
 
 def _station_model_dir(station) -> Path:
-    slug = slugify(getattr(station, "name", "")) or "station"
-    path = MODEL_DIR / f"{station.pk}_{slug}"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return resolve_station_model_dir(MODEL_DIR, station, create=True)
 
 
 def get_history_dataframe(station) -> pd.DataFrame:

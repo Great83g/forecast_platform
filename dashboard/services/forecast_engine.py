@@ -14,13 +14,13 @@ import xgboost as xgb
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from django.utils.text import slugify
 
 from neuralprophet import load as np_load
 
 from solar.models import SolarForecast, SolarRecord
 from solar.org_sync import sync_solar_forecasts
 from stations.models import Station
+from .model_storage import resolve_station_model_dir
 from .open_meteo import fetch_open_meteo_hourly
 from .vc_weather import fetch_visual_crossing_hourly
 
@@ -37,8 +37,7 @@ def _station_data_shift_hours(station: Station) -> int:
 
 
 def _station_model_dir(station: Station) -> Path:
-    slug = slugify(getattr(station, "name", "")) or "station"
-    return MODEL_DIR / f"{station.pk}_{slug}"
+    return resolve_station_model_dir(MODEL_DIR, station)
 
 
 def _model_paths_for_station(station: Station) -> Dict[str, Path]:
