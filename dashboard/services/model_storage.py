@@ -40,18 +40,29 @@ def find_any_legacy_station_model_dir(model_dir: Path, station) -> Path | None:
     return max(candidates, key=_candidate_sort_key)
 
 
-def resolve_station_model_dir(model_dir: Path, station, *, create: bool = False) -> Path:
+def describe_station_model_dir(model_dir: Path, station) -> tuple[Path, str]:
     base = Path(model_dir)
     canonical = canonical_station_model_dir(base, station)
     legacy = legacy_station_model_dir(base, station)
 
     if canonical.exists():
-        return canonical
+        return canonical, "canonical"
     if legacy.exists():
-        return legacy
+        return legacy, "legacy_current_slug"
+
     any_legacy = find_any_legacy_station_model_dir(base, station)
     if any_legacy is not None:
-        return any_legacy
+        if any_legacy == legacy:
+            return any_legacy, "legacy_current_slug"
+        return any_legacy, "legacy_previous_slug"
+
+    return canonical, "canonical_missing"
+
+
+def resolve_station_model_dir(model_dir: Path, station, *, create: bool = False) -> Path:
+    canonical, source = describe_station_model_dir(model_dir, station)
+    if source != "canonical_missing":
+        return canonical
     if create:
         canonical.mkdir(parents=True, exist_ok=True)
         return canonical
