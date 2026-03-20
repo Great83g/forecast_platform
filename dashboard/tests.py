@@ -23,6 +23,7 @@ from dashboard.services.forecast_engine import (
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.services.model_storage import (
     canonical_station_model_dir,
+    find_any_legacy_station_model_dir,
     legacy_station_model_dir,
     resolve_station_model_dir,
 )
@@ -93,6 +94,21 @@ class StationModelDirResolutionTests(TestCase):
             resolved = resolve_station_model_dir(model_root, station)
 
         self.assertEqual(resolved, legacy_dir)
+
+    def test_resolve_finds_legacy_dir_with_old_slug_after_station_rename(self):
+        station = SimpleNamespace(pk=50, name="SES Balkhash renamed")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir)
+            old_legacy_dir = model_root / "50_ses-balkhash"
+            old_legacy_dir.mkdir(parents=True, exist_ok=True)
+            (old_legacy_dir / "xgb_model.json").write_text("{}", encoding="utf-8")
+
+            found_legacy = find_any_legacy_station_model_dir(model_root, station)
+            resolved = resolve_station_model_dir(model_root, station)
+
+        self.assertEqual(found_legacy, old_legacy_dir)
+        self.assertEqual(resolved, old_legacy_dir)
 
     def test_train_and_forecast_share_same_stable_dir(self):
         station = SimpleNamespace(pk=50, name="SES Balkhash")
