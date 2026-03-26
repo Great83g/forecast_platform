@@ -51,7 +51,15 @@
                   <div class="guide-step-gallery">
                     {% for image in step.images %}
                       <figure class="guide-step-gallery__item">
-                        <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                        <button
+                          type="button"
+                          class="guide-step-gallery__trigger"
+                          data-guide-image-src="{% static image %}"
+                          data-guide-image-alt="Скриншот для шага {{ forloop.parentloop.counter }}"
+                          aria-label="Открыть изображение в полном размере"
+                        >
+                          <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                        </button>
                       </figure>
                     {% endfor %}
                   </div>
@@ -84,6 +92,16 @@
     </div>
   </div>
 </section>
+
+<div class="guide-image-modal" data-guide-image-modal hidden>
+  <div class="guide-image-modal__backdrop" data-guide-image-close></div>
+  <div class="guide-image-modal__dialog" role="dialog" aria-modal="true" aria-label="Увеличенный скриншот">
+    <button type="button" class="guide-image-modal__close" data-guide-image-close aria-label="Закрыть увеличенное изображение">
+      ×
+    </button>
+    <img src="" alt="" class="guide-image-modal__image" data-guide-image-modal-content>
+  </div>
+</div>
 
 <style>
 .guide-page {
@@ -234,11 +252,72 @@
   margin: 0;
 }
 
+.guide-step-gallery__trigger {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  border-radius: 1rem;
+  background: transparent;
+  cursor: zoom-in;
+}
+
 .guide-step-gallery__image {
   width: 100%;
   border-radius: 1rem;
   border: 1px solid rgba(33, 79, 151, 0.12);
   box-shadow: 0 10px 24px rgba(33, 79, 151, 0.08);
+}
+
+.guide-image-modal[hidden] {
+  display: none !important;
+}
+
+.guide-image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+}
+
+.guide-image-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 19, 37, 0.7);
+}
+
+.guide-image-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 1280px);
+  max-height: 92vh;
+  padding: 0.5rem;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(4, 21, 50, 0.35);
+}
+
+.guide-image-modal__image {
+  width: 100%;
+  max-height: calc(92vh - 1rem);
+  object-fit: contain;
+  border-radius: 0.8rem;
+}
+
+.guide-image-modal__close {
+  position: absolute;
+  top: -0.75rem;
+  right: -0.75rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 50%;
+  background: #0d6efd;
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(13, 110, 253, 0.35);
 }
 
 .guide-note {
@@ -263,4 +342,47 @@
   }
 }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modal = document.querySelector('[data-guide-image-modal]');
+  const modalImage = document.querySelector('[data-guide-image-modal-content]');
+  const triggers = document.querySelectorAll('[data-guide-image-src]');
+  const closeControls = document.querySelectorAll('[data-guide-image-close]');
+
+  if (!modal || !modalImage || !triggers.length) {
+    return;
+  }
+
+  const closeModal = function () {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    modalImage.src = '';
+    modalImage.alt = '';
+  };
+
+  const openModal = function (src, alt) {
+    modalImage.src = src;
+    modalImage.alt = alt;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  };
+
+  triggers.forEach(function (trigger) {
+    trigger.addEventListener('click', function () {
+      openModal(trigger.dataset.guideImageSrc, trigger.dataset.guideImageAlt || 'Увеличенный скриншот');
+    });
+  });
+
+  closeControls.forEach(function (control) {
+    control.addEventListener('click', closeModal);
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !modal.hidden) {
+      closeModal();
+    }
+  });
+});
+</script>
 {% endblock %}
