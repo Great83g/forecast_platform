@@ -1103,6 +1103,74 @@ class ForecastEngineManualSnowFactorIncreaseTests(TestCase):
         self.assertEqual(applied_factor, 1.5)
 
 
+class ForecastEngineGlobalBiasTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="global-bias", password="pass")
+        org = Organization.objects.create(name="Global Bias Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Bias Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+        SolarRecord.objects.create(
+            station=self.station,
+            timestamp=timezone.datetime(2026, 2, 25, 12, 0, tzinfo=timezone.get_current_timezone()),
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            irradiation=620.0,
+            air_temp=11.0,
+        )
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_global_bias_increases_final_forecast(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+
+        baseline = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+        )
+        self.assertTrue(baseline["ok"])
+        baseline_max = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+
+        with override_settings(FORECAST_GLOBAL_BIAS=1.10):
+            boosted = run_forecast_for_station(
+                station_id=self.station.pk,
+                days=1,
+                use_models=False,
+                forecast_scope="test",
+                target_dates=[date(2026, 2, 25)],
+            )
+        self.assertTrue(boosted["ok"])
+        boosted_max = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+
+        self.assertGreater(boosted_max, baseline_max)
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_global_bias_is_clipped_by_capacity_and_safe_limit(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+
+        with override_settings(FORECAST_GLOBAL_BIAS=9.0):
+            result = run_forecast_for_station(
+                station_id=self.station.pk,
+                days=1,
+                use_models=False,
+                forecast_scope="test",
+                target_dates=[date(2026, 2, 25)],
+            )
+
+        self.assertTrue(result["ok"])
+        max_pred_final = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+        self.assertLessEqual(max_pred_final, self.station.capacity_mw * 1000)
+
+
 class ForecastEngineWeekdayCalendarTests(TestCase):
     def test_friday_offsets_cover_exactly_three_next_days(self):
         friday = timezone.datetime(2026, 2, 13, 9, 0)

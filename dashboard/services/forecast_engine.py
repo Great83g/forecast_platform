@@ -70,6 +70,7 @@ XGB_EXPECTED_FEATURES = [
 ]
 
 PR_FOR_EXPECTED = 0.90
+FORECAST_GLOBAL_BIAS_MAX = 1.5
 
 AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
 AUTO_TEMP_MAX_FOR_SNOW = 2.0
@@ -78,6 +79,15 @@ MANUAL_SNOW_FACTOR_MAX = 1.5
 AUTO_FOG_FACTOR = 1.0
 FOG_CODES = {45, 48}
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
+
+
+def _forecast_global_bias() -> float:
+    raw = getattr(settings, "FORECAST_GLOBAL_BIAS", 1.0)
+    try:
+        bias = float(raw)
+    except (TypeError, ValueError):
+        bias = 1.0
+    return float(np.clip(bias, 0.0, FORECAST_GLOBAL_BIAS_MAX))
 
 
 def _describe_np_model(model: object) -> str:
@@ -1127,6 +1137,7 @@ def run_forecast_for_station(
             ]
         ),
     )
+    y_final = np.clip(y_final * _forecast_global_bias(), 0, capacity_mw)
 
     auto_winter_factor = feat.get("auto_winter_factor")
     if auto_winter_factor is None:
