@@ -130,6 +130,11 @@ def _station_capacity_mw(st: Station) -> float:
     for name in ["capacity_mw", "capacity_ac_mw"]:
         if hasattr(st, name) and getattr(st, name):
             capacity_mw = float(getattr(st, name))
+            # Частая проблема: в поле capacity_mw попадает значение в kW (например 8800).
+            # Если значение слишком большое, трактуем как kW и конвертируем в MW.
+            if capacity_mw >= 1000:
+                capacity_mw_from_fields = capacity_mw / 1000.0
+                break
             if capacity_mw > 100 and capacity_ac_kw:
                 capacity_mw_from_fields = capacity_mw / 1000.0
                 break
