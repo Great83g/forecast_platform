@@ -168,10 +168,29 @@ def _station_capacity_mw(st: Station) -> float:
 
     hist_peak_mw = (hist_peak_kw / 1000.0) if hist_peak_kw else None
 
+    hist_uplift_factor_raw = getattr(settings, "FORECAST_HISTORY_CAPACITY_UPLIFT_FACTOR", 1.08)
+    hist_uplift_guard_raw = getattr(settings, "FORECAST_HISTORY_CAPACITY_UPLIFT_GUARD", 1.8)
+    try:
+        hist_uplift_factor = float(hist_uplift_factor_raw)
+    except (TypeError, ValueError):
+        hist_uplift_factor = 1.08
+    try:
+        hist_uplift_guard = float(hist_uplift_guard_raw)
+    except (TypeError, ValueError):
+        hist_uplift_guard = 1.8
+
     if capacity_mw_from_fields and hist_peak_mw:
-        # Если паспортная мощность явно меньше фактического пика,
-        # берём исторический пик, чтобы не зажимать прогноз по всем станциям.
-        if hist_peak_mw > capacity_mw_from_fields * 1.08:
+        # Защита от выбросов в истории (невалидные единицы/разовые аномалии):
+        # не даём history-пику раздувать мощность в разы.
+        if hist_peak_mw > capacity_mw_from_fields * hist_uplift_guard:
+            logger.warning(
+                "[FORECAST] station %s skip historical capacity uplift as outlier: field=%.3f MW, hist_peak=%.3f MW, guard=%.2fx",
+                st.pk,
+                capacity_mw_from_fields,
+                hist_peak_mw,
+                hist_uplift_guard,
+            )
+        elif hist_peak_mw > capacity_mw_from_fields * hist_uplift_factor:
             logger.warning(
                 "[FORECAST] station %s capacity uplift from %.3f MW to historical peak %.3f MW",
                 st.pk,
