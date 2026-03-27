@@ -54,6 +54,18 @@ def _model_paths_for_station(station: Station) -> Dict[str, Path]:
     }
 
 
+def _model_file_is_stale(path: Path, max_age_days: int) -> bool:
+    if max_age_days <= 0:
+        return False
+    if not path.exists():
+        return True
+    try:
+        age_seconds = max(0.0, float(timezone.now().timestamp()) - float(path.stat().st_mtime))
+    except Exception:
+        return False
+    return age_seconds > float(timedelta(days=max_age_days).total_seconds())
+
+
 XGB_EXPECTED_FEATURES = [
     "Irradiation",
     "Air_Temp",
@@ -114,15 +126,84 @@ def _station_capacity_mw(st: Station) -> float:
             capacity_ac_kw = float(getattr(st, name))
             break
 
+    capacity_mw_from_fields = None
     for name in ["capacity_mw", "capacity_ac_mw"]:
         if hasattr(st, name) and getattr(st, name):
             capacity_mw = float(getattr(st, name))
+            # Частая проблема: в поле capacity_mw попадает значение в kW (например 8800).
+            # Если значение слишком большое, трактуем как kW и конвертируем в MW.
+            if capacity_mw >= 1000:
+                capacity_mw_from_fields = capacity_mw / 1000.0
+                break
             if capacity_mw > 100 and capacity_ac_kw:
-                return capacity_mw / 1000.0
-            return capacity_mw
+                capacity_mw_from_fields = capacity_mw / 1000.0
+                break
+            capacity_mw_from_fields = capacity_mw
+            break
 
     if capacity_ac_kw:
-        return capacity_ac_kw / 1000.0
+        if capacity_mw_from_fields is None:
+            capacity_mw_from_fields = capacity_ac_kw / 1000.0
+
+    history_sources = [st]
+    if getattr(st, "history_source_id", None):
+        history_sources.append(st.history_source)
+
+    hist_peak_kw = None
+    for src in history_sources:
+        qs = (
+            SolarRecord.objects.filter(
+                station=src,
+                history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            )
+            .exclude(power_kw__isnull=True)
+            .order_by("-timestamp")
+            .values_list("power_kw", flat=True)[:24 * 180]
+        )
+        if not qs:
+            continue
+        peak = float(np.nanmax(np.asarray(list(qs), dtype=float)))
+        if np.isfinite(peak) and peak > 0:
+            hist_peak_kw = max(hist_peak_kw or 0.0, peak)
+
+    hist_peak_mw = (hist_peak_kw / 1000.0) if hist_peak_kw else None
+
+    hist_uplift_factor_raw = getattr(settings, "FORECAST_HISTORY_CAPACITY_UPLIFT_FACTOR", 1.08)
+    hist_uplift_guard_raw = getattr(settings, "FORECAST_HISTORY_CAPACITY_UPLIFT_GUARD", 1.8)
+    try:
+        hist_uplift_factor = float(hist_uplift_factor_raw)
+    except (TypeError, ValueError):
+        hist_uplift_factor = 1.08
+    try:
+        hist_uplift_guard = float(hist_uplift_guard_raw)
+    except (TypeError, ValueError):
+        hist_uplift_guard = 1.8
+
+    if capacity_mw_from_fields and hist_peak_mw:
+        # Защита от выбросов в истории (невалидные единицы/разовые аномалии):
+        # не даём history-пику раздувать мощность в разы.
+        if hist_peak_mw > capacity_mw_from_fields * hist_uplift_guard:
+            logger.warning(
+                "[FORECAST] station %s skip historical capacity uplift as outlier: field=%.3f MW, hist_peak=%.3f MW, guard=%.2fx",
+                st.pk,
+                capacity_mw_from_fields,
+                hist_peak_mw,
+                hist_uplift_guard,
+            )
+        elif hist_peak_mw > capacity_mw_from_fields * hist_uplift_factor:
+            logger.warning(
+                "[FORECAST] station %s capacity uplift from %.3f MW to historical peak %.3f MW",
+                st.pk,
+                capacity_mw_from_fields,
+                hist_peak_mw,
+            )
+            return hist_peak_mw
+
+    if capacity_mw_from_fields:
+        return capacity_mw_from_fields
+
+    if hist_peak_mw:
+        return max(0.5, hist_peak_mw)
 
     # fallback: если нет поля — пусть будет 10MW, чтобы не было микроскопии
     return 10.0
@@ -942,14 +1023,25 @@ def run_forecast_for_station(
         except Exception:
             xgb_meta = {}
 
-    if use_models and (not np_path.exists() or not xgb_path.exists()):
+    stale_days_raw = getattr(settings, "FORECAST_AUTORETRAIN_STALE_DAYS", 14)
+    try:
+        stale_days = int(stale_days_raw)
+    except (TypeError, ValueError):
+        stale_days = 14
+    np_stale = _model_file_is_stale(np_path, stale_days)
+    xgb_stale = _model_file_is_stale(xgb_path, stale_days)
+
+    if use_models and (not np_path.exists() or not xgb_path.exists() or np_stale or xgb_stale):
         try:
             from .train_models import train_models_for_station
 
             logger.info(
-                "[MODEL] missing model files (np=%s, xgb=%s). Attempting auto-train.",
+                "[MODEL] auto-train triggered (np_exists=%s, xgb_exists=%s, np_stale=%s, xgb_stale=%s, stale_days=%s).",
                 np_path.exists(),
                 xgb_path.exists(),
+                np_stale,
+                xgb_stale,
+                stale_days,
             )
             _, np_path_new, xgb_path_new = train_models_for_station(st)
             if np_path_new is not None:
