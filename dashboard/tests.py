@@ -13,6 +13,7 @@ from unittest.mock import patch
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import (
     _station_data_shift_hours as forecast_station_shift_hours,
+    _station_capacity_mw as forecast_station_capacity_mw,
     _station_model_dir as forecast_station_model_dir,
     _target_offsets_for_weekday_calendar,
     _postprocess_xgb_prediction,
@@ -32,7 +33,8 @@ from dashboard.services.model_storage import (
     resolve_station_model_dir,
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
-from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
+from dashboard.services.train_models import _capacity_mw_from_fields
+from dashboard.views import _forecast_value_to_kw, _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
     _station_data_shift_hours as auto_history_station_shift_hours,
     _normalize_auto_history_script,
@@ -74,6 +76,39 @@ class StationDataShiftHoursTests(TestCase):
     def test_auto_history_shift_helper_fallbacks_to_zero(self):
         station = SimpleNamespace(data_shift_hours="bad")
         self.assertEqual(auto_history_station_shift_hours(station), 0)
+
+
+class ForecastValueNormalizationTests(TestCase):
+    def test_converts_legacy_mw_values_to_kw(self):
+        self.assertEqual(_forecast_value_to_kw(8.8, 8.8), 8800.0)
+        self.assertEqual(_forecast_value_to_kw(1.2, 1.2), 1200.0)
+
+    def test_keeps_kw_values_as_is(self):
+        self.assertEqual(_forecast_value_to_kw(5400.0, 8.8), 5400.0)
+        self.assertEqual(_forecast_value_to_kw(350.0, 1.2), 350.0)
+
+
+class CapacityFieldsNormalizationTests(TestCase):
+    def test_train_capacity_helper_converts_kw_in_capacity_mw_field(self):
+        station = SimpleNamespace(capacity_mw=8800, capacity_ac_kw=None, capacity_kw=None, capacity_dc_kw=None)
+        self.assertEqual(_capacity_mw_from_fields(station), 8.8)
+
+    @patch("dashboard.services.forecast_engine.SolarRecord")
+    def test_forecast_capacity_helper_converts_kw_in_capacity_mw_field(self, solar_record_mock):
+        qs = solar_record_mock.objects.filter.return_value
+        qs.exclude.return_value = qs
+        qs.order_by.return_value = qs
+        qs.values_list.return_value = []
+
+        station = SimpleNamespace(
+            pk=1,
+            capacity_mw=8800,
+            capacity_ac_kw=None,
+            capacity_kw=None,
+            capacity_dc_kw=None,
+            history_source_id=None,
+        )
+        self.assertEqual(forecast_station_capacity_mw(station), 8.8)
 
 
 class StationModelDirResolutionTests(TestCase):
