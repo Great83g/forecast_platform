@@ -805,7 +805,9 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def _target_offsets_for_weekday_calendar(now_dt) -> List[int]:
     weekday = now_dt.weekday()
     if weekday == 4:  # Friday
-        return [1, 2, 3]
+        # По требованию календарного режима:
+        # Пятница -> Вс + Пн + Вт
+        return [2, 3, 4]
     if weekday in {0, 1, 2, 3}:  # Mon-Thu
         return [2]
     return []
