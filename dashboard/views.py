@@ -63,6 +63,40 @@ def _parse_int_query(value, default: int) -> int:
         return default
 
 
+def _forecast_value_to_kw(value: Optional[float], station_capacity_mw: Optional[float]) -> float:
+    """
+    Нормализует исторически смешанные единицы прогноза:
+    - legacy-строки могли храниться в MW;
+    - текущие строки хранятся в kW.
+
+    Эвристика:
+    если абсолютное значение «слишком маленькое» относительно мощности станции,
+    считаем, что это MW, и переводим в kW.
+    """
+    if value is None:
+        return 0.0
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not pd.notna(v):
+        return 0.0
+
+    cap = None
+    try:
+        if station_capacity_mw is not None:
+            cap = float(station_capacity_mw)
+    except (TypeError, ValueError):
+        cap = None
+
+    # Порог, ниже которого вероятнее всего это MW, а не kW.
+    # Пример: для 8.8 MW порог ~17.6; для 1.2 MW порог ~10.
+    mw_threshold = max((cap or 0.0) * 2.0, 10.0)
+    if abs(v) <= mw_threshold:
+        return v * 1000.0
+    return v
+
+
 def _build_training_status(station: Station) -> dict:
     paths = _model_paths_for_station(station)
     resolved_dir, resolved_source = describe_station_model_dir(
@@ -1057,19 +1091,20 @@ def station_forecast_list(request, pk: int):
     forecasts_raw = list(qs)
 
     daily = defaultdict(lambda: {"pred_final": 0.0, "pred_np": 0.0, "pred_xgb": 0.0, "pred_heur": 0.0})
+    station_capacity_mw = getattr(st, "capacity_mw", None)
     for f in forecasts_raw:
         ts = _localize_timestamp(f.timestamp)
         if ts is None:
             continue
         day_key = ts.date()
         if f.pred_final is not None:
-            daily[day_key]["pred_final"] += float(f.pred_final)
+            daily[day_key]["pred_final"] += _forecast_value_to_kw(f.pred_final, station_capacity_mw)
         if f.pred_np is not None:
-            daily[day_key]["pred_np"] += float(f.pred_np)
+            daily[day_key]["pred_np"] += _forecast_value_to_kw(f.pred_np, station_capacity_mw)
         if f.pred_xgb is not None:
-            daily[day_key]["pred_xgb"] += float(f.pred_xgb)
+            daily[day_key]["pred_xgb"] += _forecast_value_to_kw(f.pred_xgb, station_capacity_mw)
         if f.pred_heur is not None:
-            daily[day_key]["pred_heur"] += float(f.pred_heur)
+            daily[day_key]["pred_heur"] += _forecast_value_to_kw(f.pred_heur, station_capacity_mw)
 
     forecasts = [
         {
