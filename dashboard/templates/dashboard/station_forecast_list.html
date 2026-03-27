@@ -87,9 +87,10 @@
           </div>
           <div class="d-flex align-items-center gap-2 small">
             <label class="text-muted mb-0" for="horizon-mode">Режим:</label>
-            <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 290px;">
-              <option value="legacy" {% if horizon_mode == 'legacy' %}selected{% endif %}>Обычный (старый)</option>
-              <option value="weekday_calendar" {% if horizon_mode == 'weekday_calendar' %}selected{% endif %}>Календарь: Пн–Чт → +2 дня, Пт → +1/+2/+3</option>
+            <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 360px;">
+              {% for value, label in schedule_form.horizon_mode.field.choices %}
+                <option value="{{ value }}" {% if horizon_mode == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="d-flex align-items-center gap-2 small">

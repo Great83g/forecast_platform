@@ -1172,12 +1172,12 @@ class ForecastEngineGlobalBiasTests(TestCase):
 
 
 class ForecastEngineWeekdayCalendarTests(TestCase):
-    def test_friday_offsets_cover_exactly_three_next_days(self):
+    def test_friday_offsets_skip_saturday_and_cover_sun_mon_tue(self):
         friday = timezone.datetime(2026, 2, 13, 9, 0)
 
         offsets = _target_offsets_for_weekday_calendar(friday)
 
-        self.assertEqual(offsets, [1, 2, 3])
+        self.assertEqual(offsets, [2, 3, 4])
 
     def test_weekday_mode_report_days_do_not_depend_on_requested_days(self):
         user = User.objects.create_user(username="daysmode", password="pass")
@@ -1192,7 +1192,7 @@ class ForecastEngineWeekdayCalendarTests(TestCase):
             longitude=None,
         )
 
-        with patch("dashboard.services.forecast_engine._target_offsets_for_weekday_calendar", return_value=[1, 2, 3]):
+        with patch("dashboard.services.forecast_engine._target_offsets_for_weekday_calendar", return_value=[2, 3, 4]):
             result_days_1 = run_forecast_for_station(
                 station_id=station.pk,
                 days=1,
