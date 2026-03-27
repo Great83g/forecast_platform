@@ -32,7 +32,7 @@ from dashboard.services.model_storage import (
     resolve_station_model_dir,
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
-from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
+from dashboard.views import _forecast_value_to_kw, _parse_history_datetime, station_forecast_scheduler_tick
 from dashboard.services.history_autofill import (
     _station_data_shift_hours as auto_history_station_shift_hours,
     _normalize_auto_history_script,
@@ -74,6 +74,16 @@ class StationDataShiftHoursTests(TestCase):
     def test_auto_history_shift_helper_fallbacks_to_zero(self):
         station = SimpleNamespace(data_shift_hours="bad")
         self.assertEqual(auto_history_station_shift_hours(station), 0)
+
+
+class ForecastValueNormalizationTests(TestCase):
+    def test_converts_legacy_mw_values_to_kw(self):
+        self.assertEqual(_forecast_value_to_kw(8.8, 8.8), 8800.0)
+        self.assertEqual(_forecast_value_to_kw(1.2, 1.2), 1200.0)
+
+    def test_keeps_kw_values_as_is(self):
+        self.assertEqual(_forecast_value_to_kw(5400.0, 8.8), 5400.0)
+        self.assertEqual(_forecast_value_to_kw(350.0, 1.2), 350.0)
 
 
 class StationModelDirResolutionTests(TestCase):
