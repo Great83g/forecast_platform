@@ -97,6 +97,57 @@ def _forecast_value_to_kw(value: Optional[float], station_capacity_mw: Optional[
     return v
 
 
+def _plan_value_with_heuristic_fallback(pred_final: Optional[float], pred_heur: Optional[float]) -> Optional[float]:
+    """
+    Возвращает значение итогового прогноза для графиков/экспорта.
+    Если pred_final отсутствует или нулевой, берём эвристику.
+    """
+    try:
+        final_value = float(pred_final) if pred_final is not None else None
+    except (TypeError, ValueError):
+        final_value = None
+    if final_value is not None and pd.notna(final_value) and final_value > 0:
+        return final_value
+
+    try:
+        heur_value = float(pred_heur) if pred_heur is not None else None
+    except (TypeError, ValueError):
+        heur_value = None
+    if heur_value is not None and pd.notna(heur_value):
+        return heur_value
+    return None
+
+
+def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
+    """
+    Строит map вида {timestamp: plan_kw} с fallback на эвристику.
+    """
+    plan_map = {}
+    for row in rows:
+        plan_value = _plan_value_with_heuristic_fallback(row.get("pred_final"), row.get("pred_heur"))
+        if plan_value is None:
+            continue
+        plan_map[row[timestamp_key]] = plan_value
+    return plan_map
+
+
+def _forecast_export_filters(dt_from: Optional[datetime], dt_to: Optional[datetime], dt_date: Optional[datetime]) -> dict:
+    """
+    Фильтры диапазона выгрузки прогноза:
+    - точечная дата приоритетнее диапазона;
+    - границы диапазона включительные по календарным датам.
+    """
+    if dt_date:
+        return {"timestamp__date": dt_date.date()}
+
+    filters = {}
+    if dt_from:
+        filters["timestamp__date__gte"] = dt_from.date()
+    if dt_to:
+        filters["timestamp__date__lte"] = dt_to.date()
+    return filters
+
+
 def _build_training_status(station: Station) -> dict:
     paths = _model_paths_for_station(station)
     resolved_dir, resolved_source = describe_station_model_dir(
@@ -600,6 +651,7 @@ def station_detail(request, pk: int):
             .values("bucket")
             .annotate(
                 pred_final=Avg("pred_final"),
+                pred_heur=Avg("pred_heur"),
                 irradiation_fc=Avg("irradiation_fc"),
                 air_temp_fc=Avg("air_temp_fc"),
             )
@@ -610,11 +662,7 @@ def station_detail(request, pk: int):
             for row in history_rows
             if row.get("power_kw") is not None
         }
-        forecast_map = {
-            row["bucket"]: float(row["pred_final"])
-            for row in forecast_rows
-            if row.get("pred_final") is not None
-        }
+        forecast_map = _build_forecast_plan_map(forecast_rows, "bucket")
         irr_fact_map = {
             row["bucket"]: float(row["irradiation"])
             for row in history_rows
@@ -643,6 +691,7 @@ def station_detail(request, pk: int):
         ).order_by("timestamp")
         forecast_rows = forecast_qs.values("timestamp").annotate(
             pred_final=Avg("pred_final"),
+            pred_heur=Avg("pred_heur"),
             irradiation_fc=Avg("irradiation_fc"),
             air_temp_fc=Avg("air_temp_fc"),
         ).order_by("timestamp")
@@ -651,11 +700,7 @@ def station_detail(request, pk: int):
             for row in history_rows
             if row.get("power_kw") is not None
         }
-        forecast_map = {
-            row["timestamp"]: float(row["pred_final"])
-            for row in forecast_rows
-            if row.get("pred_final") is not None
-        }
+        forecast_map = _build_forecast_plan_map(forecast_rows, "timestamp")
         irr_fact_map = {
             row["timestamp"]: float(row["irradiation"])
             for row in history_rows
@@ -797,7 +842,15 @@ def station_plan_fact_export(request, pk: int):
         forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
 
     history_df = pd.DataFrame(list(history_qs.values("timestamp").annotate(fact_kw=Avg("power_kw")).order_by("timestamp")))
-    forecast_df = pd.DataFrame(list(forecast_qs.values("timestamp").annotate(plan_kw=Avg("pred_final")).order_by("timestamp")))
+    forecast_rows = list(
+        forecast_qs.values("timestamp")
+        .annotate(pred_final=Avg("pred_final"), pred_heur=Avg("pred_heur"))
+        .order_by("timestamp")
+    )
+    forecast_plan_map = _build_forecast_plan_map(forecast_rows, "timestamp")
+    forecast_df = pd.DataFrame(
+        [{"timestamp": ts, "plan_kw": plan_kw} for ts, plan_kw in forecast_plan_map.items()]
+    )
 
     if history_df.empty:
         history_df = pd.DataFrame(columns=["timestamp", "fact_kw"])
@@ -1412,12 +1465,9 @@ def station_forecast_export(request, pk: int):
     scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
 
     qs = SolarForecast.objects.filter(station=st, forecast_scope=scope).order_by("timestamp")
-    if dt_from:
-        qs = qs.filter(timestamp__gte=dt_from)
-    if dt_to:
-        qs = qs.filter(timestamp__lte=dt_to)
-    if dt_date:
-        qs = qs.filter(timestamp__date=dt_date.date())
+    export_filters = _forecast_export_filters(dt_from, dt_to, dt_date)
+    if export_filters:
+        qs = qs.filter(**export_filters)
 
     data = list(
         qs.values(
