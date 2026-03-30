@@ -49,6 +49,68 @@ cd ~/forecast_platform
 VENV_PATH=/path/to/venv/bin/activate bash deploy/apply_portal_update.sh
 ```
 
+## Вариант «обновить main + сразу дообучить модель»
+
+Если нужен сценарий «как в ручных командах» + запуск обучения после деплоя, используй:
+
+```bash
+cd ~/forecast_platform
+bash deploy/apply_main_update_with_training.sh
+# или коротко (скрипт в корне репозитория):
+bash apply_main_update_with_training.sh
+```
+
+Если получили `No such file or directory`, сначала подтяните `main`, чтобы скрипт появился:
+
+```bash
+cd ~/forecast_platform
+git fetch --all --prune
+git checkout main
+git pull --ff-only origin main
+```
+
+Примеры:
+
+```bash
+# обычный запуск
+bash deploy/apply_main_update_with_training.sh
+```
+
+По умолчанию скрипт обучает `station_id=1`. Если нужен другой id или обучение всех станций — отредактируй блок шага `# 3` прямо в скрипте.
+
+### Если нужно просто вставить команды на сервере (без скрипта)
+
+```bash
+cd ~/forecast_platform
+source venv/bin/activate
+set -euo pipefail
+
+# 1) подтянуть код
+git fetch --all --prune
+git checkout main
+git pull --ff-only origin main
+
+# 2) применить django-шаги
+python3 manage.py migrate
+python3 manage.py cleanup_model_cache
+python3 manage.py collectstatic --noinput
+
+# 3) обучить станцию (пример: station_id=1)
+python3 manage.py train_station_models 1
+
+# если нужно все станции:
+# for sid in $(python3 manage.py shell -c "from stations.models import Station; print(' '.join(map(str, Station.objects.values_list('id', flat=True))))"); do
+#   python3 manage.py train_station_models "$sid"
+# done
+
+# 4) рестарт сервиса
+if [ -f /run/gunicorn.pid ]; then
+  sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+else
+  sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+fi
+```
+
 ## Что делает скрипт
 
 Скрипт сам выполняет ту же последовательность команд:
