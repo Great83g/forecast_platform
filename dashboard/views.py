@@ -131,6 +131,23 @@ def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
     return plan_map
 
 
+def _forecast_export_filters(dt_from: Optional[datetime], dt_to: Optional[datetime], dt_date: Optional[datetime]) -> dict:
+    """
+    Фильтры диапазона выгрузки прогноза:
+    - точечная дата приоритетнее диапазона;
+    - границы диапазона включительные по календарным датам.
+    """
+    if dt_date:
+        return {"timestamp__date": dt_date.date()}
+
+    filters = {}
+    if dt_from:
+        filters["timestamp__date__gte"] = dt_from.date()
+    if dt_to:
+        filters["timestamp__date__lte"] = dt_to.date()
+    return filters
+
+
 def _build_training_status(station: Station) -> dict:
     paths = _model_paths_for_station(station)
     resolved_dir, resolved_source = describe_station_model_dir(
@@ -1448,12 +1465,9 @@ def station_forecast_export(request, pk: int):
     scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
 
     qs = SolarForecast.objects.filter(station=st, forecast_scope=scope).order_by("timestamp")
-    if dt_from:
-        qs = qs.filter(timestamp__gte=dt_from)
-    if dt_to:
-        qs = qs.filter(timestamp__lte=dt_to)
-    if dt_date:
-        qs = qs.filter(timestamp__date=dt_date.date())
+    export_filters = _forecast_export_filters(dt_from, dt_to, dt_date)
+    if export_filters:
+        qs = qs.filter(**export_filters)
 
     data = list(
         qs.values(

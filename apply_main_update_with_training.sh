@@ -13,13 +13,7 @@ python3 manage.py migrate
 python3 manage.py cleanup_model_cache
 python3 manage.py collectstatic --noinput
 
-# 3) обучить станцию (пример: station_id=1)
-python3 manage.py train_station_models 1
-
-# если нужно все станции:
-# for sid in $(python3 manage.py shell -c "from stations.models import Station; print(' '.join(map(str, Station.objects.values_list('id', flat=True))))"); do
-#   python3 manage.py train_station_models "$sid"
-# done
+# 3) БЕЗ обучения (ничего не запускаем)
 
 # 4) рестарт сервиса
 if [ -f /run/gunicorn.pid ]; then

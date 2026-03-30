@@ -36,6 +36,7 @@ from dashboard.services.train_models import _prepare_xgb_training_frame, _statio
 from dashboard.services.train_models import _capacity_mw_from_fields
 from dashboard.views import (
     _build_forecast_plan_map,
+    _forecast_export_filters,
     _forecast_value_to_kw,
     _parse_history_datetime,
     _plan_value_with_heuristic_fallback,
@@ -112,6 +113,25 @@ class PlanValueFallbackTests(TestCase):
             _build_forecast_plan_map(rows, "timestamp"),
             {"t1": 100.0, "t2": 80.0},
         )
+
+
+class ForecastExportDateFilterTests(TestCase):
+    def test_same_day_range_is_inclusive_for_full_day(self):
+        dt = _parse_history_datetime("2026-03-31 00:00")
+        filters = _forecast_export_filters(dt, dt, None)
+        self.assertEqual(
+            filters,
+            {
+                "timestamp__date__gte": date(2026, 3, 31),
+                "timestamp__date__lte": date(2026, 3, 31),
+            },
+        )
+
+    def test_exact_date_has_priority_over_range(self):
+        dt_from = _parse_history_datetime("2026-03-31 00:00")
+        dt_to = _parse_history_datetime("2026-04-01 00:00")
+        dt_date = _parse_history_datetime("2026-03-31 00:00")
+        self.assertEqual(_forecast_export_filters(dt_from, dt_to, dt_date), {"timestamp__date": date(2026, 3, 31)})
 
 
 class CapacityFieldsNormalizationTests(TestCase):

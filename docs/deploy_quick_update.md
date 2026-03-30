@@ -49,9 +49,9 @@ cd ~/forecast_platform
 VENV_PATH=/path/to/venv/bin/activate bash deploy/apply_portal_update.sh
 ```
 
-## Вариант «обновить main + сразу дообучить модель»
+## Вариант «обновить main без обучения»
 
-Если нужен сценарий «как в ручных командах» + запуск обучения после деплоя, используй:
+Если нужен сценарий «как в ручных командах» **без запуска обучения**, используй:
 
 ```bash
 cd ~/forecast_platform
@@ -76,7 +76,7 @@ git pull --ff-only origin main
 bash deploy/apply_main_update_with_training.sh
 ```
 
-По умолчанию скрипт обучает `station_id=1`. Если нужен другой id или обучение всех станций — отредактируй блок шага `# 3` прямо в скрипте.
+Скрипт не запускает обучение: шаг `# 3` оставлен пустым специально.
 
 ### Если нужно просто вставить команды на сервере (без скрипта)
 
@@ -95,13 +95,7 @@ python3 manage.py migrate
 python3 manage.py cleanup_model_cache
 python3 manage.py collectstatic --noinput
 
-# 3) обучить станцию (пример: station_id=1)
-python3 manage.py train_station_models 1
-
-# если нужно все станции:
-# for sid in $(python3 manage.py shell -c "from stations.models import Station; print(' '.join(map(str, Station.objects.values_list('id', flat=True))))"); do
-#   python3 manage.py train_station_models "$sid"
-# done
+# 3) БЕЗ обучения (ничего не запускаем)
 
 # 4) рестарт сервиса
 if [ -f /run/gunicorn.pid ]; then
