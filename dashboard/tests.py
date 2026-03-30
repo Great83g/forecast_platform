@@ -34,7 +34,13 @@ from dashboard.services.model_storage import (
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
 from dashboard.services.train_models import _capacity_mw_from_fields
-from dashboard.views import _forecast_value_to_kw, _parse_history_datetime, station_forecast_scheduler_tick
+from dashboard.views import (
+    _build_forecast_plan_map,
+    _forecast_value_to_kw,
+    _parse_history_datetime,
+    _plan_value_with_heuristic_fallback,
+    station_forecast_scheduler_tick,
+)
 from dashboard.services.history_autofill import (
     _station_data_shift_hours as auto_history_station_shift_hours,
     _normalize_auto_history_script,
@@ -86,6 +92,26 @@ class ForecastValueNormalizationTests(TestCase):
     def test_keeps_kw_values_as_is(self):
         self.assertEqual(_forecast_value_to_kw(5400.0, 8.8), 5400.0)
         self.assertEqual(_forecast_value_to_kw(350.0, 1.2), 350.0)
+
+
+class PlanValueFallbackTests(TestCase):
+    def test_uses_pred_final_when_it_is_positive(self):
+        self.assertEqual(_plan_value_with_heuristic_fallback(123.0, 456.0), 123.0)
+
+    def test_falls_back_to_heuristic_when_final_is_missing_or_zero(self):
+        self.assertEqual(_plan_value_with_heuristic_fallback(None, 456.0), 456.0)
+        self.assertEqual(_plan_value_with_heuristic_fallback(0.0, 456.0), 456.0)
+
+    def test_build_map_keeps_only_rows_with_plan_value(self):
+        rows = [
+            {"timestamp": "t1", "pred_final": 100.0, "pred_heur": 90.0},
+            {"timestamp": "t2", "pred_final": None, "pred_heur": 80.0},
+            {"timestamp": "t3", "pred_final": None, "pred_heur": None},
+        ]
+        self.assertEqual(
+            _build_forecast_plan_map(rows, "timestamp"),
+            {"t1": 100.0, "t2": 80.0},
+        )
 
 
 class CapacityFieldsNormalizationTests(TestCase):
