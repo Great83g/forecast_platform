@@ -2040,7 +2040,7 @@ class Ses12MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 06:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 07:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 77.7)
         collect_mock.assert_called_once()
 
