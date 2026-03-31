@@ -54,9 +54,11 @@
   {% csrf_token %}
   <input type="hidden" name="action" value="clear">
   <input type="hidden" name="history_scope" value="{{ history_scope }}">
+  <input type="hidden" name="from" value="{{ from_date }}">
+  <input type="hidden" name="to" value="{{ to_date }}">
   <button type="submit" class="btn btn-sm btn-outline-danger"
-          onclick="return confirm('Точно очистить всю историю станции?');">
-    Очистить историю
+          onclick="return confirm('{% if from_date or to_date %}Точно удалить историю в выбранном диапазоне дат?{% else %}Точно очистить всю историю станции?{% endif %}');">
+    {% if from_date or to_date %}Удалить по фильтру дат{% else %}Очистить историю{% endif %}
   </button>
 </form>
 
