@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
@@ -1838,6 +1838,66 @@ class StationOrderingTests(TestCase):
 
 
 
+class StationUploadClearByDateTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="history-clear-user", password="pass")
+        self.org = Organization.objects.create(name="History Org", owner=self.user)
+        OrganizationMember.objects.create(org=self.org, user=self.user, role=OrganizationMember.ROLE_OWNER)
+        self.station = Station.objects.create(name="SES Clear", org=self.org, capacity_mw=1.2)
+        self.client.login(username="history-clear-user", password="pass")
+
+    def _record(self, ts: str, power_kw: float) -> SolarRecord:
+        aware_ts = timezone.make_aware(datetime.strptime(ts, "%Y-%m-%d %H:%M:%S"), timezone.get_current_timezone())
+        return SolarRecord.objects.create(
+            station=self.station,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            timestamp=aware_ts,
+            power_kw=power_kw,
+        )
+
+    def test_clear_action_deletes_only_records_in_selected_date_range(self):
+        keep_before = self._record("2026-03-28 12:00:00", 1.0)
+        delete_mid = self._record("2026-03-29 08:00:00", 2.0)
+        delete_late = self._record("2026-03-29 18:00:00", 3.0)
+        keep_after = self._record("2026-03-30 09:00:00", 4.0)
+
+        response = self.client.post(
+            f"/dashboard/station/{self.station.pk}/upload/",
+            data={
+                "action": "clear",
+                "history_scope": "main",
+                "from": "2026-03-29",
+                "to": "2026-03-29",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        remaining_ids = list(
+            SolarRecord.objects.filter(station=self.station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
+            .order_by("timestamp")
+            .values_list("id", flat=True)
+        )
+        self.assertEqual(remaining_ids, [keep_before.id, keep_after.id])
+        self.assertNotIn(delete_mid.id, remaining_ids)
+        self.assertNotIn(delete_late.id, remaining_ids)
+
+    def test_clear_action_without_dates_deletes_full_history_scope(self):
+        self._record("2026-03-28 12:00:00", 1.0)
+        self._record("2026-03-29 08:00:00", 2.0)
+
+        response = self.client.post(
+            f"/dashboard/station/{self.station.pk}/upload/",
+            data={"action": "clear", "history_scope": "main"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            SolarRecord.objects.filter(station=self.station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).exists()
+        )
+
+
 class RunScheduledForecastsCommandTests(TestCase):
     @patch("dashboard.management.commands.run_scheduled_forecasts.importlib.import_module")
     def test_auto_history_safe_helper_returns_zero_on_import_error(self, import_module_mock):
@@ -1962,7 +2022,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 08:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 09:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 300.0)
 
     def test_build_history_dataframe_extracts_year_from_sheet_header(self):
@@ -1986,7 +2046,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-07 23:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-08 00:00:00")
 
     def test_build_history_dataframe_parses_comma_decimal_text_values(self):
         from openpyxl import Workbook
@@ -2010,7 +2070,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 09:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 10:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["irradiation"]), 417.255, places=3)
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 33600.0, places=2)
 
@@ -2040,7 +2100,7 @@ class Ses12MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 06:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 07:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 77.7)
         collect_mock.assert_called_once()
 

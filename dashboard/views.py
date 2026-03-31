@@ -891,9 +891,29 @@ def station_upload(request, pk: int):
 
     if request.method == "POST":
         if request.POST.get("action") == "clear":
-            SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
-            messages.success(request, "История очищена.")
-            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
+            from_s = (request.POST.get("from") or "").strip()
+            to_s = (request.POST.get("to") or "").strip()
+            dt_from = _aware_datetime(_parse_date(from_s), end_of_day=False)
+            dt_to = _aware_datetime(_parse_date(to_s), end_of_day=True)
+
+            clear_qs = SolarRecord.objects.filter(station=st, history_scope=history_scope)
+            if dt_from:
+                clear_qs = clear_qs.filter(timestamp__gte=dt_from)
+            if dt_to:
+                clear_qs = clear_qs.filter(timestamp__lte=dt_to)
+
+            deleted_count, _ = clear_qs.delete()
+            if dt_from or dt_to:
+                messages.success(request, f"Удалено записей истории: {deleted_count} (по фильтру дат).")
+            else:
+                messages.success(request, f"История очищена: удалено {deleted_count} записей.")
+
+            query = {"history_scope": history_scope}
+            if from_s:
+                query["from"] = from_s
+            if to_s:
+                query["to"] = to_s
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?{urlencode(query)}")
 
         form = UploadHistoryForm(request.POST, request.FILES)
         if not form.is_valid():

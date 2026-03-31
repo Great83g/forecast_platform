@@ -32,11 +32,11 @@
   </div>
   <div>
     <label class="form-label mb-0 small">С даты</label>
-    <input type="date" name="from" value="{{ from_date }}" class="form-control form-control-sm">
+    <input type="date" name="from" id="history-from-date" value="{{ from_date }}" class="form-control form-control-sm">
   </div>
   <div>
     <label class="form-label mb-0 small">По дату</label>
-    <input type="date" name="to" value="{{ to_date }}" class="form-control form-control-sm">
+    <input type="date" name="to" id="history-to-date" value="{{ to_date }}" class="form-control form-control-sm">
   </div>
   <div>
     <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
@@ -54,9 +54,13 @@
   {% csrf_token %}
   <input type="hidden" name="action" value="clear">
   <input type="hidden" name="history_scope" value="{{ history_scope }}">
-  <button type="submit" class="btn btn-sm btn-outline-danger"
-          onclick="return confirm('Точно очистить всю историю станции?');">
-    Очистить историю
+  <input type="hidden" name="from" id="clear-from-date" value="{{ from_date }}">
+  <input type="hidden" name="to" id="clear-to-date" value="{{ to_date }}">
+  <button type="submit" id="clear-history-btn" class="btn btn-sm btn-outline-danger"
+          data-confirm-all="Точно очистить всю историю станции?"
+          data-confirm-range="Точно удалить историю в выбранном диапазоне дат?"
+          onclick="return confirm(this.dataset.confirmText || this.dataset.confirmAll);">
+    {% if from_date or to_date %}Удалить по фильтру дат{% else %}Очистить историю{% endif %}
   </button>
 </form>
 
@@ -119,6 +123,25 @@
       url.searchParams.set("history_scope", scopeSelect.value || "main");
       window.location.href = url.toString();
     });
+
+    var fromInput = document.getElementById("history-from-date");
+    var toInput = document.getElementById("history-to-date");
+    var clearFromInput = document.getElementById("clear-from-date");
+    var clearToInput = document.getElementById("clear-to-date");
+    var clearBtn = document.getElementById("clear-history-btn");
+
+    function syncClearFormState() {
+      if (!fromInput || !toInput || !clearFromInput || !clearToInput || !clearBtn) return;
+      clearFromInput.value = fromInput.value || "";
+      clearToInput.value = toInput.value || "";
+      var hasRange = Boolean(clearFromInput.value || clearToInput.value);
+      clearBtn.textContent = hasRange ? "Удалить по фильтру дат" : "Очистить историю";
+      clearBtn.dataset.confirmText = hasRange ? clearBtn.dataset.confirmRange : clearBtn.dataset.confirmAll;
+    }
+
+    if (fromInput) fromInput.addEventListener("input", syncClearFormState);
+    if (toInput) toInput.addEventListener("input", syncClearFormState);
+    syncClearFormState();
   })();
 </script>
 {% endblock %}
