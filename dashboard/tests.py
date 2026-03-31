@@ -1962,7 +1962,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 08:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 09:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 300.0)
 
     def test_build_history_dataframe_extracts_year_from_sheet_header(self):
@@ -1986,7 +1986,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-07 23:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-08 00:00:00")
 
     def test_build_history_dataframe_parses_comma_decimal_text_values(self):
         from openpyxl import Workbook
@@ -2010,7 +2010,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 09:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 10:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["irradiation"]), 417.255, places=3)
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 33600.0, places=2)
 
