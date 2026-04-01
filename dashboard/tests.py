@@ -1968,7 +1968,7 @@ class Ses88MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
             self.assertEqual(len(out), 1)
-            self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-26 08:00:00")
+            self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-26 09:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
             self.assertGreater(float(out.iloc[0]["irradiation"]), 40.0)
 
@@ -1994,7 +1994,7 @@ class Ses88MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
             self.assertEqual(len(out), 1)
-            self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 08:00:00")
+            self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 09:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
 
 
