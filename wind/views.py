@@ -1,6 +1,6 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 
 from stations.models import Organization, OrganizationMember, Station
 
@@ -11,6 +11,10 @@ def _wind_station_queryset_for_user(user):
     org_ids = Organization.objects.filter(owner=user).values_list("id", flat=True)
     member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
     return Station.objects.filter(org_id__in=(org_ids.union(member_org_ids)), station_kind=Station.KIND_WIND).distinct()
+
+
+def _get_wind_station_or_404(user, pk: int) -> Station:
+    return get_object_or_404(_wind_station_queryset_for_user(user), pk=pk)
 
 
 @login_required
@@ -56,3 +60,27 @@ def station_create(request):
             "profile_form": profile_form,
         },
     )
+
+
+@login_required
+def station_detail(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    return render(request, "wind/station_detail.html", {"station": station})
+
+
+@login_required
+def station_upload(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    return render(request, "wind/station_upload.html", {"station": station})
+
+
+@login_required
+def station_forecast_list(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    return render(request, "wind/station_forecast_list.html", {"station": station})
+
+
+@login_required
+def station_train(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    return render(request, "wind/station_train.html", {"station": station})

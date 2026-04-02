@@ -41,3 +41,40 @@ class WindPagesTests(TestCase):
         self.assertEqual(station.capacity_mw, 15.0)
         profile = WindStationProfile.objects.get(station=station)
         self.assertEqual(profile.turbine_count, 5)
+
+
+class WindModuleRouteTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="wind_user2", password="password123")
+        self.org = Organization.objects.create(name="Wind Org 2", owner=self.user)
+        self.station = Station.objects.create(
+            org=self.org,
+            name="Wind Route Station",
+            station_kind=Station.KIND_WIND,
+            capacity_mw=4.2,
+            capacity_ac_kw=4200,
+            capacity_dc_kw=4200,
+        )
+
+    def test_wind_station_action_pages_return_200(self):
+        self.client.force_login(self.user)
+
+        urls = [
+            reverse("wind:station-detail", args=[self.station.pk]),
+            reverse("wind:station-upload", args=[self.station.pk]),
+            reverse("wind:station-forecast-list", args=[self.station.pk]),
+            reverse("wind:station-train", args=[self.station.pk]),
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+
+    def test_wind_station_list_uses_wind_module_urls(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("wind:station-list"))
+
+        self.assertContains(response, reverse("wind:station-detail", args=[self.station.pk]))
+        self.assertContains(response, reverse("wind:station-upload", args=[self.station.pk]))
+        self.assertContains(response, reverse("wind:station-forecast-list", args=[self.station.pk]))
+        self.assertContains(response, reverse("wind:station-train", args=[self.station.pk]))
