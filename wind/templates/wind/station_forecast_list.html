@@ -1,0 +1,122 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+
+<h2 class="mb-2">{{ station.name }} — прогноз ветра</h2>
+<div class="mb-2 small text-muted">База прогноза: <b>{% if scope == 'test' %}Тестовая{% else %}Основная{% endif %}</b></div>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}">← Назад к станции</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-list' %}">К списку станций</a>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Запустить прогноз (ручной запуск)</h5>
+    <form method="get" action="{% url 'wind:station-forecast-run' station.pk %}" class="d-flex flex-wrap gap-2 align-items-end">
+      <div>
+        <label class="form-label mb-0 small">Дней</label>
+        <input type="number" class="form-control form-control-sm" name="days" min="1" max="7" value="2" style="width:90px;">
+      </div>
+      <div>
+        <label class="form-label mb-0 small">База</label>
+        <select class="form-select form-select-sm" name="scope" style="width:160px;">
+          <option value="main" {% if scope == 'main' %}selected{% endif %}>Основная</option>
+          <option value="test" {% if scope == 'test' %}selected{% endif %}>Тестовая</option>
+        </select>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="providers" value="visual_crossing" id="pv" checked>
+        <label class="form-check-label" for="pv">Visual Crossing</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="providers" value="open_meteo" id="po" checked>
+        <label class="form-check-label" for="po">Open‑Meteo</label>
+      </div>
+      <div>
+        <label class="form-label mb-0 small">Email</label>
+        <input type="text" class="form-control form-control-sm" name="emails" value="{{ emails }}" placeholder="mail1@example.com, mail2@example.com" style="width:280px;">
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="auto_send" value="1" id="auto_send">
+        <label class="form-check-label" for="auto_send">Авто-отправка email</label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Построить прогноз</button>
+    </form>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title">Автопрогноз ветра</h5>
+    <form method="post" action="{% url 'wind:station-forecast-schedule-update' station.pk %}">
+      {% csrf_token %}
+      <div class="row g-2 align-items-end">
+        <div class="col-auto">{{ schedule_form.enabled }}</div>
+        <div class="col-auto">{{ schedule_form.run_time.label_tag }}{{ schedule_form.run_time }}</div>
+        <div class="col-auto">{{ schedule_form.days.label_tag }}{{ schedule_form.days }}</div>
+        <div class="col-auto">{{ schedule_form.scope.label_tag }}{{ schedule_form.scope }}</div>
+      </div>
+      <div class="mt-2">{{ schedule_form.providers.label_tag }}{{ schedule_form.providers }}</div>
+      <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">{{ schedule_form.emails.label_tag }} {{ schedule_form.emails }} {{ schedule_form.auto_send }} {{ schedule_form.auto_send.label_tag }}</div>
+      <button type="submit" class="btn btn-outline-primary btn-sm mt-2">Сохранить автопрогноз</button>
+    </form>
+  </div>
+</div>
+
+<form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <div>
+    <label class="form-label mb-0 small">С даты</label>
+    <input type="date" name="from" value="{{ from }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <label class="form-label mb-0 small">По дату</label>
+    <input type="date" name="to" value="{{ to }}" class="form-control form-control-sm">
+  </div>
+  <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
+  <a class="btn btn-sm btn-success ms-auto" href="{% url 'wind:station-forecast-export' station.pk %}?scope={{ scope }}">Скачать Excel</a>
+</form>
+
+<form method="post" action="{% url 'wind:station-forecast-clear' station.pk %}" class="mb-2">
+  {% csrf_token %}
+  <input type="hidden" name="scope" value="{{ scope }}">
+  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Очистить прогноз?');">Очистить прогноз</button>
+</form>
+
+<div class="text-muted small mb-2">Строк прогноза: <b>{{ count }}</b></div>
+<div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
+  <table class="table table-sm table-striped mb-0">
+    <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+      <tr>
+        <th>Дата/время</th>
+        <th>Pred_Heur (kW)</th>
+        <th>Pred_Final (kW)</th>
+        <th>WindSpeed</th>
+        <th>AirTemp</th>
+        <th>Cloud</th>
+        <th>Humidity</th>
+        <th>Precip</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in forecasts %}
+      <tr>
+        <td>{{ r.timestamp }}</td>
+        <td>{{ r.pred_heur }}</td>
+        <td>{{ r.pred_final }}</td>
+        <td>{{ r.wind_speed_fc }}</td>
+        <td>{{ r.air_temp_fc }}</td>
+        <td>{{ r.cloudcover_fc }}</td>
+        <td>{{ r.humidity_fc }}</td>
+        <td>{{ r.precip_fc }}</td>
+        <td>{{ r.weather_source }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="9" class="text-center text-muted py-4">Нет прогноза</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
