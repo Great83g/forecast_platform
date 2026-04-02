@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -78,3 +79,54 @@ class WindModuleRouteTests(TestCase):
         self.assertContains(response, reverse("wind:station-upload", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-forecast-list", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-train", args=[self.station.pk]))
+
+
+class WindHistoryUploadTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="wind_user3", password="password123")
+        self.org = Organization.objects.create(name="Wind Org 3", owner=self.user)
+        self.station = Station.objects.create(
+            org=self.org,
+            name="Wind Upload Station",
+            station_kind=Station.KIND_WIND,
+            capacity_mw=2.0,
+            capacity_ac_kw=2000,
+            capacity_dc_kw=2000,
+        )
+
+    def test_upload_csv_creates_wind_history_records(self):
+        from .models import WindRecord
+
+        self.client.force_login(self.user)
+        csv_payload = (
+            "ds,power_kw,wind_speed_ms,wind_direction_deg,air_temp,air_density\n"
+            "2026-03-01 00:00:00,100,5.1,180,12,1.20\n"
+            "2026-03-01 01:00:00,120,5.5,190,11,1.19\n"
+        ).encode("utf-8")
+        upload = SimpleUploadedFile("wind_history.csv", csv_payload, content_type="text/csv")
+
+        response = self.client.post(
+            reverse("wind:station-upload", args=[self.station.pk]),
+            data={"action": "upload", "history_scope": "main", "file": upload},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(WindRecord.objects.filter(station=self.station, history_scope="main").count(), 2)
+
+    def test_export_history_returns_excel(self):
+        from .models import WindRecord
+        from django.utils import timezone
+
+        self.client.force_login(self.user)
+        WindRecord.objects.create(
+            station=self.station,
+            history_scope="main",
+            timestamp=timezone.now(),
+            power_kw=111.0,
+            wind_speed_ms=4.4,
+        )
+
+        response = self.client.get(reverse("wind:station-export-history", args=[self.station.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response["Content-Type"])
