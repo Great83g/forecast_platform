@@ -20,3 +20,69 @@ class WindStationProfile(models.Model):
 
     def __str__(self) -> str:
         return f"Wind profile for {self.station.name}"
+
+
+class WindRecord(models.Model):
+    HISTORY_SCOPE_MAIN = "main"
+    HISTORY_SCOPE_TEST = "test"
+    HISTORY_SCOPE_CHOICES = [
+        (HISTORY_SCOPE_MAIN, "Основная база"),
+        (HISTORY_SCOPE_TEST, "Тестовая база"),
+    ]
+
+    station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name="wind_records")
+    timestamp = models.DateTimeField()
+    history_scope = models.CharField(max_length=16, choices=HISTORY_SCOPE_CHOICES, default=HISTORY_SCOPE_MAIN)
+
+    power_kw = models.FloatField(null=True, blank=True)
+    wind_speed_ms = models.FloatField(null=True, blank=True)
+    wind_direction_deg = models.FloatField(null=True, blank=True)
+    air_temp = models.FloatField(null=True, blank=True)
+    air_density = models.FloatField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["timestamp"]
+        indexes = [
+            models.Index(fields=["station", "history_scope", "timestamp"]),
+            models.Index(fields=["station", "timestamp"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Wind history {self.station.name} [{self.history_scope}] @ {self.timestamp}"
+
+
+class WindForecast(models.Model):
+    SCOPE_MAIN = "main"
+    SCOPE_TEST = "test"
+    SCOPE_CHOICES = [
+        (SCOPE_MAIN, "Основная база"),
+        (SCOPE_TEST, "Тестовая база"),
+    ]
+
+    station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name="wind_forecasts")
+    timestamp = models.DateTimeField()
+    forecast_scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default=SCOPE_MAIN)
+
+    pred_heur = models.FloatField(null=True, blank=True)
+    pred_final = models.FloatField(null=True, blank=True)
+
+    weather_source = models.CharField(max_length=32, blank=True, default="")
+    air_temp_fc = models.FloatField(null=True, blank=True)
+    wind_speed_fc = models.FloatField(null=True, blank=True)
+    wind_direction_fc = models.FloatField(null=True, blank=True)
+    cloudcover_fc = models.FloatField(null=True, blank=True)
+    humidity_fc = models.FloatField(null=True, blank=True)
+    precip_fc = models.FloatField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["timestamp"]
+        indexes = [
+            models.Index(fields=["station", "forecast_scope", "timestamp"]),
+            models.Index(fields=["station", "timestamp"]),
+        ]
+        unique_together = ("station", "forecast_scope", "timestamp")
+
+    def __str__(self) -> str:
+        return f"Wind forecast {self.station.name} [{self.forecast_scope}] @ {self.timestamp}"
