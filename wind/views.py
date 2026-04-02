@@ -8,10 +8,13 @@ import pandas as pd
 from django.contrib import messages
 from django.core.files.base import ContentFile
 from django.contrib.auth.decorators import login_required
+from django.db.models import Avg
+from django.db.models.functions import TruncHour
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from urllib.parse import urlencode
 
 from dashboard.forms import UploadHistoryForm
 from dashboard.models import ForecastSchedule
@@ -61,6 +64,33 @@ def _normalize_history_scope(value: str) -> str:
 
 def _normalize_forecast_scope(value: str) -> str:
     return "test" if value == "test" else "main"
+
+
+def _plan_value_with_heuristic_fallback(pred_final: Optional[float], pred_heur: Optional[float]) -> Optional[float]:
+    try:
+        final_value = float(pred_final) if pred_final is not None else None
+    except (TypeError, ValueError):
+        final_value = None
+    if final_value is not None and pd.notna(final_value) and final_value > 0:
+        return final_value
+
+    try:
+        heur_value = float(pred_heur) if pred_heur is not None else None
+    except (TypeError, ValueError):
+        heur_value = None
+    if heur_value is not None and pd.notna(heur_value):
+        return heur_value
+    return None
+
+
+def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
+    plan_map = {}
+    for row in rows:
+        plan_value = _plan_value_with_heuristic_fallback(row.get("pred_final"), row.get("pred_heur"))
+        if plan_value is None:
+            continue
+        plan_map[row[timestamp_key]] = plan_value
+    return plan_map
 
 
 
@@ -237,7 +267,160 @@ def station_create(request):
 @login_required
 def station_detail(request, pk: int):
     station = _get_wind_station_or_404(request.user, pk)
-    return render(request, "wind/station_detail.html", {"station": station})
+    date_from = request.GET.get("date_from") or ""
+    date_to = request.GET.get("date_to") or ""
+
+    if not date_from and not date_to:
+        now_local = timezone.localtime()
+        default_from = now_local.date().replace(day=1)
+        default_to = now_local.date()
+        date_from = default_from.isoformat()
+        date_to = default_to.isoformat()
+
+    dt_from = _aware_datetime(_parse_date(date_from))
+    dt_to = _aware_datetime(_parse_date(date_to), end_of_day=True)
+
+    history_qs = WindRecord.objects.filter(station=station, history_scope=WindRecord.HISTORY_SCOPE_MAIN)
+    forecast_qs = WindForecast.objects.filter(station=station, forecast_scope=WindForecast.SCOPE_MAIN)
+
+    if dt_from:
+        history_qs = history_qs.filter(timestamp__gte=dt_from)
+        forecast_qs = forecast_qs.filter(timestamp__gte=dt_from)
+    if dt_to:
+        history_qs = history_qs.filter(timestamp__lte=dt_to)
+        forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
+
+    is_single_day_range = bool(dt_from and dt_to and dt_from.date() == dt_to.date())
+
+    if is_single_day_range:
+        history_rows = (
+            history_qs.annotate(bucket=TruncHour("timestamp"))
+            .values("bucket")
+            .annotate(
+                power_kw=Avg("power_kw"),
+                wind_speed_ms=Avg("wind_speed_ms"),
+            )
+            .order_by("bucket")
+        )
+        forecast_rows = (
+            forecast_qs.annotate(bucket=TruncHour("timestamp"))
+            .values("bucket")
+            .annotate(
+                pred_final=Avg("pred_final"),
+                pred_heur=Avg("pred_heur"),
+                wind_speed_fc=Avg("wind_speed_fc"),
+            )
+            .order_by("bucket")
+        )
+        history_map = {
+            row["bucket"]: float(row["power_kw"])
+            for row in history_rows
+            if row.get("power_kw") is not None
+        }
+        forecast_map = _build_forecast_plan_map(forecast_rows, "bucket")
+        wind_fact_map = {
+            row["bucket"]: float(row["wind_speed_ms"])
+            for row in history_rows
+            if row.get("wind_speed_ms") is not None
+        }
+        wind_plan_map = {
+            row["bucket"]: float(row["wind_speed_fc"])
+            for row in forecast_rows
+            if row.get("wind_speed_fc") is not None
+        }
+    else:
+        history_rows = history_qs.values("timestamp").annotate(
+            power_kw=Avg("power_kw"),
+            wind_speed_ms=Avg("wind_speed_ms"),
+        ).order_by("timestamp")
+        forecast_rows = forecast_qs.values("timestamp").annotate(
+            pred_final=Avg("pred_final"),
+            pred_heur=Avg("pred_heur"),
+            wind_speed_fc=Avg("wind_speed_fc"),
+        ).order_by("timestamp")
+        history_map = {
+            row["timestamp"]: float(row["power_kw"])
+            for row in history_rows
+            if row.get("power_kw") is not None
+        }
+        forecast_map = _build_forecast_plan_map(forecast_rows, "timestamp")
+        wind_fact_map = {
+            row["timestamp"]: float(row["wind_speed_ms"])
+            for row in history_rows
+            if row.get("wind_speed_ms") is not None
+        }
+        wind_plan_map = {
+            row["timestamp"]: float(row["wind_speed_fc"])
+            for row in forecast_rows
+            if row.get("wind_speed_fc") is not None
+        }
+
+    all_timestamps = sorted(set(history_map.keys()) | set(forecast_map.keys()) | set(wind_fact_map.keys()) | set(wind_plan_map.keys()))
+    comparison_timestamps = sorted(set(history_map.keys()) & set(forecast_map.keys()))
+    first_comparison_timestamp = comparison_timestamps[0] if comparison_timestamps else None
+    if first_comparison_timestamp is not None:
+        all_timestamps = [ts for ts in all_timestamps if ts >= first_comparison_timestamp]
+
+    labels = []
+    fact_series = []
+    plan_series = []
+    wind_fact_series = []
+    wind_plan_series = []
+    merged_points = []
+    fact_energy_kwh = 0.0
+    plan_energy_kwh = 0.0
+    mape_values = []
+
+    for ts in all_timestamps:
+        fact_kw = history_map.get(ts)
+        plan_kw = forecast_map.get(ts)
+        wind_fact = wind_fact_map.get(ts)
+        wind_plan = wind_plan_map.get(ts)
+
+        ts_local = timezone.localtime(ts) if timezone.is_aware(ts) else ts
+        labels.append(ts_local.strftime("%H:%M") if is_single_day_range else ts_local.strftime("%d.%m %H:%M"))
+        fact_series.append(round(fact_kw / 1000.0, 4) if fact_kw is not None else None)
+        plan_series.append(round(plan_kw / 1000.0, 4) if plan_kw is not None else None)
+        wind_fact_series.append(round(wind_fact, 2) if wind_fact is not None else None)
+        wind_plan_series.append(round(wind_plan, 2) if wind_plan is not None else None)
+        merged_points.append(
+            {
+                "timestamp": ts,
+                "fact_mw": (fact_kw / 1000.0) if fact_kw is not None else None,
+                "plan_mw": (plan_kw / 1000.0) if plan_kw is not None else None,
+            }
+        )
+
+        if fact_kw is not None:
+            fact_energy_kwh += fact_kw
+        if plan_kw is not None:
+            plan_energy_kwh += plan_kw
+        if fact_kw is not None and plan_kw is not None and fact_kw > 0:
+            mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
+
+    mape_percent = (sum(mape_values) / len(mape_values)) if mape_values else None
+
+    context = {
+        "station": station,
+        "date_from": date_from,
+        "date_to": date_to,
+        "labels": labels,
+        "fact_series": fact_series,
+        "plan_series": plan_series,
+        "wind_fact_series": wind_fact_series,
+        "wind_plan_series": wind_plan_series,
+        "points_count": len(merged_points),
+        "comparison_rows": merged_points[:200],
+        "is_single_day_range": is_single_day_range,
+        "fact_energy_kwh": round(fact_energy_kwh),
+        "plan_energy_kwh": round(plan_energy_kwh),
+        "deviation_kwh": round(fact_energy_kwh - plan_energy_kwh),
+        "deviation_percent": round(((fact_energy_kwh - plan_energy_kwh) / plan_energy_kwh * 100.0), 1) if plan_energy_kwh else None,
+        "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
+        "mape_points_count": len(mape_values),
+        "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
+    }
+    return render(request, "wind/station_detail.html", context)
 
 
 @login_required
