@@ -61,6 +61,20 @@ def _normalize_forecast_scope(value: str) -> str:
     return "test" if value == "test" else "main"
 
 
+
+
+def _excel_safe_datetime(series: pd.Series) -> pd.Series:
+    s = pd.to_datetime(series, errors="coerce")
+    try:
+        if getattr(s.dt, "tz", None) is not None:
+            s = s.dt.tz_convert(timezone.get_current_timezone())
+            s = s.dt.tz_localize(None)
+        else:
+            s = s.dt.tz_localize(None)
+    except Exception:
+        pass
+    return s
+
 def _parse_history_datetime(series: pd.Series) -> pd.Series:
     parsed = pd.to_datetime(series, errors="coerce", dayfirst=True)
     missing = parsed.isna()
@@ -300,6 +314,9 @@ def station_export_history(request, pk: int):
     data = list(qs.values("timestamp", "power_kw", "wind_speed_ms", "wind_direction_deg", "air_temp", "air_density"))
     df = pd.DataFrame(data)
 
+    if not df.empty and "timestamp" in df.columns:
+        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
         df.to_excel(w, index=False, sheet_name="wind_history")
@@ -451,6 +468,9 @@ def station_forecast_export(request, pk: int):
         )
     )
     df = pd.DataFrame(data)
+
+    if not df.empty and "timestamp" in df.columns:
+        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
 
     out = BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:

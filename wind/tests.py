@@ -183,3 +183,23 @@ class WindForecastModuleTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get(reverse("wind:station-forecast-list", args=[self.station.pk]))
         self.assertEqual(response.status_code, 200)
+
+
+    def test_forecast_export_returns_excel_for_tz_aware_timestamps(self):
+        from .models import WindForecast
+        from django.utils import timezone
+
+        self.client.force_login(self.user)
+        WindForecast.objects.create(
+            station=self.station,
+            forecast_scope="test",
+            timestamp=timezone.now(),
+            pred_heur=100.0,
+            pred_final=100.0,
+            weather_source="visual_crossing",
+        )
+
+        response = self.client.get(reverse("wind:station-forecast-export", args=[self.station.pk]), {"scope": "test"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response["Content-Type"])
