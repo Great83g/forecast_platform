@@ -115,6 +115,11 @@
         </li>
       </ul>
 
+      <div class="d-flex align-items-center gap-2 me-3">
+        <a class="btn btn-sm {% if request.path|slice:":11" == "/dashboard/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'dashboard:station-list' %}" title="Солнечный модуль">☀️ Солнце</a>
+        <a class="btn btn-sm {% if request.path|slice:":6" == "/wind/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'wind:station-list' %}" title="Ветровой модуль">🌬️ Ветер</a>
+      </div>
+
       {% if user.is_authenticated %}
         <span class="navbar-text text-white me-3">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}" class="d-inline">
