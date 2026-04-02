@@ -32,7 +32,7 @@ media/forecast_reports/
 models_cache/
 *.np
 *.ckpt
-*.json
+
 
 # data
 *.csv
