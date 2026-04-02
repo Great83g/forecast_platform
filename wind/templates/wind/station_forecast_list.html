@@ -1,0 +1,10 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Ветростанция: прогноз{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h3 class="mb-3">{{ station.name }} — прогноз</h3>
+  {% include "wind/_module_placeholder.html" %}
+</div>
+{% endblock %}
