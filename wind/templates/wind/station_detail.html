@@ -4,16 +4,189 @@
 
 {% block content %}
 <div class="container mt-4">
-  <h3 class="mb-3">{{ station.name }} — график / детали</h3>
-  {% include "wind/_module_placeholder.html" %}
+  <h2 class="mb-2">{{ station.name }} — План / Факт</h2>
+  <div class="text-muted mb-3">Тип станции: ветровая</div>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-list' %}">← Назад</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-upload' station.pk %}">История / загрузка</a>
+    <a class="btn btn-warning btn-sm" href="{% url 'wind:station-train' station.pk %}">Обучить модель</a>
+    <a class="btn btn-success btn-sm" href="{% url 'wind:station-forecast-list' station.pk %}">Смотреть прогноз</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="get" class="row g-2 align-items-end">
+        <div class="col-sm-3">
+          <label class="form-label form-label-sm">Дата с</label>
+          <input type="date" class="form-control form-control-sm" name="date_from" value="{{ date_from }}">
+        </div>
+        <div class="col-sm-3">
+          <label class="form-label form-label-sm">Дата по</label>
+          <input type="date" class="form-control form-control-sm" name="date_to" value="{{ date_to }}">
+        </div>
+        <div class="col-sm-6 d-flex gap-2">
+          <button class="btn btn-primary btn-sm" type="submit">Применить фильтр</button>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}">Сбросить</a>
+        </div>
+      </form>
+      <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию с начала текущего месяца)</div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="card-title">График план / факт (МВт)</h6>
+      <div class="small text-muted mb-2">Разрез: {% if is_single_day_range %}<b>по часам</b>{% else %}<b>детально</b>{% endif %}</div>
+
+      <div class="row g-2 mb-3">
+        <div class="col-12 col-md-3">
+          <div class="border rounded p-2 h-100">
+            <div class="small text-muted">Прогноз {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
+            <div class="h5 mb-0">{{ plan_energy_kwh|default:0 }} кВт·ч</div>
+          </div>
+        </div>
+        <div class="col-12 col-md-3">
+          <div class="border rounded p-2 h-100">
+            <div class="small text-muted">Факт {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
+            <div class="h5 mb-0">{{ fact_energy_kwh|default:0 }} кВт·ч</div>
+          </div>
+        </div>
+        <div class="col-12 col-md-3">
+          <div class="border rounded p-2 h-100">
+            <div class="small text-muted">Отклонение (Факт − Прогноз)</div>
+            <div class="h5 mb-0 {% if deviation_kwh < 0 %}text-danger{% elif deviation_kwh > 0 %}text-success{% endif %}">
+              {{ deviation_kwh|default:0 }} кВт·ч
+              {% if deviation_percent is not None %}
+                <span class="small">({{ deviation_percent }}%)</span>
+              {% endif %}
+            </div>
+            <div class="small mt-1 text-muted">
+              MAPE: {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}{% if mape_points_count %} <span class="text-muted">по {{ mape_points_count }} тчк.</span>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
+        <div class="fw-semibold">Показывать:</div>
+        <div class="form-check form-check-inline mb-0">
+          <input class="form-check-input" type="checkbox" id="toggleWindSpeed" checked>
+          <label class="form-check-label" for="toggleWindSpeed">Скорость ветра (план/факт)</label>
+        </div>
+      </div>
+      <div style="height: 420px;"><canvas id="planFactChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="table-responsive mb-3" style="max-height: 50vh; overflow:auto; border:1px solid #ddd;">
+    <table class="table table-sm table-striped mb-0">
+      <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+        <tr>
+          <th>Время</th>
+          <th class="text-end">Факт, МВт</th>
+          <th class="text-end">План, МВт</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in comparison_rows %}
+          <tr>
+            <td>{{ row.timestamp|date:"d.m.Y H:i" }}</td>
+            <td class="text-end">{% if row.fact_mw is not None %}{{ row.fact_mw|floatformat:3 }}{% else %}—{% endif %}</td>
+            <td class="text-end">{% if row.plan_mw is not None %}{{ row.plan_mw|floatformat:3 }}{% else %}—{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="text-center text-muted py-4">Нет данных для сравнения</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
   <div class="card">
     <div class="card-body">
-      <div><strong>Тип:</strong> ветровая станция</div>
       <div><strong>Организация:</strong> {{ station.org.name }}</div>
       <div><strong>Мощность:</strong> {{ station.capacity_mw|floatformat:2 }} МВт</div>
       <div><strong>Координаты:</strong> {{ station.latitude }}, {{ station.longitude }}</div>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{{ labels|json_script:"pf-labels" }}
+{{ fact_series|json_script:"pf-fact" }}
+{{ plan_series|json_script:"pf-plan" }}
+{{ wind_fact_series|json_script:"pf-wind-fact" }}
+{{ wind_plan_series|json_script:"pf-wind-plan" }}
+{{ is_single_day_range|json_script:"pf-single-day" }}
+<script>
+  (function () {
+    const labels = JSON.parse(document.getElementById("pf-labels").textContent || "[]");
+    const factRaw = JSON.parse(document.getElementById("pf-fact").textContent || "[]");
+    const planRaw = JSON.parse(document.getElementById("pf-plan").textContent || "[]");
+    const windFactRaw = JSON.parse(document.getElementById("pf-wind-fact").textContent || "[]");
+    const windPlanRaw = JSON.parse(document.getElementById("pf-wind-plan").textContent || "[]");
+    const isSingleDayRange = JSON.parse(document.getElementById("pf-single-day").textContent || "false");
+
+    const firstPlanIndex = planRaw.findIndex((value) => Number.isFinite(value));
+    const sliceStart = firstPlanIndex >= 0 ? firstPlanIndex : 0;
+    const labelsSynced = labels.slice(sliceStart);
+    const fact = factRaw.slice(sliceStart);
+    const plan = planRaw.slice(sliceStart);
+    const windFact = windFactRaw.slice(sliceStart);
+    const windPlan = windPlanRaw.slice(sliceStart);
+
+    const el = document.getElementById("planFactChart");
+    if (!el) return;
+
+    const chart = new Chart(el, {
+      type: "line",
+      data: {
+        labels: labelsSynced,
+        datasets: [
+          {label: "Факт", data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: "План", data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: "Ветер факт", data: windFact, borderColor: "#fd7e14", backgroundColor: "rgba(253,126,20,0.10)", borderDash: [6, 4], tension: 0.2, spanGaps: true, yAxisID: "yWind", hidden: false},
+          {label: "Ветер план", data: windPlan, borderColor: "#f59f00", backgroundColor: "rgba(245,159,0,0.10)", borderDash: [2, 4], tension: 0.2, spanGaps: true, yAxisID: "yWind", hidden: false}
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: {
+          mode: "index",
+          intersect: false
+        },
+        scales: {
+          yPower: {type: "linear", position: "left", title: {display: true, text: "МВт"}},
+          yWind: {
+            type: "linear",
+            position: "right",
+            title: {display: true, text: "Скорость ветра (м/с)", color: "#fd7e14"},
+            ticks: {color: "#fd7e14"},
+            border: {color: "#fd7e14"},
+            grid: {drawOnChartArea: false},
+            display: true
+          },
+          x: {ticks: {maxRotation: 0, autoSkip: true, maxTicksLimit: isSingleDayRange ? 24 : 31}}
+        },
+      }
+    });
+
+    const toggleWind = document.getElementById("toggleWindSpeed");
+    const applyVisibility = () => {
+      const showWind = Boolean(toggleWind ? toggleWind.checked : true);
+      chart.data.datasets.forEach((dataset) => {
+        if (dataset.yAxisID === "yWind") dataset.hidden = !showWind;
+      });
+      chart.options.scales.yWind.display = showWind;
+      chart.update();
+    };
+
+    if (toggleWind) toggleWind.addEventListener("change", applyVisibility);
+    applyVisibility();
+  })();
+</script>
 {% endblock %}
