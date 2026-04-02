@@ -7,12 +7,13 @@ import re
 from typing import Iterable, List, Optional
 
 import pandas as pd
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from solar.models import SolarForecast
 from stations.models import Station
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMessage, get_connection
 
 from dashboard.models import ForecastReport
 
@@ -172,7 +173,9 @@ def send_report_email(report: ForecastReport, recipients: Iterable[str], station
     try:
         subject = f"Прогноз для {station_name} ({days} дн.)"
         body = f"Отчёт по прогнозу для станции {station_name} во вложении."
-        email = EmailMessage(subject=subject, body=body, to=cleaned)
+        timeout = getattr(settings, "EMAIL_TIMEOUT", 10)
+        connection = get_connection(fail_silently=False, timeout=timeout)
+        email = EmailMessage(subject=subject, body=body, to=cleaned, connection=connection)
         email.attach_file(report.file.path)
         email.send(fail_silently=False)
         return True
