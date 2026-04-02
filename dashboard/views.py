@@ -261,14 +261,17 @@ def _localize_timestamp(value):
 
 
 
-def _station_queryset_for_user(user):
+def _station_queryset_for_user(user, station_kind: str | None = None):
     org_ids = Organization.objects.filter(owner=user).values_list("id", flat=True)
     member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
-    return Station.objects.filter(org_id__in=(org_ids.union(member_org_ids))).distinct()
+    qs = Station.objects.filter(org_id__in=(org_ids.union(member_org_ids))).distinct()
+    if station_kind:
+        qs = qs.filter(station_kind=station_kind)
+    return qs
 
 
-def _get_station_or_404(user, pk: int):
-    return get_object_or_404(_station_queryset_for_user(user), pk=pk)
+def _get_station_or_404(user, pk: int, station_kind: str | None = None):
+    return get_object_or_404(_station_queryset_for_user(user, station_kind=station_kind), pk=pk)
 
 
 
@@ -477,7 +480,7 @@ def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
 
 @login_required
 def station_list(request):
-    stations = list(_station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id"))
+    stations = list(_station_queryset_for_user(request.user, station_kind=Station.KIND_SOLAR).select_related("org").order_by("sort_order", "id"))
     for station in stations:
         station.co2_metrics = _station_co2_metrics(station)
 
@@ -499,14 +502,14 @@ def station_move(request, pk: int, direction: str):
     if request.method != "POST":
         return redirect("dashboard:station-list")
 
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     if direction not in {"up", "down"}:
         messages.error(request, "Неизвестное направление перемещения.")
         return redirect("dashboard:station-list")
 
     siblings = list(
-        _station_queryset_for_user(request.user)
+        _station_queryset_for_user(request.user, station_kind=Station.KIND_SOLAR)
         .filter(org=st.org)
         .order_by("sort_order", "id")
         .only("id", "sort_order")
@@ -561,7 +564,7 @@ def _run_station_auto_history_fill_safe(station: Station) -> int:
 
 @login_required
 def station_edit(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
 
@@ -608,7 +611,7 @@ def station_edit(request, pk: int):
 
 @login_required
 def station_detail(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
@@ -825,7 +828,7 @@ def station_detail(request, pk: int):
 
 @login_required
 def station_plan_fact_export(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
@@ -884,7 +887,7 @@ def station_plan_fact_export(request, pk: int):
 # ----------------------------
 @login_required
 def station_upload(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
     history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
@@ -1011,7 +1014,7 @@ def station_upload(request, pk: int):
 
 @login_required
 def station_export_history(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     history_scope = _normalize_history_scope(request.GET.get("history_scope") or "main")
     qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
@@ -1043,7 +1046,7 @@ def station_train(request, pk: int):
     Страница обучения (GET) + запуск обучения (POST).
     """
     try:
-        st = _get_station_or_404(request.user, pk)
+        st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
         if not _ensure_station_write_access(request, st):
             return redirect("dashboard:station-detail", pk=st.pk)
 
@@ -1085,7 +1088,7 @@ def station_train_models(request, pk: int):
 # ----------------------------
 @login_required
 def station_forecast_list(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
@@ -1221,7 +1224,7 @@ def station_forecast_list(request, pk: int):
 @login_required
 def station_forecast_run(request, pk: int):
     try:
-        st = _get_station_or_404(request.user, pk)
+        st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
         if not _ensure_station_write_access(request, st):
             return redirect("dashboard:station-detail", pk=st.pk)
         days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
@@ -1388,7 +1391,7 @@ def station_forecast_run(request, pk: int):
 
 @login_required
 def station_forecast_schedule_update(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
     if request.method != "POST":
@@ -1437,7 +1440,7 @@ def station_forecast_scheduler_tick(request):
 
 @login_required
 def station_forecast_clear(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
     scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
@@ -1474,7 +1477,7 @@ def station_forecast_clear(request, pk: int):
 
 @login_required
 def station_forecast_export(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
