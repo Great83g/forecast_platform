@@ -85,6 +85,19 @@ class WindForecastScheduleForm(forms.Form):
             ("open_meteo", "Open‑Meteo"),
         ],
     )
+    emails = forms.CharField(
+        label="Email получателей",
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "mail1@example.com, mail2@example.com",
+                "class": "form-control form-control-sm",
+                "style": "width: 320px;",
+            }
+        ),
+    )
+    auto_send = forms.BooleanField(label="Авто‑отправка email", required=False)
+
     scope = forms.ChoiceField(
         label="База прогноза",
         choices=[("main", "Основная"), ("test", "Тестовая")],

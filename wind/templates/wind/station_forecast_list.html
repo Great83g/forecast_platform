@@ -32,6 +32,14 @@
         <input class="form-check-input" type="checkbox" name="providers" value="open_meteo" id="po" checked>
         <label class="form-check-label" for="po">Open‑Meteo</label>
       </div>
+      <div>
+        <label class="form-label mb-0 small">Email</label>
+        <input type="text" class="form-control form-control-sm" name="emails" value="{{ emails }}" placeholder="mail1@example.com, mail2@example.com" style="width:280px;">
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="auto_send" value="1" id="auto_send">
+        <label class="form-check-label" for="auto_send">Авто-отправка email</label>
+      </div>
       <button type="submit" class="btn btn-primary btn-sm">Построить прогноз</button>
     </form>
   </div>
@@ -49,6 +57,7 @@
         <div class="col-auto">{{ schedule_form.scope.label_tag }}{{ schedule_form.scope }}</div>
       </div>
       <div class="mt-2">{{ schedule_form.providers.label_tag }}{{ schedule_form.providers }}</div>
+      <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">{{ schedule_form.emails.label_tag }} {{ schedule_form.emails }} {{ schedule_form.auto_send }} {{ schedule_form.auto_send.label_tag }}</div>
       <button type="submit" class="btn btn-outline-primary btn-sm mt-2">Сохранить автопрогноз</button>
     </form>
   </div>

@@ -6,6 +6,7 @@ from typing import Optional
 
 import pandas as pd
 from django.contrib import messages
+from django.core.files.base import ContentFile
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -16,6 +17,7 @@ from dashboard.forms import UploadHistoryForm
 from dashboard.models import ForecastSchedule
 from dashboard.services.open_meteo import fetch_open_meteo_hourly
 from dashboard.services.vc_weather import fetch_visual_crossing_hourly
+from dashboard.services.forecast_reports import send_report_email
 from stations.models import Organization, OrganizationMember, Station
 
 from .forms import WindForecastScheduleForm, WindStationForm, WindStationProfileForm
@@ -102,6 +104,56 @@ def _wind_power_kw_for_speed(station: Station, speed_ms: float | None) -> float:
     normalized = max((v - cut_in) / denominator, 0.0)
     return capacity_kw * (normalized ** 3)
 
+
+
+
+def _normalize_recipients(value: str) -> list[str]:
+    if not value:
+        return []
+    return [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
+
+
+def _build_wind_forecast_report(station: Station, scope: str, days: int, weather_source: str, recipients_raw: str = ""):
+    from dashboard.models import ForecastReport
+
+    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
+    data = list(
+        qs.values(
+            "timestamp",
+            "pred_heur",
+            "pred_final",
+            "wind_speed_fc",
+            "air_temp_fc",
+            "cloudcover_fc",
+            "humidity_fc",
+            "precip_fc",
+            "weather_source",
+        )
+    )
+    df = pd.DataFrame(data)
+    if not df.empty and "timestamp" in df.columns:
+        df["timestamp"] = _excel_safe_datetime(df["timestamp"])
+        for col in ["pred_heur", "pred_final"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce") / 1000.0
+                df.rename(columns={col: f"{col}_mw"}, inplace=True)
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="wind_forecast")
+    out.seek(0)
+
+    stamp = timezone.localtime(timezone.now()).strftime("%Y%m%d_%H%M%S")
+    filename = f"wind_forecast_station_{station.pk}_{stamp}.xlsx"
+    report = ForecastReport(
+        station=station,
+        days=days,
+        weather_source=weather_source or "",
+        recipients=", ".join(_normalize_recipients(recipients_raw)),
+    )
+    report.file.save(filename, ContentFile(out.getvalue()), save=False)
+    report.save()
+    return report
 
 def _fetch_weather_for_wind(station: Station, days: int, providers: list[str]) -> tuple[pd.DataFrame, str, list[str]]:
     errors = []
@@ -354,6 +406,8 @@ def station_forecast_list(request, pk: int):
         "days": schedule.days if schedule else 2,
         "providers": [p.strip() for p in (schedule.providers or "visual_crossing,open_meteo").split(",") if p.strip()] if schedule else ["visual_crossing", "open_meteo"],
         "scope": "test",
+        "emails": schedule.emails if schedule else "",
+        "auto_send": False,
     }
     schedule_form = WindForecastScheduleForm(initial=initial)
 
@@ -368,6 +422,7 @@ def station_forecast_list(request, pk: int):
             "to": to_s,
             "schedule_form": schedule_form,
             "count": len(forecasts),
+            "emails": initial.get("emails", ""),
         },
     )
 
@@ -378,6 +433,8 @@ def station_forecast_run(request, pk: int):
     days = int(request.GET.get("days") or 2)
     scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     providers = request.GET.getlist("providers") or ["visual_crossing", "open_meteo"]
+    emails_raw = request.GET.get("emails") or ""
+    auto_send = request.GET.get("auto_send") in {"1", "true", "on", "yes"}
 
     if station.latitude is None or station.longitude is None:
         messages.error(request, "Для прогноза задайте координаты станции.")
@@ -412,7 +469,16 @@ def station_forecast_run(request, pk: int):
         )
 
     WindForecast.objects.bulk_create(objs, batch_size=1000)
-    messages.success(request, f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}")
+
+    report = _build_wind_forecast_report(station, scope=scope, days=days, weather_source=weather_source, recipients_raw=emails_raw)
+    msg = f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}. Отчёт: {report.file.name}"
+    if auto_send and emails_raw:
+        sent = send_report_email(report, _normalize_recipients(emails_raw), station.name, days)
+        msg += " | Email: отправлен" if sent else " | Email: ошибка отправки"
+    elif emails_raw:
+        msg += " | Email: авто-отправка выключена"
+
+    messages.success(request, msg)
     return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
 
 
@@ -432,6 +498,7 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.run_time = form.cleaned_data["run_time"]
     schedule.days = form.cleaned_data["days"]
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
+    schedule.emails = form.cleaned_data.get("emails", "")
     schedule.save()
 
     messages.success(request, "Настройки автопрогноза ветра сохранены.")
