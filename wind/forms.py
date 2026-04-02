@@ -98,9 +98,4 @@ class WindForecastScheduleForm(forms.Form):
     )
     auto_send = forms.BooleanField(label="Авто‑отправка email", required=False)
 
-    scope = forms.ChoiceField(
-        label="База прогноза",
-        choices=[("main", "Основная"), ("test", "Тестовая")],
-        initial="test",
-        widget=forms.Select(attrs={"class": "form-select form-select-sm", "style": "width: 160px;"}),
-    )
+

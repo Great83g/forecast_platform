@@ -405,7 +405,6 @@ def station_forecast_list(request, pk: int):
         "run_time": schedule.run_time if schedule else datetime.strptime("06:00", "%H:%M").time(),
         "days": schedule.days if schedule else 2,
         "providers": [p.strip() for p in (schedule.providers or "visual_crossing,open_meteo").split(",") if p.strip()] if schedule else ["visual_crossing", "open_meteo"],
-        "scope": "test",
         "emails": schedule.emails if schedule else "",
         "auto_send": False,
     }
@@ -506,7 +505,7 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.save()
 
     messages.success(request, "Настройки автопрогноза ветра сохранены.")
-    return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={form.cleaned_data.get('scope')}")
+    return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope=main")
 
 
 @login_required

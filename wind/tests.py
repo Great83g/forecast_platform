@@ -248,6 +248,22 @@ class WindForecastModuleTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
 
+
+    def test_schedule_update_redirects_to_main_scope(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("wind:station-forecast-schedule-update", args=[self.station.pk]),
+            data={
+                "enabled": "on",
+                "run_time": "06:00",
+                "days": 2,
+                "providers": ["visual_crossing"],
+                "emails": "a@test.com",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("scope=main", response["Location"])
+
     def test_forecast_list_page_works(self):
         self.client.force_login(self.user)
         response = self.client.get(reverse("wind:station-forecast-list", args=[self.station.pk]))
