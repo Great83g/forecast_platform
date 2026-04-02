@@ -470,13 +470,17 @@ def station_forecast_run(request, pk: int):
 
     WindForecast.objects.bulk_create(objs, batch_size=1000)
 
-    report = _build_wind_forecast_report(station, scope=scope, days=days, weather_source=weather_source, recipients_raw=emails_raw)
-    msg = f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}. Отчёт: {report.file.name}"
-    if auto_send and emails_raw:
-        sent = send_report_email(report, _normalize_recipients(emails_raw), station.name, days)
-        msg += " | Email: отправлен" if sent else " | Email: ошибка отправки"
-    elif emails_raw:
-        msg += " | Email: авто-отправка выключена"
+    msg = f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}"
+    try:
+        report = _build_wind_forecast_report(station, scope=scope, days=days, weather_source=weather_source, recipients_raw=emails_raw)
+        msg += f". Отчёт: {report.file.name}"
+        if auto_send and emails_raw:
+            sent = send_report_email(report, _normalize_recipients(emails_raw), station.name, days)
+            msg += " | Email: отправлен" if sent else " | Email: ошибка отправки"
+        elif emails_raw:
+            msg += " | Email: авто-отправка выключена"
+    except Exception as report_error:
+        msg += f" | Отчёт/Email: ошибка ({report_error})"
 
     messages.success(request, msg)
     return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")

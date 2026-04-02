@@ -214,6 +214,40 @@ class WindForecastModuleTests(TestCase):
         self.assertEqual(response.status_code, 302)
         send_mock.assert_called_once()
 
+
+    @patch("wind.views.send_report_email")
+    @patch("wind.views.fetch_visual_crossing_hourly")
+    def test_forecast_run_email_failure_does_not_crash(self, vc_mock, send_mock):
+        import pandas as pd
+        from types import SimpleNamespace
+
+        self.client.force_login(self.user)
+        df = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-04-03 06:00:00"]),
+                "air_temp": [12.0],
+                "wind_speed": [7.0],
+                "cloudcover": [20.0],
+                "humidity": [50.0],
+                "precip": [0.0],
+            }
+        )
+        vc_mock.return_value = SimpleNamespace(ok=True, source="visual_crossing", df=df, error=None)
+        send_mock.side_effect = Exception("smtp down")
+
+        response = self.client.get(
+            reverse("wind:station-forecast-run", args=[self.station.pk]),
+            {
+                "days": "1",
+                "scope": "test",
+                "providers": ["visual_crossing"],
+                "emails": "a@test.com",
+                "auto_send": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+
     def test_forecast_list_page_works(self):
         self.client.force_login(self.user)
         response = self.client.get(reverse("wind:station-forecast-list", args=[self.station.pk]))
