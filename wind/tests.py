@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
@@ -130,3 +132,54 @@ class WindHistoryUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response["Content-Type"])
+
+
+class WindForecastModuleTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="wind_user4", password="password123")
+        self.org = Organization.objects.create(name="Wind Org 4", owner=self.user)
+        self.station = Station.objects.create(
+            org=self.org,
+            name="Wind Forecast Station",
+            station_kind=Station.KIND_WIND,
+            capacity_mw=4.2,
+            capacity_ac_kw=4200,
+            capacity_dc_kw=4200,
+            latitude=48.0,
+            longitude=67.5,
+            timezone="Asia/Almaty",
+        )
+
+    @patch("wind.views.fetch_visual_crossing_hourly")
+    @patch("wind.views.fetch_open_meteo_hourly")
+    def test_forecast_run_creates_rows_for_scope(self, om_mock, vc_mock):
+        import pandas as pd
+        from types import SimpleNamespace
+        from .models import WindForecast
+
+        self.client.force_login(self.user)
+        df = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-04-03 06:00:00", "2026-04-03 07:00:00"]),
+                "air_temp": [12.0, 11.0],
+                "wind_speed": [7.0, 8.0],
+                "cloudcover": [20.0, 30.0],
+                "humidity": [50.0, 55.0],
+                "precip": [0.0, 0.1],
+            }
+        )
+        vc_mock.return_value = SimpleNamespace(ok=True, source="visual_crossing", df=df, error=None)
+        om_mock.return_value = SimpleNamespace(ok=False, source="open_meteo", df=pd.DataFrame(), error="disabled")
+
+        response = self.client.get(
+            reverse("wind:station-forecast-run", args=[self.station.pk]),
+            {"days": "2", "scope": "test", "providers": ["visual_crossing"]},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="test").count(), 2)
+
+    def test_forecast_list_page_works(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("wind:station-forecast-list", args=[self.station.pk]))
+        self.assertEqual(response.status_code, 200)

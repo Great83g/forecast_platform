@@ -13,10 +13,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 from dashboard.forms import UploadHistoryForm
+from dashboard.models import ForecastSchedule
+from dashboard.services.open_meteo import fetch_open_meteo_hourly
+from dashboard.services.vc_weather import fetch_visual_crossing_hourly
 from stations.models import Organization, OrganizationMember, Station
 
-from .forms import WindStationForm, WindStationProfileForm
-from .models import WindRecord
+from .forms import WindForecastScheduleForm, WindStationForm, WindStationProfileForm
+from .models import WindForecast, WindRecord
 
 
 def _wind_station_queryset_for_user(user):
@@ -54,12 +57,70 @@ def _normalize_history_scope(value: str) -> str:
     return "test" if value == "test" else "main"
 
 
+def _normalize_forecast_scope(value: str) -> str:
+    return "test" if value == "test" else "main"
+
+
 def _parse_history_datetime(series: pd.Series) -> pd.Series:
     parsed = pd.to_datetime(series, errors="coerce", dayfirst=True)
     missing = parsed.isna()
     if missing.any():
         parsed.loc[missing] = pd.to_datetime(series[missing], errors="coerce")
     return parsed
+
+
+def _wind_power_kw_for_speed(station: Station, speed_ms: float | None) -> float:
+    if speed_ms is None or pd.isna(speed_ms):
+        return 0.0
+
+    profile = getattr(station, "wind_profile", None)
+    cut_in = float(getattr(profile, "cut_in_speed_ms", 3.0) or 3.0)
+    rated = float(getattr(profile, "rated_speed_ms", 12.0) or 12.0)
+    cut_out = float(getattr(profile, "cut_out_speed_ms", 25.0) or 25.0)
+    capacity_kw = float(getattr(station, "capacity_ac_kw", 0.0) or 0.0)
+
+    v = float(speed_ms)
+    if v < cut_in or v >= cut_out or capacity_kw <= 0:
+        return 0.0
+    if v >= rated:
+        return capacity_kw
+    denominator = max(rated - cut_in, 0.1)
+    normalized = max((v - cut_in) / denominator, 0.0)
+    return capacity_kw * (normalized ** 3)
+
+
+def _fetch_weather_for_wind(station: Station, days: int, providers: list[str]) -> tuple[pd.DataFrame, str, list[str]]:
+    errors = []
+    results = []
+    used_sources = []
+
+    for provider in providers:
+        if provider == "visual_crossing":
+            wr = fetch_visual_crossing_hourly(station.latitude, station.longitude, days)
+        elif provider == "open_meteo":
+            wr = fetch_open_meteo_hourly(station.latitude, station.longitude, days, tz_name=station.timezone)
+        else:
+            continue
+
+        if wr.ok and not wr.df.empty:
+            df = wr.df.copy()
+            if "wind_direction" in df.columns and "wind_direction_fc" not in df.columns:
+                df["wind_direction_fc"] = pd.to_numeric(df.get("wind_direction"), errors="coerce")
+            results.append(df)
+            used_sources.append(wr.source)
+        else:
+            errors.append(f"{provider}: {wr.error or 'empty'}")
+
+    if not results:
+        return pd.DataFrame(), ",".join(used_sources), errors
+
+    merged = pd.concat(results, ignore_index=True)
+    numeric_cols = [
+        c for c in ["irradiation", "air_temp", "wind_speed", "wind_direction_fc", "cloudcover", "humidity", "precip"] if c in merged.columns
+    ]
+    merged = merged.groupby("ds", as_index=False)[numeric_cols].mean(numeric_only=True)
+    merged = merged.sort_values("ds").reset_index(drop=True)
+    return merged, "+".join(sorted(set(used_sources))), errors
 
 
 @login_required
@@ -255,7 +316,153 @@ def station_export_history(request, pk: int):
 @login_required
 def station_forecast_list(request, pk: int):
     station = _get_wind_station_or_404(request.user, pk)
-    return render(request, "wind/station_forecast_list.html", {"station": station})
+    scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
+
+    from_s = request.GET.get("from") or ""
+    to_s = request.GET.get("to") or ""
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
+
+    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
+    if dt_from:
+        qs = qs.filter(timestamp__date__gte=dt_from.date())
+    if dt_to:
+        qs = qs.filter(timestamp__date__lte=dt_to.date())
+    forecasts = list(qs)
+
+    schedule = ForecastSchedule.objects.filter(station=station).first()
+    initial = {
+        "enabled": bool(schedule.enabled) if schedule else False,
+        "run_time": schedule.run_time if schedule else datetime.strptime("06:00", "%H:%M").time(),
+        "days": schedule.days if schedule else 2,
+        "providers": [p.strip() for p in (schedule.providers or "visual_crossing,open_meteo").split(",") if p.strip()] if schedule else ["visual_crossing", "open_meteo"],
+        "scope": "test",
+    }
+    schedule_form = WindForecastScheduleForm(initial=initial)
+
+    return render(
+        request,
+        "wind/station_forecast_list.html",
+        {
+            "station": station,
+            "forecasts": forecasts,
+            "scope": scope,
+            "from": from_s,
+            "to": to_s,
+            "schedule_form": schedule_form,
+            "count": len(forecasts),
+        },
+    )
+
+
+@login_required
+def station_forecast_run(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    days = int(request.GET.get("days") or 2)
+    scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
+    providers = request.GET.getlist("providers") or ["visual_crossing", "open_meteo"]
+
+    if station.latitude is None or station.longitude is None:
+        messages.error(request, "Для прогноза задайте координаты станции.")
+        return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+    weather_df, weather_source, errors = _fetch_weather_for_wind(station, days, providers)
+    if weather_df.empty:
+        messages.error(request, f"Не удалось получить погоду: {'; '.join(errors) or 'empty response'}")
+        return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+    WindForecast.objects.filter(station=station, forecast_scope=scope).delete()
+
+    objs = []
+    for _, row in weather_df.iterrows():
+        speed = pd.to_numeric(row.get("wind_speed"), errors="coerce")
+        pred = _wind_power_kw_for_speed(station, speed)
+        objs.append(
+            WindForecast(
+                station=station,
+                forecast_scope=scope,
+                timestamp=row.get("ds").to_pydatetime() if hasattr(row.get("ds"), "to_pydatetime") else row.get("ds"),
+                pred_heur=pred,
+                pred_final=pred,
+                weather_source=weather_source,
+                air_temp_fc=float(row.get("air_temp")) if pd.notna(row.get("air_temp")) else None,
+                wind_speed_fc=float(speed) if pd.notna(speed) else None,
+                wind_direction_fc=float(row.get("wind_direction_fc")) if pd.notna(row.get("wind_direction_fc")) else None,
+                cloudcover_fc=float(row.get("cloudcover")) if pd.notna(row.get("cloudcover")) else None,
+                humidity_fc=float(row.get("humidity")) if pd.notna(row.get("humidity")) else None,
+                precip_fc=float(row.get("precip")) if pd.notna(row.get("precip")) else None,
+            )
+        )
+
+    WindForecast.objects.bulk_create(objs, batch_size=1000)
+    messages.success(request, f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}")
+    return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+
+@login_required
+def station_forecast_schedule_update(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    if request.method != "POST":
+        return redirect("wind:station-forecast-list", pk=station.pk)
+
+    form = WindForecastScheduleForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Ошибка в настройках автопрогноза ветра.")
+        return redirect("wind:station-forecast-list", pk=station.pk)
+
+    schedule, _ = ForecastSchedule.objects.get_or_create(station=station)
+    schedule.enabled = form.cleaned_data["enabled"]
+    schedule.run_time = form.cleaned_data["run_time"]
+    schedule.days = form.cleaned_data["days"]
+    schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
+    schedule.save()
+
+    messages.success(request, "Настройки автопрогноза ветра сохранены.")
+    return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={form.cleaned_data.get('scope')}")
+
+
+@login_required
+def station_forecast_clear(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
+    deleted, _ = WindForecast.objects.filter(station=station, forecast_scope=scope).delete()
+    messages.success(request, f"Прогноз очищен: удалено {deleted} строк (scope={scope}).")
+    return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+
+@login_required
+def station_forecast_export(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
+
+    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
+    data = list(
+        qs.values(
+            "timestamp",
+            "pred_heur",
+            "pred_final",
+            "weather_source",
+            "air_temp_fc",
+            "wind_speed_fc",
+            "wind_direction_fc",
+            "cloudcover_fc",
+            "humidity_fc",
+            "precip_fc",
+        )
+    )
+    df = pd.DataFrame(data)
+
+    out = BytesIO()
+    with pd.ExcelWriter(out, engine="openpyxl") as w:
+        df.to_excel(w, index=False, sheet_name="wind_forecast")
+    out.seek(0)
+
+    resp = HttpResponse(
+        out.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="wind_forecast_station_{station.pk}.xlsx"'
+    return resp
 
 
 @login_required
