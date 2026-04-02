@@ -23,7 +23,7 @@
       </div>
       <div>
         <label class="form-label mb-0 small">База</label>
-        <select class="form-select form-select-sm" name="scope" style="width:160px;">
+        <select id="manual-scope-select" class="form-select form-select-sm" name="scope" style="width:160px;">
           <option value="main" {% if scope == 'main' %}selected{% endif %}>Основная</option>
           <option value="test" {% if scope == 'test' %}selected{% endif %}>Тестовая</option>
         </select>
@@ -123,4 +123,19 @@
   </table>
 </div>
 
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+  (function () {
+    var select = document.getElementById("manual-scope-select");
+    if (!select) return;
+    select.addEventListener("change", function () {
+      var url = new URL(window.location.href);
+      url.searchParams.set("scope", select.value || "test");
+      window.location.href = url.toString();
+    });
+  })();
+</script>
 {% endblock %}
