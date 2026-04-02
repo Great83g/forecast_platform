@@ -1,0 +1,19 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}Ветростанция: детали{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h3 class="mb-3">{{ station.name }} — график / детали</h3>
+  {% include "wind/_module_placeholder.html" %}
+
+  <div class="card">
+    <div class="card-body">
+      <div><strong>Тип:</strong> ветровая станция</div>
+      <div><strong>Организация:</strong> {{ station.org.name }}</div>
+      <div><strong>Мощность:</strong> {{ station.capacity_mw|floatformat:2 }} МВт</div>
+      <div><strong>Координаты:</strong> {{ station.latitude }}, {{ station.longitude }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

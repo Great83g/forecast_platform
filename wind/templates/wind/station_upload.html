@@ -1,0 +1,101 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+
+<h2 class="mb-2">История ветра: {{ station.name }}</h2>
+<div class="mb-2 small text-muted">Режим истории: <b>{% if history_scope == 'test' %}Тестовая база{% else %}Основная база{% endif %}</b></div>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}">← Назад к станции</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-list' %}">К списку станций</a>
+</div>
+
+<form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+  <div>
+    <label class="form-label mb-0 small">База истории</label>
+    <select class="form-select form-select-sm" name="history_scope" id="history-scope-select" style="min-width: 170px;">
+      <option value="main" {% if history_scope == 'main' %}selected{% endif %}>Основная</option>
+      <option value="test" {% if history_scope == 'test' %}selected{% endif %}>Тестовая</option>
+    </select>
+  </div>
+  <div>
+    <label class="form-label mb-0 small">С даты</label>
+    <input type="date" name="from" id="history-from-date" value="{{ from_date }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <label class="form-label mb-0 small">По дату</label>
+    <input type="date" name="to" id="history-to-date" value="{{ to_date }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
+  </div>
+
+  <div class="ms-auto d-flex gap-2">
+    <a class="btn btn-sm btn-success"
+       href="{% url 'wind:station-export-history' station.pk %}?history_scope={{ history_scope }}&from={{ from_date }}&to={{ to_date }}">
+      Скачать Excel
+    </a>
+  </div>
+</form>
+
+<form method="post" class="mb-3">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="clear">
+  <input type="hidden" name="history_scope" value="{{ history_scope }}">
+  <input type="hidden" name="from" value="{{ from_date }}">
+  <input type="hidden" name="to" value="{{ to_date }}">
+  <button type="submit" class="btn btn-sm btn-outline-danger"
+          onclick="return confirm('Точно удалить историю?');">
+    {% if from_date or to_date %}Удалить по фильтру дат{% else %}Очистить историю{% endif %}
+  </button>
+</form>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <h5 class="card-title mb-2">Загрузить историю ветра (CSV/XLSX)</h5>
+    <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="upload">
+      <input type="hidden" name="history_scope" value="{{ history_scope }}">
+      <input type="file" name="file" class="form-control form-control-sm" style="max-width: 420px;">
+      <button type="submit" class="btn btn-primary btn-sm">Загрузить</button>
+    </form>
+    <div class="text-muted small mt-2">
+      Ожидаемые колонки: <code>ds/timestamp, power_kw/y, wind_speed_ms (или wind_speed/ws), wind_direction_deg, air_temp, air_density</code>
+    </div>
+  </div>
+</div>
+
+<div class="text-muted small mb-2">
+  Всего записей: <b>{{ total_count }}</b>. Отфильтровано: <b>{{ history_count }}</b>.
+</div>
+
+<div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
+  <table class="table table-sm table-striped mb-0">
+    <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
+      <tr>
+        <th>Дата/время</th>
+        <th>Power_KW</th>
+        <th>Wind_Speed_m/s</th>
+        <th>Wind_Direction_deg</th>
+        <th>Air_Temp</th>
+        <th>Air_Density</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in history %}
+        <tr>
+          <td>{{ r.timestamp }}</td>
+          <td>{{ r.power_kw }}</td>
+          <td>{{ r.wind_speed_ms }}</td>
+          <td>{{ r.wind_direction_deg }}</td>
+          <td>{{ r.air_temp }}</td>
+          <td>{{ r.air_density }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4">Нет данных</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
