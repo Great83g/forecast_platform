@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from django.contrib.auth.models import User
 from django.db.models import Max
 from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 import pandas as pd
 import tempfile
@@ -2227,3 +2228,37 @@ class ForecastReportFilenameTests(TestCase):
 
         self.assertIn("forecast_SES_10_MW_", report.file.name)
         self.assertTrue(report.file.name.endswith("_mw.xlsx"))
+
+
+class StationListScopeTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="scope_user", password="secret123")
+        self.org = Organization.objects.create(name="Scope Org", owner=self.user)
+        self.solar_station = Station.objects.create(
+            org=self.org,
+            name="Solar A",
+            station_kind=Station.KIND_SOLAR,
+            capacity_mw=10.0,
+        )
+        self.wind_station = Station.objects.create(
+            org=self.org,
+            name="Wind A",
+            station_kind=Station.KIND_WIND,
+            capacity_mw=12.0,
+        )
+
+    def test_dashboard_station_list_shows_only_solar(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("dashboard:station-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Solar A")
+        self.assertNotContains(response, "Wind A")
+
+    def test_wind_station_cannot_be_moved_from_dashboard_endpoint(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse("dashboard:station-move", args=[self.wind_station.pk, "up"]))
+
+        self.assertEqual(response.status_code, 404)
