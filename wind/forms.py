@@ -62,3 +62,40 @@ class WindStationProfileForm(forms.ModelForm):
             self.add_error("cut_out_speed_ms", "Скорость отключения должна быть выше номинальной.")
 
         return cleaned
+
+
+class WindForecastScheduleForm(forms.Form):
+    enabled = forms.BooleanField(label="Авто‑прогноз", required=False)
+    run_time = forms.TimeField(
+        label="Время запуска",
+        widget=forms.TimeInput(attrs={"type": "time", "class": "form-control form-control-sm"}),
+    )
+    days = forms.IntegerField(
+        label="Дней вперёд",
+        min_value=1,
+        max_value=7,
+        widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
+    )
+    providers = forms.MultipleChoiceField(
+        label="Провайдеры",
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=[
+            ("visual_crossing", "Visual Crossing"),
+            ("open_meteo", "Open‑Meteo"),
+        ],
+    )
+    emails = forms.CharField(
+        label="Email получателей",
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "placeholder": "mail1@example.com, mail2@example.com",
+                "class": "form-control form-control-sm",
+                "style": "width: 320px;",
+            }
+        ),
+    )
+    auto_send = forms.BooleanField(label="Авто‑отправка email", required=False)
+
+
