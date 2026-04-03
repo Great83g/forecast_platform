@@ -4,11 +4,31 @@ from django.db.models import Q
 from stations.models import Organization, Station
 from .models import WindStationProfile
 
+AUTO_HISTORY_TIME_INPUT_FORMATS = [
+    "%H:%M",
+    "%H:%M:%S",
+    "%I:%M %p",
+    "%I:%M:%S %p",
+    "%I:%M%p",
+    "%I:%M:%S%p",
+]
+
 
 class WindStationForm(forms.ModelForm):
     class Meta:
         model = Station
-        fields = ["name", "org", "latitude", "longitude", "timezone", "data_shift_hours"]
+        fields = [
+            "name",
+            "org",
+            "latitude",
+            "longitude",
+            "timezone",
+            "data_shift_hours",
+            "auto_history_enabled",
+            "auto_history_folder",
+            "auto_history_script",
+            "auto_history_run_time",
+        ]
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)
@@ -19,7 +39,33 @@ class WindStationForm(forms.ModelForm):
         self.fields["longitude"].label = "Долгота"
         self.fields["timezone"].label = "Часовой пояс"
         self.fields["data_shift_hours"].label = "Сдвиг данных (часы)"
+        self.fields["auto_history_enabled"].label = "Автозаполнение истории"
+        self.fields["auto_history_folder"].label = "Папка автоимпорта"
+        self.fields["auto_history_script"].label = "Скрипт автоистории"
+        self.fields["auto_history_run_time"].label = "Время автопроверки"
         self.fields["data_shift_hours"].required = False
+        self.fields["auto_history_enabled"].help_text = (
+            "Если включено — планировщик будет автоматически подтягивать историю из указанной папки."
+        )
+        self.fields["auto_history_folder"].help_text = (
+            "Например: /mnt/share или /mnt/share/wind для CSV/XLSX истории ветростанции."
+        )
+        self.fields["auto_history_script"].help_text = (
+            "Куда добавлять: wind/services/history_scripts/. "
+            "Формат: module_name, python.module:function_name или /path/to/file.py:function_name."
+        )
+        self.fields["auto_history_script"].widget.attrs.setdefault(
+            "placeholder",
+            "example_wind  или  wind.services.history_scripts.example_wind:build_history_dataframe",
+        )
+        self.fields["auto_history_run_time"].help_text = (
+            "Ежедневно в это время будет запускаться проверка новой истории."
+        )
+        self.fields["auto_history_run_time"].input_formats = AUTO_HISTORY_TIME_INPUT_FORMATS
+        self.fields["auto_history_run_time"].widget = forms.TimeInput(attrs={"type": "time", "step": "60"})
+
+        if not self.instance.pk and not self.is_bound:
+            self.fields["auto_history_folder"].initial = "/mnt/share/wind"
 
         if user is not None:
             self.fields["org"].queryset = Organization.objects.filter(
@@ -97,5 +143,4 @@ class WindForecastScheduleForm(forms.Form):
         ),
     )
     auto_send = forms.BooleanField(label="Авто‑отправка email", required=False)
-
 
