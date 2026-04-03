@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 import importlib
 import logging
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -363,6 +364,26 @@ def about_company(request):
 
 
 def onboarding_guide(request):
+    guide_dir = Path(settings.BASE_DIR) / "dashboard" / "static" / "dashboard" / "img" / "guide"
+
+    def _step_images(step_number: int, fallback: list[str]) -> list[str]:
+        if not guide_dir.exists():
+            return fallback
+
+        candidates = []
+        for path in guide_dir.glob(f"step-{step_number}-screen-*.*"):
+            if path.suffix.lower() not in {".svg", ".png", ".jpg", ".jpeg", ".webp"}:
+                continue
+            match = re.search(rf"step-{step_number}-screen-(\d+)", path.stem)
+            order = int(match.group(1)) if match else 9999
+            candidates.append((order, path.name))
+
+        if not candidates:
+            return fallback
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return [f"dashboard/img/guide/{name}" for _, name in candidates[:5]]
+
     guide_steps = [
         {
             "title": "Добавьте первую станцию",
@@ -371,10 +392,10 @@ def onboarding_guide(request):
                 "Заполните название станции, мощность, координаты и организацию.",
                 "После сохранения проверьте, что станция появилась в общем списке.",
             ],
-            "images": [
+            "images": _step_images(1, [
                 "dashboard/img/guide/step-1-screen-1.svg",
                 "dashboard/img/guide/step-1-screen-2.svg",
-            ],
+            ]),
         },
         {
             "title": "Заполните параметры станции",
@@ -383,10 +404,10 @@ def onboarding_guide(request):
                 "Сверьте технические параметры перед сохранением карточки станции.",
                 "Если есть несколько станций, используйте понятные названия для каждой из них.",
             ],
-            "images": [
+            "images": _step_images(2, [
                 "dashboard/img/guide/step-2-screen-1.svg",
                 "dashboard/img/guide/step-2-screen-2.svg",
-            ],
+            ]),
         },
         {
             "title": "Загрузите исторические данные",
@@ -396,10 +417,10 @@ def onboarding_guide(request):
                 "После импорта убедитесь, что данные появились без ошибок.",
                 "Если истории пока нет, этот шаг можно пропустить и использовать режим прогноза без истории.",
             ],
-            "images": [
+            "images": _step_images(3, [
                 "dashboard/img/guide/step-3-screen-1.svg",
                 "dashboard/img/guide/step-3-screen-2.svg",
-            ],
+            ]),
         },
         {
             "title": "Обучите модель и запустите прогноз",
@@ -410,10 +431,10 @@ def onboarding_guide(request):
                 "Затем выполните расчёт прогноза и проверьте итоговые значения.",
                 "Если истории нет, запустите режим прогноза без истории (только эвристика).",
             ],
-            "images": [
+            "images": _step_images(4, [
                 "dashboard/img/guide/step-4-screen-1.svg",
                 "dashboard/img/guide/step-4-screen-2.svg",
-            ],
+            ]),
         },
         {
             "title": "Проверьте отчёт и доступы",
@@ -422,10 +443,10 @@ def onboarding_guide(request):
                 "Проверьте почасовой прогноз, отчёт и экспортируемые данные.",
                 "Выдайте доступ коллегам, если они тоже будут работать со станцией.",
             ],
-            "images": [
+            "images": _step_images(5, [
                 "dashboard/img/guide/step-5-screen-1.svg",
                 "dashboard/img/guide/step-5-screen-2.svg",
-            ],
+            ]),
         },
     ]
     support_steps = [
