@@ -73,6 +73,7 @@ class WindModuleRouteTests(TestCase):
 
         urls = [
             reverse("wind:station-detail", args=[self.station.pk]),
+            reverse("wind:station-edit", args=[self.station.pk]),
             reverse("wind:station-upload", args=[self.station.pk]),
             reverse("wind:station-forecast-list", args=[self.station.pk]),
             reverse("wind:station-train", args=[self.station.pk]),
@@ -87,9 +88,52 @@ class WindModuleRouteTests(TestCase):
         response = self.client.get(reverse("wind:station-list"))
 
         self.assertContains(response, reverse("wind:station-detail", args=[self.station.pk]))
+        self.assertContains(response, reverse("wind:station-edit", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-upload", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-forecast-list", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-train", args=[self.station.pk]))
+
+    def test_wind_station_edit_updates_auto_history_fields(self):
+        from .models import WindStationProfile
+
+        self.client.force_login(self.user)
+        WindStationProfile.objects.create(
+            station=self.station,
+            turbine_count=2,
+            turbine_rated_power_kw=2000,
+            hub_height_m=100,
+            rotor_diameter_m=120,
+            cut_in_speed_ms=3,
+            rated_speed_ms=12,
+            cut_out_speed_ms=25,
+        )
+        payload = {
+            "name": self.station.name,
+            "org": self.org.id,
+            "latitude": 48.0,
+            "longitude": 67.5,
+            "timezone": "Asia/Almaty",
+            "data_shift_hours": 1,
+            "auto_history_enabled": "on",
+            "auto_history_folder": "/mnt/share/wind/edit",
+            "auto_history_script": "example_wind",
+            "auto_history_run_time": "07:15",
+            "turbine_count": 2,
+            "turbine_rated_power_kw": 2000,
+            "hub_height_m": 100,
+            "rotor_diameter_m": 120,
+            "cut_in_speed_ms": 3,
+            "rated_speed_ms": 12,
+            "cut_out_speed_ms": 25,
+        }
+
+        response = self.client.post(reverse("wind:station-edit", args=[self.station.pk]), data=payload)
+
+        self.assertEqual(response.status_code, 302)
+        self.station.refresh_from_db()
+        self.assertTrue(self.station.auto_history_enabled)
+        self.assertEqual(self.station.auto_history_folder, "/mnt/share/wind/edit")
+        self.assertEqual(self.station.auto_history_script, "example_wind")
 
 
 class WindHistoryUploadTests(TestCase):

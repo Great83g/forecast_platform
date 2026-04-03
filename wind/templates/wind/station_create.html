@@ -1,10 +1,10 @@
 {% extends "dashboard/base.html" %}
 
-{% block title %}Новая ветростанция{% endblock %}
+{% block title %}{% if is_edit %}Редактирование ветростанции{% else %}Новая ветростанция{% endif %}{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-  <h3 class="mb-3">Создать ветростанцию</h3>
+  <h3 class="mb-3">{% if is_edit %}Редактировать ветростанцию{% else %}Создать ветростанцию{% endif %}</h3>
 
   <div class="card">
     <div class="card-body">
@@ -19,7 +19,7 @@
         {{ profile_form.as_p }}
 
         <div class="mt-3 d-flex gap-2">
-          <button type="submit" class="btn btn-primary">Сохранить</button>
+          <button type="submit" class="btn btn-primary">{% if is_edit %}Сохранить изменения{% else %}Сохранить{% endif %}</button>
           <a href="{% url 'wind:station-list' %}" class="btn btn-secondary">Отмена</a>
         </div>
       </form>

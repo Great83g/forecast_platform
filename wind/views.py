@@ -260,6 +260,51 @@ def station_create(request):
         {
             "station_form": station_form,
             "profile_form": profile_form,
+            "is_edit": False,
+        },
+    )
+
+
+@login_required
+def station_edit(request, pk: int):
+    station = _get_wind_station_or_404(request.user, pk)
+    profile = getattr(station, "wind_profile", None)
+
+    if request.method == "POST":
+        station_form = WindStationForm(request.POST, instance=station, user=request.user)
+        profile_form = WindStationProfileForm(request.POST, instance=profile)
+        if station_form.is_valid() and profile_form.is_valid():
+            st = station_form.save(commit=False)
+            st.station_kind = Station.KIND_WIND
+
+            profile_obj = profile_form.save(commit=False)
+            installed_capacity_kw = profile_obj.installed_capacity_kw
+            st.capacity_ac_kw = installed_capacity_kw
+            st.capacity_dc_kw = installed_capacity_kw
+            st.capacity_mw = installed_capacity_kw / 1000.0
+
+            if st.data_shift_hours in (None, ""):
+                st.data_shift_hours = 0
+
+            st.save()
+            profile_obj.station = st
+            profile_obj.save()
+
+            messages.success(request, "Параметры ветростанции обновлены.")
+            return redirect("wind:station-list")
+        messages.error(request, "Проверьте форму: есть ошибки в параметрах ветростанции.")
+    else:
+        station_form = WindStationForm(instance=station, user=request.user)
+        profile_form = WindStationProfileForm(instance=profile)
+
+    return render(
+        request,
+        "wind/station_create.html",
+        {
+            "station_form": station_form,
+            "profile_form": profile_form,
+            "is_edit": True,
+            "station": station,
         },
     )
 
