@@ -1,4 +1,6 @@
 from unittest.mock import patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -6,7 +8,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from stations.models import Organization, Station
-from .models import WindStationProfile
+from .models import WindRecord, WindStationProfile
 
 
 class WindPagesTests(TestCase):
@@ -27,6 +29,10 @@ class WindPagesTests(TestCase):
             "longitude": 70.0,
             "timezone": "Asia/Almaty",
             "data_shift_hours": 0,
+            "auto_history_enabled": "on",
+            "auto_history_folder": "/mnt/share/wind/farm1",
+            "auto_history_script": "example_wind",
+            "auto_history_run_time": "06:30",
             "turbine_count": 5,
             "turbine_rated_power_kw": 3000,
             "hub_height_m": 105,
@@ -42,6 +48,9 @@ class WindPagesTests(TestCase):
         station = Station.objects.get(name="Wind Farm 1")
         self.assertEqual(station.station_kind, Station.KIND_WIND)
         self.assertEqual(station.capacity_mw, 15.0)
+        self.assertTrue(station.auto_history_enabled)
+        self.assertEqual(station.auto_history_folder, "/mnt/share/wind/farm1")
+        self.assertEqual(station.auto_history_script, "example_wind")
         profile = WindStationProfile.objects.get(station=station)
         self.assertEqual(profile.turbine_count, 5)
 
@@ -64,6 +73,7 @@ class WindModuleRouteTests(TestCase):
 
         urls = [
             reverse("wind:station-detail", args=[self.station.pk]),
+            reverse("wind:station-edit", args=[self.station.pk]),
             reverse("wind:station-upload", args=[self.station.pk]),
             reverse("wind:station-forecast-list", args=[self.station.pk]),
             reverse("wind:station-train", args=[self.station.pk]),
@@ -78,9 +88,52 @@ class WindModuleRouteTests(TestCase):
         response = self.client.get(reverse("wind:station-list"))
 
         self.assertContains(response, reverse("wind:station-detail", args=[self.station.pk]))
+        self.assertContains(response, reverse("wind:station-edit", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-upload", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-forecast-list", args=[self.station.pk]))
         self.assertContains(response, reverse("wind:station-train", args=[self.station.pk]))
+
+    def test_wind_station_edit_updates_auto_history_fields(self):
+        from .models import WindStationProfile
+
+        self.client.force_login(self.user)
+        WindStationProfile.objects.create(
+            station=self.station,
+            turbine_count=2,
+            turbine_rated_power_kw=2000,
+            hub_height_m=100,
+            rotor_diameter_m=120,
+            cut_in_speed_ms=3,
+            rated_speed_ms=12,
+            cut_out_speed_ms=25,
+        )
+        payload = {
+            "name": self.station.name,
+            "org": self.org.id,
+            "latitude": 48.0,
+            "longitude": 67.5,
+            "timezone": "Asia/Almaty",
+            "data_shift_hours": 1,
+            "auto_history_enabled": "on",
+            "auto_history_folder": "/mnt/share/wind/edit",
+            "auto_history_script": "example_wind",
+            "auto_history_run_time": "07:15",
+            "turbine_count": 2,
+            "turbine_rated_power_kw": 2000,
+            "hub_height_m": 100,
+            "rotor_diameter_m": 120,
+            "cut_in_speed_ms": 3,
+            "rated_speed_ms": 12,
+            "cut_out_speed_ms": 25,
+        }
+
+        response = self.client.post(reverse("wind:station-edit", args=[self.station.pk]), data=payload)
+
+        self.assertEqual(response.status_code, 302)
+        self.station.refresh_from_db()
+        self.assertTrue(self.station.auto_history_enabled)
+        self.assertEqual(self.station.auto_history_folder, "/mnt/share/wind/edit")
+        self.assertEqual(self.station.auto_history_script, "example_wind")
 
 
 class WindHistoryUploadTests(TestCase):
@@ -289,3 +342,49 @@ class WindForecastModuleTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response["Content-Type"])
+
+
+class WindAutoHistoryServiceTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="wind_auto_user", password="password123")
+        self.org = Organization.objects.create(name="Wind Auto Org", owner=self.user)
+        self.station = Station.objects.create(
+            org=self.org,
+            name="Wind Auto Station",
+            station_kind=Station.KIND_WIND,
+            capacity_mw=2.0,
+            capacity_ac_kw=2000,
+            capacity_dc_kw=2000,
+            auto_history_enabled=True,
+        )
+
+    def test_dashboard_auto_history_uses_wind_upsert_for_wind_station(self):
+        from dashboard.services.history_autofill import upsert_station_history_from_share
+
+        with TemporaryDirectory() as td:
+            folder = Path(td)
+            (folder / "wind.csv").write_text(
+                "ds,power_kw,wind_speed_ms,air_temp\n"
+                "2026-03-01 00:10:00,100,5.1,11\n"
+                "2026-03-01 01:20:00,120,5.5,12\n",
+                encoding="utf-8",
+            )
+            self.station.auto_history_folder = str(folder)
+            self.station.save(update_fields=["auto_history_folder"])
+
+            rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 2)
+        self.assertEqual(WindRecord.objects.filter(station=self.station, history_scope=WindRecord.HISTORY_SCOPE_MAIN).count(), 2)
+
+    def test_wind_auto_history_custom_script_name_works(self):
+        from wind.services.history_autofill import upsert_station_history_from_share
+
+        with TemporaryDirectory() as td:
+            self.station.auto_history_folder = td
+            self.station.auto_history_script = "example_wind"
+            self.station.save(update_fields=["auto_history_folder", "auto_history_script"])
+
+            rows = upsert_station_history_from_share(self.station)
+
+        self.assertEqual(rows, 0)
