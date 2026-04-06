@@ -15,6 +15,8 @@ bash deploy/run_scheduler_tick.sh
 */10 * * * * cd /path/to/forecast_platform && /bin/bash deploy/run_scheduler_tick.sh >> /var/log/forecast_scheduler.log 2>&1
 ```
 
+Скрипт `run_scheduler_tick.sh` использует `flock` (если доступен), чтобы не запускать параллельные тики и уменьшить риск `database is locked`.
+
 ## Что проверять
 
 1. У станции включён «Авто‑прогноз».
