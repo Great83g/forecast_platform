@@ -7,6 +7,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
+from dashboard.models import ForecastSchedule
+from dashboard.services.forecast_scheduler import run_scheduled_forecasts
 from stations.models import Organization, Station
 from .models import WindRecord, WindStationProfile
 
@@ -342,6 +344,40 @@ class WindForecastModuleTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response["Content-Type"])
+
+    @patch("dashboard.services.forecast_scheduler.send_report_email")
+    @patch("dashboard.services.forecast_scheduler.fetch_weather_for_wind")
+    def test_wind_scheduler_runs_without_email(self, weather_mock, send_mock):
+        import pandas as pd
+        from .models import WindForecast
+
+        df = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-04-03 06:00:00", "2026-04-03 07:00:00"]),
+                "air_temp": [12.0, 11.0],
+                "wind_speed": [7.0, 8.0],
+                "cloudcover": [20.0, 30.0],
+                "humidity": [50.0, 55.0],
+                "precip": [0.0, 0.1],
+            }
+        )
+        weather_mock.return_value = (df, "visual_crossing", [])
+
+        ForecastSchedule.objects.create(
+            station=self.station,
+            enabled=True,
+            run_time="06:00",
+            days=2,
+            horizon_mode="legacy",
+            providers="visual_crossing",
+            emails="",
+        )
+
+        count = run_scheduled_forecasts(force=True)
+
+        self.assertEqual(count, 1)
+        self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="main").count(), 2)
+        send_mock.assert_not_called()
 
 
 class WindAutoHistoryServiceTests(TestCase):
