@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 from django.db.models import Q
 from django.db.models import Avg, Sum
 from django.db.models.functions import TruncHour

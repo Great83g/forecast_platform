@@ -55,3 +55,9 @@ Open station page and confirm:
 - no stack traces in logs
 - MAPE starts updating with new forecast windows
 
+## 6) Interpret training output quickly
+
+- `[TRAIN] done station=... rows=NNN; np=...; xgb=...` -> training finished successfully.
+- `rows=0; np=None; xgb=None` -> station has no usable history in DB, model files are not produced.
+- `удалено ... строк с NaN/inf` -> raw history had bad rows; after cleaning, training may still proceed.
+- Repeated `FutureWarning` from pandas/neuralprophet is noisy but non-blocking for current runtime.
