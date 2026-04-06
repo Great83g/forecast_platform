@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import json
 import logging
+import importlib.util
 from datetime import date, timedelta
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -27,6 +27,14 @@ from .vc_weather import fetch_visual_crossing_hourly
 
 MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
 logger = logging.getLogger(__name__)
+
+
+def _xgb_module() -> Any:
+    if importlib.util.find_spec("xgboost") is None:
+        return None
+    import xgboost
+
+    return xgboost
 
 
 def _station_data_shift_hours(station: Station) -> int:
@@ -563,7 +571,10 @@ def _compute_winter_factors(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _load_xgb_model(path: Path) -> Optional[xgb.Booster]:
+def _load_xgb_model(path: Path) -> Optional[Any]:
+    xgb = _xgb_module()
+    if xgb is None:
+        return None
     try:
         booster = xgb.Booster()
         booster.load_model(str(path))
@@ -797,7 +808,10 @@ def _predict_np(
     return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
 
 
-def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
+def _predict_xgb(booster: Any, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
+    xgb = _xgb_module()
+    if xgb is None:
+        return np.zeros(len(df_feat), dtype=float)
     X = df_feat[feature_names].astype(float)
     dmat = xgb.DMatrix(X, feature_names=feature_names)
     pred = booster.predict(dmat)
