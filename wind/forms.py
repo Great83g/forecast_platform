@@ -122,6 +122,16 @@ class WindForecastScheduleForm(forms.Form):
         max_value=7,
         widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
     )
+    horizon_mode = forms.ChoiceField(
+        label="Режим горизонта",
+        required=False,
+        choices=[
+            ("legacy", "Обычный (старый)"),
+            ("weekday_calendar", "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)"),
+        ],
+        widget=forms.Select(attrs={"class": "form-select form-select-sm", "style": "width: 360px;"}),
+        initial="weekday_calendar",
+    )
     providers = forms.MultipleChoiceField(
         label="Провайдеры",
         required=False,
@@ -143,4 +153,3 @@ class WindForecastScheduleForm(forms.Form):
         ),
     )
     auto_send = forms.BooleanField(label="Авто‑отправка email", required=False)
-

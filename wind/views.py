@@ -632,6 +632,7 @@ def station_forecast_list(request, pk: int):
         "enabled": bool(schedule.enabled) if schedule else False,
         "run_time": schedule.run_time if schedule else datetime.strptime("06:00", "%H:%M").time(),
         "days": schedule.days if schedule else 2,
+        "horizon_mode": (schedule.horizon_mode or "weekday_calendar") if schedule else "weekday_calendar",
         "providers": [p.strip() for p in (schedule.providers or "visual_crossing,open_meteo").split(",") if p.strip()] if schedule else ["visual_crossing", "open_meteo"],
         "emails": schedule.emails if schedule else "",
         "auto_send": False,
@@ -728,6 +729,7 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.enabled = form.cleaned_data["enabled"]
     schedule.run_time = form.cleaned_data["run_time"]
     schedule.days = form.cleaned_data["days"]
+    schedule.horizon_mode = form.cleaned_data.get("horizon_mode") or "weekday_calendar"
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
     schedule.emails = form.cleaned_data.get("emails", "")
     schedule.save()

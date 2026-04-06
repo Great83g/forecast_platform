@@ -58,10 +58,12 @@
         <div class="col-auto">{{ schedule_form.enabled }}</div>
         <div class="col-auto">{{ schedule_form.run_time.label_tag }}{{ schedule_form.run_time }}</div>
         <div class="col-auto">{{ schedule_form.days.label_tag }}{{ schedule_form.days }}</div>
+        <div class="col-auto">{{ schedule_form.horizon_mode.label_tag }}{{ schedule_form.horizon_mode }}</div>
         <div class="col-auto"><label class="form-label">База автопрогноза</label><div class="form-control form-control-sm">Основная (фиксировано)</div></div>
       </div>
       <div class="mt-2">{{ schedule_form.providers.label_tag }}{{ schedule_form.providers }}</div>
       <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">{{ schedule_form.emails.label_tag }} {{ schedule_form.emails }} {{ schedule_form.auto_send }} {{ schedule_form.auto_send.label_tag }}</div>
+      <div class="text-muted small mt-2">Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.</div>
       <button type="submit" class="btn btn-outline-primary btn-sm mt-2">Сохранить автопрогноз</button>
     </form>
   </div>
