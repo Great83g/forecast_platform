@@ -66,6 +66,43 @@
             </div>
           </div>
         </div>
+        <div class="col-12 col-md-3">
+          <div class="border rounded p-2 h-100">
+            <div class="small text-muted">Диагностика модели</div>
+            <div class="small mt-1">
+              Утро 06–09 MAPE:
+              {% if morning_mape_percent is not None %}
+                <b>{{ morning_mape_percent }}%</b>
+              {% else %}
+                —
+              {% endif %}
+            </div>
+            <div class="small mt-1">
+              Недобор пиков:
+              {% if peak_underforecast_share_percent is not None %}
+                <b>{{ peak_underforecast_share_percent }}%</b>
+                <span class="text-muted">по {{ peak_points_count }} тчк.</span>
+              {% else %}
+                —
+              {% endif %}
+            </div>
+            <div class="small mt-1">
+              Системный bias (энергия):
+              {% if energy_bias_percent is not None %}
+                <b class="{% if energy_bias_percent < -10 %}text-danger{% endif %}">{{ energy_bias_percent }}%</b>
+              {% else %}
+                —
+              {% endif %}
+            </div>
+            <div class="small mt-1">
+              Рекоменд. сдвиг времени:
+              <b>{{ suggested_shift_hours }}ч</b>
+              {% if suggested_shift_points %}
+                <span class="text-muted">({{ suggested_shift_points }} тчк.)</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
       </div>
     
     <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
