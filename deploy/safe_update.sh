@@ -54,6 +54,12 @@ if git stash list | grep -q "wip-before-safe-update"; then
 fi
 
 # 4) деплой
+if ! python3 manage.py makemigrations --check --dry-run; then
+  echo "[ERR] Есть незакоммиченные изменения моделей (см. вывод выше)."
+  echo "      Сначала создай миграции локально и закоммить их."
+  exit 1
+fi
+
 python3 manage.py migrate
 python3 manage.py cleanup_model_cache
 python3 manage.py collectstatic --noinput
@@ -69,4 +75,3 @@ bash deploy/run_scheduler_tick.sh
 
 echo "=== SAFE UPDATE DONE ==="
 git log --oneline -n 10
-
