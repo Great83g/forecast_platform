@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 from django.db.models import Q
 from django.db.models import Avg, Sum
 from django.db.models.functions import TruncHour
@@ -761,6 +762,12 @@ def station_detail(request, pk: int):
     mape_percent = None
     mape_values = []
     mape_points_count = 0
+    morning_mape_percent = None
+    peak_underforecast_points = 0
+    peak_points_count = 0
+    energy_bias_percent = None
+    suggested_shift_hours = 0
+    suggested_shift_points = 0
     all_timestamps = sorted(
         set(history_map.keys())
         | set(forecast_map.keys())
@@ -822,6 +829,60 @@ def station_detail(request, pk: int):
     else:
         mape_percent = None
 
+    if fact_energy_kwh > 0:
+        energy_bias_percent = ((plan_energy_kwh - fact_energy_kwh) / fact_energy_kwh) * 100.0
+
+    morning_mape_values = []
+    peak_values = []
+    for ts in all_timestamps:
+        fact_kw = history_map.get(ts)
+        plan_kw = forecast_map.get(ts)
+        if fact_kw is None or plan_kw is None or fact_kw <= 0:
+            continue
+        ts_local = timezone.localtime(ts) if timezone.is_aware(ts) else ts
+        hour_local = ts_local.hour
+        if 6 <= hour_local <= 9 and fact_kw >= min_fact_for_mape_kw:
+            morning_mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
+        peak_values.append(fact_kw)
+
+    if morning_mape_values:
+        morning_mape_percent = sum(morning_mape_values) / len(morning_mape_values)
+
+    peak_threshold = float(np.nanpercentile(np.asarray(peak_values, dtype=float), 75)) if peak_values else None
+    if peak_threshold and peak_threshold > 0:
+        for ts in all_timestamps:
+            fact_kw = history_map.get(ts)
+            plan_kw = forecast_map.get(ts)
+            if fact_kw is None or plan_kw is None:
+                continue
+            if fact_kw < peak_threshold:
+                continue
+            peak_points_count += 1
+            if plan_kw < fact_kw * 0.85:
+                peak_underforecast_points += 1
+
+    # Диагностика возможного временного сдвига: ищем лучший лаг в пределах ±2ч.
+    comparison_index = sorted(set(history_map.keys()) & set(forecast_map.keys()))
+    if len(comparison_index) >= 8:
+        shift_scores = {}
+        for shift_hours in (-2, -1, 0, 1, 2):
+            shifted_matches = []
+            for ts in comparison_index:
+                shifted_ts = ts + timedelta(hours=shift_hours)
+                fact_kw = history_map.get(ts)
+                plan_kw_shifted = forecast_map.get(shifted_ts)
+                if fact_kw is None or plan_kw_shifted is None:
+                    continue
+                shifted_matches.append((fact_kw, plan_kw_shifted))
+            if len(shifted_matches) < 6:
+                continue
+            err = np.mean([abs((fact - plan) / fact) * 100.0 for fact, plan in shifted_matches if fact > 0])
+            if np.isfinite(err):
+                shift_scores[shift_hours] = (float(err), len(shifted_matches))
+        if shift_scores:
+            suggested_shift_hours = min(shift_scores.items(), key=lambda kv: kv[1][0])[0]
+            suggested_shift_points = shift_scores[suggested_shift_hours][1]
+
     context = {
         "station": st,
         "date_from": date_from,
@@ -842,6 +903,12 @@ def station_detail(request, pk: int):
         "deviation_percent": round(((fact_energy_kwh - plan_energy_kwh) / plan_energy_kwh * 100.0), 1) if plan_energy_kwh else None,
         "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
         "mape_points_count": mape_points_count,
+        "morning_mape_percent": round(morning_mape_percent, 1) if morning_mape_percent is not None else None,
+        "peak_underforecast_share_percent": round((peak_underforecast_points / peak_points_count) * 100.0, 1) if peak_points_count else None,
+        "peak_points_count": peak_points_count,
+        "energy_bias_percent": round(energy_bias_percent, 1) if energy_bias_percent is not None else None,
+        "suggested_shift_hours": suggested_shift_hours,
+        "suggested_shift_points": suggested_shift_points,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)
