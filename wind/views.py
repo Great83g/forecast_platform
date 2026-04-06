@@ -219,6 +219,15 @@ def _fetch_weather_for_wind(station: Station, days: int, providers: list[str]) -
     return merged, "+".join(sorted(set(used_sources))), errors
 
 
+def _target_offsets_for_weekday_calendar(now_dt) -> list[int]:
+    weekday = now_dt.weekday()
+    if weekday == 4:  # Friday
+        return [2, 3, 4]
+    if weekday in {0, 1, 2, 3}:  # Mon-Thu
+        return [2]
+    return []
+
+
 @login_required
 def station_list(request):
     stations = list(_wind_station_queryset_for_user(request.user).select_related("org", "wind_profile").order_by("sort_order", "id"))
@@ -638,6 +647,7 @@ def station_forecast_list(request, pk: int):
         "auto_send": False,
     }
     schedule_form = WindForecastScheduleForm(initial=initial)
+    manual_horizon_mode = request.GET.get("horizon_mode") or initial.get("horizon_mode") or "legacy"
 
     return render(
         request,
@@ -651,6 +661,7 @@ def station_forecast_list(request, pk: int):
             "schedule_form": schedule_form,
             "count": len(forecasts),
             "emails": initial.get("emails", ""),
+            "manual_horizon_mode": manual_horizon_mode,
         },
     )
 
@@ -663,15 +674,31 @@ def station_forecast_run(request, pk: int):
     providers = request.GET.getlist("providers") or ["visual_crossing", "open_meteo"]
     emails_raw = request.GET.get("emails") or ""
     auto_send = request.GET.get("auto_send") in {"1", "true", "on", "yes"}
+    horizon_mode = request.GET.get("horizon_mode") or "legacy"
 
     if station.latitude is None or station.longitude is None:
         messages.error(request, "Для прогноза задайте координаты станции.")
         return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
 
-    weather_df, weather_source, errors = _fetch_weather_for_wind(station, days, providers)
+    target_dates = None
+    fetch_days = days
+    if horizon_mode == "weekday_calendar":
+        offsets = _target_offsets_for_weekday_calendar(timezone.localtime())
+        if offsets:
+            target_dates = {(timezone.localtime() + pd.Timedelta(days=offset)).date() for offset in offsets}
+            fetch_days = max(offsets) + 1
+
+    weather_df, weather_source, errors = _fetch_weather_for_wind(station, fetch_days, providers)
     if weather_df.empty:
         messages.error(request, f"Не удалось получить погоду: {'; '.join(errors) or 'empty response'}")
         return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+    if target_dates:
+        base_weather_df = weather_df
+        ds = pd.to_datetime(weather_df.get("ds"), errors="coerce")
+        weather_df = weather_df.loc[ds.dt.date.isin(target_dates)].copy()
+        if weather_df.empty:
+            weather_df = base_weather_df
 
     WindForecast.objects.filter(station=station, forecast_scope=scope).delete()
 
@@ -698,7 +725,7 @@ def station_forecast_run(request, pk: int):
 
     WindForecast.objects.bulk_create(objs, batch_size=1000)
 
-    msg = f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}"
+    msg = f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}, mode={horizon_mode}"
     try:
         report = _build_wind_forecast_report(station, scope=scope, days=days, weather_source=weather_source, recipients_raw=emails_raw)
         msg += f". Отчёт: {report.file.name}"

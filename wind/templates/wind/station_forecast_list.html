@@ -28,6 +28,14 @@
           <option value="test" {% if scope == 'test' %}selected{% endif %}>Тестовая</option>
         </select>
       </div>
+      <div>
+        <label class="form-label mb-0 small">Режим горизонта</label>
+        <select id="manual-horizon-mode" class="form-select form-select-sm" name="horizon_mode" style="width:320px;">
+          {% for value, label in schedule_form.horizon_mode.field.choices %}
+            <option value="{{ value }}" {% if manual_horizon_mode == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="form-check">
         <input class="form-check-input" type="checkbox" name="providers" value="visual_crossing" id="pv" checked>
         <label class="form-check-label" for="pv">Visual Crossing</label>

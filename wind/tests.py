@@ -324,6 +324,7 @@ class WindForecastModuleTests(TestCase):
         response = self.client.get(reverse("wind:station-forecast-list", args=[self.station.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "manual-scope-select")
+        self.assertContains(response, "manual-horizon-mode")
 
 
     def test_forecast_export_returns_excel_for_tz_aware_timestamps(self):
