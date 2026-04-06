@@ -83,6 +83,10 @@ XGB_EXPECTED_FEATURES = [
 
 PR_FOR_EXPECTED = 0.90
 FORECAST_GLOBAL_BIAS_MAX = 1.5
+FORECAST_IRRADIATION_NOISE_WM2_DEFAULT = 35.0
+FORECAST_MORNING_IRR_BOOST_DEFAULT = 1.08
+FORECAST_MORNING_IRR_BOOST_MAX = 1.35
+FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT = 0.92
 
 AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
 AUTO_TEMP_MAX_FOR_SNOW = 2.0
@@ -100,6 +104,33 @@ def _forecast_global_bias() -> float:
     except (TypeError, ValueError):
         bias = 1.0
     return float(np.clip(bias, 0.0, FORECAST_GLOBAL_BIAS_MAX))
+
+
+def _forecast_irradiation_noise_floor_wm2() -> float:
+    raw = getattr(settings, "FORECAST_IRRADIATION_NOISE_WM2", FORECAST_IRRADIATION_NOISE_WM2_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_IRRADIATION_NOISE_WM2_DEFAULT
+    return float(np.clip(value, 0.0, 120.0))
+
+
+def _forecast_morning_irradiation_boost() -> float:
+    raw = getattr(settings, "FORECAST_MORNING_IRR_BOOST", FORECAST_MORNING_IRR_BOOST_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_MORNING_IRR_BOOST_DEFAULT
+    return float(np.clip(value, 1.0, FORECAST_MORNING_IRR_BOOST_MAX))
+
+
+def _forecast_clear_sky_floor_ratio() -> float:
+    raw = getattr(settings, "FORECAST_CLEAR_SKY_FLOOR_RATIO", FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT
+    return float(np.clip(value, 0.0, 1.0))
 
 
 def _describe_np_model(model: object) -> str:
@@ -463,6 +494,13 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
 
     out["hour"] = pd.to_datetime(out["ds"]).dt.hour.astype(int)
     out["month"] = pd.to_datetime(out["ds"]).dt.month.astype(int)
+
+    noise_floor = _forecast_irradiation_noise_floor_wm2()
+    out.loc[out["Irradiation"] < noise_floor, "Irradiation"] = 0.0
+
+    morning_boost = _forecast_morning_irradiation_boost()
+    morning_mask = out["hour"].isin([6, 7, 8, 9]) & (out["Irradiation"] > 0)
+    out.loc[morning_mask, "Irradiation"] = out.loc[morning_mask, "Irradiation"] * morning_boost
 
     out["hour_sin"] = np.sin(2 * np.pi * out["hour"] / 24.0)
     out["hour_cos"] = np.cos(2 * np.pi * out["hour"] / 24.0)
@@ -1231,6 +1269,17 @@ def run_forecast_for_station(
             ]
         ),
     )
+
+    clear_sky_floor_ratio = _forecast_clear_sky_floor_ratio()
+    cloudcover_raw = feat["cloudcover"] if "cloudcover" in feat.columns else pd.Series(np.nan, index=feat.index)
+    cloudcover_series = pd.to_numeric(cloudcover_raw, errors="coerce")
+    clear_mask = (
+        (feat["Irradiation"].to_numpy(dtype=float) >= 280.0)
+        & (cloudcover_series.fillna(100.0).to_numpy(dtype=float) <= 35.0)
+    )
+    clear_floor = np.clip(y_heur * clear_sky_floor_ratio, 0, capacity_mw)
+    y_final = np.where(clear_mask, np.maximum(y_final, clear_floor), y_final)
+
     y_final = np.clip(y_final * _forecast_global_bias(), 0, capacity_mw)
 
     auto_winter_factor = feat.get("auto_winter_factor")
