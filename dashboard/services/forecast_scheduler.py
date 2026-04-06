@@ -101,7 +101,9 @@ def _run_wind_scheduled_forecast(schedule: ForecastSchedule, current: timezone.d
         offsets = _target_offsets_for_weekday_calendar(current)
         if offsets:
             target_dates = {(current + timedelta(days=offset)).date() for offset in offsets}
-            days = max(offsets)
+            # Weather APIs могут отдавать горизонт "days" не включая весь последний календарный день.
+            # Берём дополнительный день буфера, чтобы календарный режим стабильно отрабатывал.
+            days = max(offsets) + 1
 
     weather_df, weather_source, errors = fetch_weather_for_wind(station, days, providers)
     if weather_df.empty:
@@ -114,16 +116,17 @@ def _run_wind_scheduled_forecast(schedule: ForecastSchedule, current: timezone.d
         return False
 
     if target_dates:
+        base_weather_df = weather_df
         ds = pd.to_datetime(weather_df.get("ds"), errors="coerce")
         weather_df = weather_df.loc[ds.dt.date.isin(target_dates)].copy()
         if weather_df.empty:
             logger.warning(
-                "Wind scheduled forecast has no rows for target dates station_id=%s schedule_id=%s target_dates=%s",
+                "Wind scheduled forecast has no rows for target dates, fallback to unfiltered horizon station_id=%s schedule_id=%s target_dates=%s",
                 schedule.station_id,
                 schedule.pk,
                 sorted(target_dates),
             )
-            return False
+            weather_df = base_weather_df
 
     WindForecast.objects.filter(station=station, forecast_scope="main").delete()
     rows = []
