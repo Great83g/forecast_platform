@@ -42,6 +42,12 @@ git fetch --all --prune
 git checkout main
 git pull --ff-only origin main
 
+# Восстановить tracked-миграцию, если она случайно удалена локально.
+MIGRATION_PATH="wind/migrations/0004_rename_wind_windfo_station_a76e39_idx_wind_windfo_station_09a39e_idx_and_more.py"
+if git ls-files --error-unmatch "$MIGRATION_PATH" >/dev/null 2>&1 && [ ! -f "$MIGRATION_PATH" ]; then
+  git checkout -- "$MIGRATION_PATH"
+fi
+
 # 2) нужные коммиты (wind scheduler/server update)
 apply_if_missing f536e80 "Wind: scheduled forecasts + horizon_mode/calendar UI"
 apply_if_missing 1053716 "Wind: refactor scheduler service + server runner script/docs"

@@ -43,8 +43,8 @@ class WindRecord(models.Model):
     class Meta:
         ordering = ["timestamp"]
         indexes = [
-            models.Index(fields=["station", "history_scope", "timestamp"]),
-            models.Index(fields=["station", "timestamp"]),
+            models.Index(fields=["station", "history_scope", "timestamp"], name="wind_windre_station_a3073c_idx"),
+            models.Index(fields=["station", "timestamp"], name="wind_windre_station_9dbbbe_idx"),
         ]
 
     def __str__(self) -> str:
@@ -79,8 +79,8 @@ class WindForecast(models.Model):
     class Meta:
         ordering = ["timestamp"]
         indexes = [
-            models.Index(fields=["station", "forecast_scope", "timestamp"]),
-            models.Index(fields=["station", "timestamp"]),
+            models.Index(fields=["station", "forecast_scope", "timestamp"], name="wind_windfo_station_09a39e_idx"),
+            models.Index(fields=["station", "timestamp"], name="wind_windfo_station_cea399_idx"),
         ]
         unique_together = ("station", "forecast_scope", "timestamp")
 
