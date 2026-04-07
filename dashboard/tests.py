@@ -2000,6 +2000,67 @@ class Ses88MwHistoryScriptTests(TestCase):
 
 
 
+
+
+class SesShieli20MwHistoryScriptTests(TestCase):
+    def test_build_history_dataframe_parses_daily_report_and_filters_noise(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_shieli_20mw import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "shieli_report.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["time", "x", "power"])
+            ws.append(["05.04.2026 00:00", "", 5])
+            ws.append(["05.04.2026 01:00", "", 14])
+            ws.append(["05.04.2026 02:00", "", 120])
+            ws.append(["05.04.2026 03:00", "", 9])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder), data_shift_hours=0)
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 2)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-04-05 05:00:00")
+        self.assertEqual(str(out.iloc[1]["ds"]), "2026-04-05 06:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 14.0)
+        self.assertAlmostEqual(float(out.iloc[1]["power_kw"]), 120.0)
+
+    def test_build_history_dataframe_applies_station_shift(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_shieli_20mw import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "shieli_shifted.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["time", "x", "power"])
+            ws.append(["06.04.2026 08:00", "", 50])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder), data_shift_hours=-1)
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-04-06 11:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 50.0)
+
+
+
+
+class SesSheleAliasHistoryScriptTests(TestCase):
+    def test_alias_module_exports_same_builder(self):
+        from dashboard.services.history_scripts.ses_shele_20mw import build_history_dataframe as alias_builder
+        from dashboard.services.history_scripts.ses_shieli_20mw import build_history_dataframe as base_builder
+
+        self.assertIs(alias_builder, base_builder)
+
+
 class Ses50BalkhashHistoryScriptTests(TestCase):
     def test_build_history_dataframe_uses_hourly_mean_for_power(self):
         from openpyxl import Workbook
