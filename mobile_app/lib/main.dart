@@ -33,7 +33,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final _loginController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authApi = AuthApi();
 
@@ -41,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _loginController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -58,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     final result = await _authApi.login(
-      email: _emailController.text,
+      login: _loginController.text,
       password: _passwordController.text,
     );
 
@@ -105,20 +105,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 24),
                     TextFormField(
-                      controller: _emailController,
+                      controller: _loginController,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Email',
+                        labelText: 'Логин (email или username)',
                         border: OutlineInputBorder(),
                       ),
                       validator: (value) {
-                        final email = value?.trim() ?? '';
-                        if (email.isEmpty) {
-                          return 'Введите email';
-                        }
-                        if (!email.contains('@')) {
-                          return 'Некорректный email';
+                        final login = value?.trim() ?? '';
+                        if (login.isEmpty) {
+                          return 'Введите логин';
                         }
                         return null;
                       },
@@ -169,7 +166,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Base URL: ${ApiConfig.baseUrl}',
+                      'Base URL: ${ApiConfig.baseUrl}\nLogin path: ${ApiConfig.loginPath}',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),

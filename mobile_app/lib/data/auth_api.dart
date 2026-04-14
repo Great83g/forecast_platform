@@ -31,36 +31,50 @@ class AuthApi {
   final Dio _dio;
 
   Future<AuthResult> login({
-    required String email,
+    required String login,
     required String password,
   }) async {
+    final normalizedLogin = login.trim();
+
     try {
       final response = await _dio.post<dynamic>(
-        '/auth/login',
+        ApiConfig.loginPath,
         data: {
-          'email': email.trim(),
+          'login': normalizedLogin,
+          'username': normalizedLogin,
+          'email': normalizedLogin,
           'password': password,
         },
       );
 
       final data = response.data;
       if (data is Map<String, dynamic>) {
-        final hasAccessToken = data['accessToken'] != null || data['access_token'] != null;
-        if (hasAccessToken) {
+        final hasToken = data['accessToken'] != null ||
+            data['access_token'] != null ||
+            data['token'] != null ||
+            data['jwt'] != null;
+        if (hasToken) {
           return const AuthResult(success: true, message: 'Вход выполнен успешно');
         }
       }
 
-      return const AuthResult(
+      return AuthResult(
         success: true,
-        message: 'Ответ сервера получен. Подключим токены следующим шагом.',
+        message: 'Успешный ответ от ${ApiConfig.loginPath}. Токены подключим следующим шагом.',
       );
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       final responseData = e.response?.data;
 
+      if (statusCode == 404) {
+        return AuthResult(
+          success: false,
+          message: 'Endpoint ${ApiConfig.loginPath} не найден (404). Проверьте LOGIN_PATH.',
+        );
+      }
+
       if (statusCode == 401 || statusCode == 400) {
-        return const AuthResult(success: false, message: 'Неверный email или пароль');
+        return const AuthResult(success: false, message: 'Неверный логин или пароль');
       }
 
       if (responseData is Map<String, dynamic>) {

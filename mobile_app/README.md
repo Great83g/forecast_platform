@@ -14,7 +14,7 @@ flutter run
 
 ## Подключение к backend (шаг 1)
 
-Сейчас логин отправляет запрос `POST /auth/login` в ваш backend.
+Сейчас логин отправляет запрос `POST` в endpoint из `LOGIN_PATH` (по умолчанию `/auth/login`).
 
 По умолчанию используется URL:
 
@@ -31,6 +31,13 @@ flutter run --dart-define=API_BASE_URL=http://<SERVER_IP>:<PORT>
 ```bash
 flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8000
 ```
+
+Если endpoint логина другой, укажи его явно:
+
+```bash
+flutter run --dart-define=API_BASE_URL=https://intech-forecast.com --dart-define=LOGIN_PATH=/users/login
+```
+
 
 ## Если на эмуляторе появляется `System UI isn't responding`
 
@@ -78,8 +85,8 @@ flutter pub get
 
 ## Что уже реализовано в MVP
 
-- Экран логина на Flutter (`lib/main.dart`).
+- Экран логина на Flutter (`lib/main.dart`) с вводом email/username.
 - Валидация email/пароля.
 - Состояние отправки формы с индикатором загрузки.
-- Реальный HTTP-вызов `POST /auth/login` через Dio.
+- Реальный HTTP-вызов login через Dio с настраиваемым `LOGIN_PATH`.
 - Отображение текущего `baseUrl` на экране для быстрой диагностики.
