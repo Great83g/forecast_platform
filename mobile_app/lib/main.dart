@@ -57,8 +57,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _isSubmitting = true;
     });
 
+    final login = _loginController.text.trim();
     final result = await _authApi.login(
-      login: _loginController.text,
+      login: login,
       password: _passwordController.text,
     );
 
@@ -74,6 +75,16 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Text(result.message),
         backgroundColor: result.success ? Colors.green : Colors.red,
+      ),
+    );
+
+    if (!result.success) {
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => HomeScreen(login: login),
       ),
     );
   }
@@ -174,6 +185,62 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({
+    super.key,
+    required this.login,
+  });
+
+  final String login;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Forecast Platform'),
+        actions: [
+          IconButton(
+            tooltip: 'Выйти',
+            onPressed: () {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+                (_) => false,
+              );
+            },
+            icon: const Icon(Icons.logout),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.check_circle, color: Colors.green, size: 72),
+              const SizedBox(height: 16),
+              Text(
+                'Успешный вход',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Вы вошли как: $login',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Шаг 2 готов: после успешной авторизации открывается домашний экран.',
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
       ),
