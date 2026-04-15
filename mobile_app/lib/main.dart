@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'core/api_config.dart';
-import 'data/auth_api.dart';
 
 void main() {
   runApp(const ForecastMobileApp());
@@ -19,225 +19,88 @@ class ForecastMobileApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4F46E5)),
         useMaterial3: true,
       ),
-      home: const LoginScreen(),
+      home: const PortalLauncherScreen(),
     );
   }
 }
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class PortalLauncherScreen extends StatefulWidget {
+  const PortalLauncherScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<PortalLauncherScreen> createState() => _PortalLauncherScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _loginController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _authApi = AuthApi();
+class _PortalLauncherScreenState extends State<PortalLauncherScreen> {
+  bool _isOpening = false;
 
-  bool _isSubmitting = false;
+  Uri get _portalUri => Uri.parse(ApiConfig.baseUrl);
 
-  @override
-  void dispose() {
-    _loginController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
+  Future<void> _openPortal() async {
+    setState(() => _isOpening = true);
 
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
+    try {
+      final opened = await launchUrl(
+        _portalUri,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!opened && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось открыть: ${_portalUri.toString()}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка открытия: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isOpening = false);
+      }
     }
-
-    FocusScope.of(context).unfocus();
-
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    final login = _loginController.text.trim();
-    final result = await _authApi.login(
-      login: login,
-      password: _passwordController.text,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.message),
-        backgroundColor: result.success ? Colors.green : Colors.red,
-      ),
-    );
-
-    if (!result.success) {
-      return;
-    }
-
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => HomeScreen(login: login),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Forecast Platform',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Вход в мобильное приложение',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 24),
-                    TextFormField(
-                      controller: _loginController,
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Логин (email или username)',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        final login = value?.trim() ?? '';
-                        if (login.isEmpty) {
-                          return 'Введите логин';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _submit(),
-                      decoration: const InputDecoration(
-                        labelText: 'Пароль',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        final password = value ?? '';
-                        if (password.isEmpty) {
-                          return 'Введите пароль';
-                        }
-                        if (password.length < 6) {
-                          return 'Минимум 6 символов';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _isSubmitting ? null : _submit,
-                      child: _isSubmitting
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Войти'),
-                    ),
-                    TextButton(
-                      onPressed: _isSubmitting
-                          ? null
-                          : () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('MVP: экран восстановления добавим следующим шагом.'),
-                                ),
-                              );
-                            },
-                      child: const Text('Забыли пароль?'),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Base URL: ${ApiConfig.baseUrl}\nLogin path: ${ApiConfig.loginPath}',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({
-    super.key,
-    required this.login,
-  });
-
-  final String login;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Forecast Platform'),
-        actions: [
-          IconButton(
-            tooltip: 'Выйти',
-            onPressed: () {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
-                (_) => false,
-              );
-            },
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Forecast Platform')),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 72),
+              const Icon(Icons.language, size: 72),
               const SizedBox(height: 16),
               Text(
-                'Успешный вход',
-                style: Theme.of(context).textTheme.headlineSmall,
+                'Кардинальный режим: открытие портала в браузере',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
-                'Вы вошли как: $login',
+                'URL: ${_portalUri.toString()}',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _isOpening ? null : _openPortal,
+                icon: _isOpening
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.open_in_new),
+                label: Text(_isOpening ? 'Открываю...' : 'Открыть портал'),
+              ),
+              const SizedBox(height: 12),
               const Text(
-                'Шаг 2 готов: после успешной авторизации открывается домашний экран.',
+                'Это самый стабильный путь прямо сейчас: авторизация работает как на сайте, без проблем WebView/эмулятора.',
                 textAlign: TextAlign.center,
               ),
             ],
