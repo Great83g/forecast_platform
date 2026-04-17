@@ -63,6 +63,31 @@
       padding: 0;
     }
 
+    .lang-switcher {
+      display: inline-flex;
+      gap: 0.4rem;
+      margin-left: 0.9rem;
+    }
+
+    .lang-btn {
+      border: 1px solid rgba(168, 197, 255, 0.35);
+      background: rgba(12, 34, 86, 0.55);
+      color: #dce9ff;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 0.22rem 0.45rem;
+      border-radius: 4px;
+      cursor: pointer;
+      line-height: 1.1;
+    }
+
+    .lang-btn.is-active {
+      background: rgba(53, 127, 255, 0.7);
+      border-color: rgba(171, 203, 255, 0.74);
+      color: #ffffff;
+    }
+
     .hero-menu a {
       color: rgba(229, 237, 255, 0.92);
       text-decoration: none;
@@ -240,42 +265,49 @@
           <img src="{% url 'brand-logo' %}" alt="InTech logo">
           <span>InTech-Forecast</span>
         </a>
-        <ul class="hero-menu">
-          <li><a href="{% url 'dashboard:station-list' %}">Станции</a></li>
-          <li><a href="{% url 'dashboard:about-company' %}">О компании</a></li>
-          <li><a href="{% url 'dashboard:about-company' %}#contacts">Контакты</a></li>
-          <li><a href="{% url 'register' %}">Регистрация</a></li>
-        </ul>
+        <div class="d-flex align-items-center">
+          <ul class="hero-menu">
+            <li><a href="{% url 'dashboard:station-list' %}" data-i18n="menu_stations">Станции</a></li>
+            <li><a href="{% url 'dashboard:about-company' %}" data-i18n="menu_about">О компании</a></li>
+            <li><a href="{% url 'dashboard:about-company' %}#contacts" data-i18n="menu_contacts">Контакты</a></li>
+            <li><a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a></li>
+          </ul>
+          <div class="lang-switcher" aria-label="Language switcher">
+            <button type="button" class="lang-btn" data-lang="ru">RU</button>
+            <button type="button" class="lang-btn" data-lang="kz">KZ</button>
+            <button type="button" class="lang-btn" data-lang="en">EN</button>
+          </div>
+        </div>
       </header>
 
       <div class="left-copy">
-        <div class="kicker">Платформа прогноза солнечной и ветровой генерации</div>
-        <h1>Точные прогнозы солнца и ветра для уверенных решений</h1>
-        <p>
+        <div class="kicker" data-i18n="kicker">Платформа прогноза солнечной и ветровой генерации</div>
+        <h1 data-i18n="hero_title">Точные прогнозы солнца и ветра для уверенных решений</h1>
+        <p data-i18n="hero_text">
           Следите за солнцем и ветром в одной системе: прогноз, факт и план в реальном времени.
           Помогаем команде быстрее принимать точные решения по генерации и балансу.
         </p>
 
         <div class="entry-block">
           <div class="entry-actions">
-            <button type="button" class="btn btn-light" disabled>Вход</button>
-            <a class="btn btn-success" href="{% url 'register' %}">Регистрация</a>
+            <button type="button" class="btn btn-light" disabled data-i18n="entry_login">Вход</button>
+            <a class="btn btn-success" href="{% url 'register' %}" data-i18n="entry_register">Регистрация</a>
           </div>
-          <p class="entry-note">Блок входа и регистрации: быстрый доступ для команды.</p>
+          <p class="entry-note" data-i18n="entry_note">Блок входа и регистрации: быстрый доступ для команды.</p>
         </div>
 
         <div class="card auth-card border-0">
           <div class="card-body p-3 p-lg-4">
-            <h2 class="h4 mb-3 text-center">Вход в систему</h2>
+            <h2 class="h4 mb-3 text-center" data-i18n="login_title">Вход в систему</h2>
 
             {% if form.errors %}
               <div class="alert alert-danger py-2">
-                Неверное имя пользователя или пароль. Попробуйте еще раз.
+                <span data-i18n="error_bad_credentials">Неверное имя пользователя или пароль. Попробуйте еще раз.</span>
               </div>
             {% endif %}
 
             {% if next %}
-              <p class="text-muted small text-center mb-3">
+              <p class="text-muted small text-center mb-3" data-i18n="login_continue">
                 Пожалуйста, авторизуйтесь чтобы продолжить.
               </p>
             {% endif %}
@@ -284,7 +316,7 @@
               {% csrf_token %}
 
               <div class="mb-3">
-                <label for="id_username" class="form-label">Имя пользователя</label>
+                <label for="id_username" class="form-label" data-i18n="label_username">Имя пользователя</label>
                 <input type="text"
                        name="username"
                        autofocus
@@ -297,7 +329,7 @@
               </div>
 
               <div class="mb-3">
-                <label for="id_password" class="form-label">Пароль</label>
+                <label for="id_password" class="form-label" data-i18n="label_password">Пароль</label>
                 <input type="password"
                        name="password"
                        autocomplete="current-password"
@@ -308,18 +340,123 @@
 
               <input type="hidden" name="next" value="{{ next }}">
 
-              <button type="submit" class="btn btn-primary w-100">Войти</button>
+              <button type="submit" class="btn btn-primary w-100" data-i18n="btn_login">Войти</button>
             </form>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="right-pane" aria-label="Видео анимация прогноза">
+    <div class="right-pane" aria-label="Видео анимация прогноза" data-i18n-aria-label="video_aria">
       <video autoplay muted loop playsinline poster="/media/login-background.png">
         <source src="/media/login-hero.mp4" type="video/mp4">
       </video>
-      <div class="video-caption">Видео-анимация прогноза (как у Solcast)</div>
+      <div class="video-caption" data-i18n="video_caption">Видео-анимация прогноза (как у Solcast)</div>
     </div>
   </section>
+
+  <script>
+    (function () {
+      const i18n = {
+        ru: {
+          page_title: "Вход",
+          menu_stations: "Станции",
+          menu_about: "О компании",
+          menu_contacts: "Контакты",
+          menu_register: "Регистрация",
+          kicker: "Платформа прогноза солнечной и ветровой генерации",
+          hero_title: "Точные прогнозы солнца и ветра для уверенных решений",
+          hero_text: "Следите за солнцем и ветром в одной системе: прогноз, факт и план в реальном времени. Помогаем команде быстрее принимать точные решения по генерации и балансу.",
+          entry_login: "Вход",
+          entry_register: "Регистрация",
+          entry_note: "Блок входа и регистрации: быстрый доступ для команды.",
+          login_title: "Вход в систему",
+          error_bad_credentials: "Неверное имя пользователя или пароль. Попробуйте еще раз.",
+          login_continue: "Пожалуйста, авторизуйтесь чтобы продолжить.",
+          label_username: "Имя пользователя",
+          label_password: "Пароль",
+          btn_login: "Войти",
+          video_caption: "Видео-анимация прогноза (как у Solcast)",
+          video_aria: "Видео анимация прогноза"
+        },
+        kz: {
+          page_title: "Жүйеге кіру",
+          menu_stations: "Станциялар",
+          menu_about: "Компания туралы",
+          menu_contacts: "Байланыс",
+          menu_register: "Тіркелу",
+          kicker: "Күн және жел генерациясын болжау платформасы",
+          hero_title: "Нақты шешімдер үшін күн мен желдің дәл болжамдары",
+          hero_text: "Күн мен желді бір жүйеде бақылаңыз: болжам, факт және жоспар нақты уақытта. Командаға генерация мен баланс бойынша дәл шешімдерді жылдам қабылдауға көмектесеміз.",
+          entry_login: "Кіру",
+          entry_register: "Тіркелу",
+          entry_note: "Кіру және тіркелу блогы: командаға жылдам қолжетімділік.",
+          login_title: "Жүйеге кіру",
+          error_bad_credentials: "Пайдаланушы аты немесе құпиясөз қате. Қайталап көріңіз.",
+          login_continue: "Жалғастыру үшін жүйеге кіріңіз.",
+          label_username: "Пайдаланушы аты",
+          label_password: "Құпиясөз",
+          btn_login: "Кіру",
+          video_caption: "Болжамның бейне-анимациясы (Solcast стилінде)",
+          video_aria: "Болжам бейне анимациясы"
+        },
+        en: {
+          page_title: "Sign in",
+          menu_stations: "Stations",
+          menu_about: "About",
+          menu_contacts: "Contacts",
+          menu_register: "Register",
+          kicker: "Solar and wind generation forecasting platform",
+          hero_title: "Accurate solar and wind forecasts for confident decisions",
+          hero_text: "Track solar and wind in one system: forecast, actuals, and plan in real time. We help teams make faster and more accurate generation and balancing decisions.",
+          entry_login: "Sign in",
+          entry_register: "Register",
+          entry_note: "Login and registration panel: quick access for your team.",
+          login_title: "Sign in to the system",
+          error_bad_credentials: "Incorrect username or password. Please try again.",
+          login_continue: "Please sign in to continue.",
+          label_username: "Username",
+          label_password: "Password",
+          btn_login: "Sign in",
+          video_caption: "Forecast video animation (Solcast-like)",
+          video_aria: "Forecast video animation"
+        }
+      };
+
+      const buttons = document.querySelectorAll(".lang-btn");
+      const translatable = document.querySelectorAll("[data-i18n]");
+      const ariaTranslatable = document.querySelectorAll("[data-i18n-aria-label]");
+
+      function applyLanguage(langCode) {
+        const dict = i18n[langCode] || i18n.ru;
+        translatable.forEach((element) => {
+          const key = element.getAttribute("data-i18n");
+          if (dict[key]) {
+            element.textContent = dict[key];
+          }
+        });
+
+        ariaTranslatable.forEach((element) => {
+          const key = element.getAttribute("data-i18n-aria-label");
+          if (dict[key]) {
+            element.setAttribute("aria-label", dict[key]);
+          }
+        });
+
+        document.title = dict.page_title;
+        buttons.forEach((button) => {
+          button.classList.toggle("is-active", button.dataset.lang === langCode);
+        });
+        localStorage.setItem("preferredLang", langCode);
+      }
+
+      const preferredLang = localStorage.getItem("preferredLang");
+      const initialLang = (preferredLang && i18n[preferredLang]) ? preferredLang : "ru";
+      applyLanguage(initialLang);
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => applyLanguage(button.dataset.lang));
+      });
+    })();
+  </script>
 {% endblock %}

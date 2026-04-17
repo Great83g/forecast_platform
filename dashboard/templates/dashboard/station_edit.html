@@ -2,23 +2,98 @@
 {% block title %}Редактировать станцию — {{ station.name }}{% endblock %}
 
 {% block content %}
-<h3 class="mb-3">Редактировать станцию: {{ station.name }}</h3>
+<h3 class="mb-3"><span data-i18n="edit_station_title">Редактировать станцию</span>: {{ station.name }}</h3>
 
 <div class="card">
   <div class="card-body">
     <form method="post">
       {% csrf_token %}
       {{ form.as_p }}
-      <button type="submit" class="btn btn-primary">Сохранить</button>
-      <a href="{% url 'dashboard:station-detail' station.pk %}" class="btn btn-secondary">Отмена</a>
+      <button type="submit" class="btn btn-primary" data-i18n="edit_save">Сохранить</button>
+      <a href="{% url 'dashboard:station-detail' station.pk %}" class="btn btn-secondary" data-i18n="edit_cancel">Отмена</a>
       <hr>
       <div class="small text-muted">
-        <div><b>Диагностика автоистории:</b></div>
-        <div>Последний тик: <b>{% if station.auto_history_last_check_at %}{{ station.auto_history_last_check_at|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</b></div>
-        <div>Статус: <b>{{ station.auto_history_last_status|default:"—" }}</b>, строк: <b>{{ station.auto_history_last_rows|default:0 }}</b></div>
-        <div>Сообщение: <b>{{ station.auto_history_last_message|default:"—" }}</b></div>
+        <div><b data-i18n="edit_auto_history_diag">Диагностика автоистории:</b></div>
+        <div><span data-i18n="edit_last_tick">Последний тик</span>: <b>{% if station.auto_history_last_check_at %}{{ station.auto_history_last_check_at|date:"d.m.Y H:i:s" }}{% else %}—{% endif %}</b></div>
+        <div><span data-i18n="edit_status">Статус</span>: <b>{{ station.auto_history_last_status|default:"—" }}</b>, <span data-i18n="edit_rows">строк</span>: <b>{{ station.auto_history_last_rows|default:0 }}</b></div>
+        <div><span data-i18n="edit_message">Сообщение</span>: <b>{{ station.auto_history_last_message|default:"—" }}</b></div>
       </div>
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  {{ block.super }}
+  <script>
+    (function () {
+      var lang = localStorage.getItem("preferredLang") || "ru";
+      if (lang === "ru") return;
+
+      var map = {
+        kz: {
+          "Название станции": "Станция атауы",
+          "Оператор": "Оператор",
+          "Номинал (MW, legacy)": "Номинал (MW, legacy)",
+          "Широта": "Ендік",
+          "Долгота": "Бойлық",
+          "Часовой пояс": "Уақыт белдеуі",
+          "Сдвиг данных (часы)": "Деректер ығысуы (сағат)",
+          "DC мощность (кВт)": "DC қуаты (кВт)",
+          "AC мощность (кВт)": "AC қуаты (кВт)",
+          "Наклон (°)": "Еңкею (°)",
+          "Азимут (°), юг = 180": "Азимут (°), оңтүстік = 180",
+          "Потери (%)": "Жоғалтулар (%)",
+          "Источник истории": "Тарих көзі",
+          "Масштабировать по мощности": "Қуат бойынша масштабтау",
+          "Автозаполнение истории": "Тарихты автотолтыру",
+          "Папка автоимпорта": "Автоимпорт қалтасы",
+          "Скрипт автоистории": "Автотарих скрипті",
+          "Время автопроверки": "Автотексеру уақыты",
+          "Если у станции нет своей истории, можно выбрать близкую станцию.": "Станцияның өз тарихы болмаса, жақын станцияны таңдауға болады.",
+          "При включении мощность берётся пропорционально (например 1.2/8.8).": "Қосылғанда қуат пропорционалды алынады (мысалы 1.2/8.8).",
+          "Если включено — при запуске планировщика история автоматически обновится из папки ниже.": "Қосулы болса — жоспарлаушы іске қосылғанда тарих төмендегі қалтадан автоматты жаңартылады.",
+          "Например: /mnt/share (SMB/CIFS шары с D222*.csv.gz и Plant Report/reportSPP .xlsx).": "Мысалы: /mnt/share (D222*.csv.gz және Plant Report/reportSPP .xlsx бар SMB/CIFS шарлары).",
+          "Единый сдвиг времени для прогноза (main/test) и автоистории. Например, -1 или +1 для выравнивания после смены времени.": "Болжам (main/test) және автотарих үшін ортақ уақыт ығысуы. Мысалы, уақыт ауысқаннан кейін туралау үшін -1 немесе +1.",
+          "Ежедневно в это время станция будет проверяться на новые файлы истории.": "Күн сайын осы уақытта станция жаңа тарих файлдарына тексеріледі."
+        },
+        en: {
+          "Название станции": "Station name",
+          "Оператор": "Operator",
+          "Номинал (MW, legacy)": "Capacity (MW, legacy)",
+          "Широта": "Latitude",
+          "Долгота": "Longitude",
+          "Часовой пояс": "Timezone",
+          "Сдвиг данных (часы)": "Data shift (hours)",
+          "DC мощность (кВт)": "DC capacity (kW)",
+          "AC мощность (кВт)": "AC capacity (kW)",
+          "Наклон (°)": "Tilt (°)",
+          "Азимут (°), юг = 180": "Azimuth (°), south = 180",
+          "Потери (%)": "Losses (%)",
+          "Источник истории": "History source",
+          "Масштабировать по мощности": "Scale by capacity",
+          "Автозаполнение истории": "Auto-fill history",
+          "Папка автоимпорта": "Auto-import folder",
+          "Скрипт автоистории": "Auto-history script",
+          "Время автопроверки": "Auto-check time",
+          "Если у станции нет своей истории, можно выбрать близкую станцию.": "If the station has no own history, you can choose a nearby station.",
+          "При включении мощность берётся пропорционально (например 1.2/8.8).": "When enabled, capacity is taken proportionally (for example 1.2/8.8).",
+          "Если включено — при запуске планировщика история автоматически обновится из папки ниже.": "If enabled, history will be auto-updated from the folder below when scheduler runs.",
+          "Например: /mnt/share (SMB/CIFS шары с D222*.csv.gz и Plant Report/reportSPP .xlsx).": "For example: /mnt/share (SMB/CIFS shares with D222*.csv.gz and Plant Report/reportSPP .xlsx).",
+          "Единый сдвиг времени для прогноза (main/test) и автоистории. Например, -1 или +1 для выравнивания после смены времени.": "Unified time shift for forecast (main/test) and auto-history. For example, -1 or +1 after time change.",
+          "Ежедневно в это время станция будет проверяться на новые файлы истории.": "Every day at this time the station is checked for new history files."
+        }
+      };
+
+      var dict = map[lang];
+      if (!dict) return;
+
+      document.querySelectorAll("label, .helptext").forEach(function (node) {
+        var text = (node.textContent || "").trim();
+        if (dict[text]) {
+          node.textContent = dict[text];
+        }
+      });
+    })();
+  </script>
 {% endblock %}
