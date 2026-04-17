@@ -1,42 +1,42 @@
 {% extends "dashboard/base.html" %}
 {% block content %}
 
-<h2 class="mb-2">{{ station.name }} — План / Факт</h2>
-<div class="text-muted mb-3">Оператор: {{ station.operator }}</div>
+<h2 class="mb-2">{{ station.name }} — <span data-i18n="detail_plan_fact">План / Факт</span></h2>
+<div class="text-muted mb-3"><span data-i18n="detail_operator">Оператор</span>: {{ station.operator }}</div>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-list' %}">← Назад</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' station.pk %}">Редактировать</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' station.pk %}">История / загрузка</a>
-  <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' station.pk %}">Обучить модель</a>
-  <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' station.pk %}">Смотреть прогноз</a>
+  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-list' %}" data-i18n="detail_back">← Назад</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' station.pk %}" data-i18n="page_edit">Редактировать</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' station.pk %}" data-i18n="detail_history_upload">История / загрузка</a>
+  <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' station.pk %}" data-i18n="detail_train_model">Обучить модель</a>
+  <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' station.pk %}" data-i18n="detail_view_forecast">Смотреть прогноз</a>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
       <div class="col-sm-3">
-        <label class="form-label form-label-sm">Дата с</label>
+        <label class="form-label form-label-sm" data-i18n="detail_date_from">Дата с</label>
         <input type="date" class="form-control form-control-sm" name="date_from" value="{{ date_from }}">
       </div>
       <div class="col-sm-3">
-        <label class="form-label form-label-sm">Дата по</label>
+        <label class="form-label form-label-sm" data-i18n="detail_date_to">Дата по</label>
         <input type="date" class="form-control form-control-sm" name="date_to" value="{{ date_to }}">
       </div>
       <div class="col-sm-6 d-flex gap-2">
-        <button class="btn btn-primary btn-sm" type="submit">Применить фильтр</button>
-        <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">Сбросить</a>
-        <a class="btn btn-outline-success btn-sm" href="{% url 'dashboard:station-plan-fact-export' station.pk %}?{{ export_query }}">Скачать Excel</a>
+        <button class="btn btn-primary btn-sm" type="submit" data-i18n="detail_apply_filter">Применить фильтр</button>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}" data-i18n="detail_reset">Сбросить</a>
+        <a class="btn btn-outline-success btn-sm" href="{% url 'dashboard:station-plan-fact-export' station.pk %}?{{ export_query }}" data-i18n="detail_download_excel">Скачать Excel</a>
       </div>
     </form>
-    <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию с начала текущего месяца)</div>
+    <div class="small text-muted mt-2"><span data-i18n="detail_points_compare">Точек в сравнении</span>: <b>{{ points_count }}</b> <span data-i18n="detail_points_hint">(по умолчанию с начала текущего месяца)</span></div>
   </div>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
-    <h6 class="card-title">График план / факт (МВт)</h6>
-    <div class="small text-muted mb-2">Разрез: {% if is_single_day_range %}<b>по часам</b>{% else %}<b>детально (как раньше)</b>{% endif %}</div>
+    <h6 class="card-title" data-i18n="detail_chart_title">График план / факт (МВт)</h6>
+    <div class="small text-muted mb-2"><span data-i18n="detail_slice">Разрез</span>: {% if is_single_day_range %}<b data-i18n="detail_by_hours">по часам</b>{% else %}<b data-i18n="detail_detailed">детально (как раньше)</b>{% endif %}</div>
 
     
       <div class="row g-2 mb-3">
@@ -106,14 +106,14 @@
       </div>
     
     <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
-      <div class="fw-semibold">Показывать:</div>
+      <div class="fw-semibold" data-i18n="detail_show">Показывать:</div>
       <div class="form-check form-check-inline mb-0">
         <input class="form-check-input" type="checkbox" id="toggleIrradiation" checked>
-        <label class="form-check-label" for="toggleIrradiation">Иррадиация (план/факт)</label>
+        <label class="form-check-label" for="toggleIrradiation" data-i18n="detail_irr_plan_fact">Иррадиация (план/факт)</label>
       </div>
       <div class="form-check form-check-inline mb-0">
         <input class="form-check-input" type="checkbox" id="toggleTemperature">
-        <label class="form-check-label" for="toggleTemperature">Температура (план/факт)</label>
+        <label class="form-check-label" for="toggleTemperature" data-i18n="detail_temp_plan_fact">Температура (план/факт)</label>
       </div>
     </div>
     <div style="height: 420px;"><canvas id="planFactChart"></canvas></div>
@@ -124,9 +124,9 @@
   <table class="table table-sm table-striped mb-0">
     <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
       <tr>
-        <th>Время</th>
-        <th class="text-end">Факт, МВт</th>
-        <th class="text-end">План, МВт</th>
+        <th data-i18n="detail_time">Время</th>
+        <th class="text-end" data-i18n="detail_fact_mw">Факт, МВт</th>
+        <th class="text-end" data-i18n="detail_plan_mw">План, МВт</th>
       </tr>
     </thead>
     <tbody>
@@ -137,7 +137,7 @@
           <td class="text-end">{% if row.plan_mw is not None %}{{ row.plan_mw|floatformat:3 }}{% else %}—{% endif %}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="3" class="text-center text-muted py-4">Нет данных для сравнения</td></tr>
+        <tr><td colspan="3" class="text-center text-muted py-4" data-i18n="detail_no_compare_data">Нет данных для сравнения</td></tr>
       {% endfor %}
     </tbody>
   </table>

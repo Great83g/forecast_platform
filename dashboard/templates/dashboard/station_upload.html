@@ -1,51 +1,51 @@
 {% extends "dashboard/base.html" %}
 {% block content %}
 
-<h2 class="mb-2">История: {{ station.name }}</h2>
-<div class="mb-2 small text-muted">Режим истории: <b>{% if history_scope == 'test' %}Тестовая база{% else %}Основная база{% endif %}</b></div>
+<h2 class="mb-2"><span data-i18n="upload_history_title">История</span>: {{ station.name }}</h2>
+<div class="mb-2 small text-muted"><span data-i18n="upload_history_mode">Режим истории</span>: <b>{% if history_scope == 'test' %}<span data-i18n="upload_test_db">Тестовая база</span>{% else %}<span data-i18n="upload_main_db">Основная база</span>{% endif %}</b></div>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
+  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}" data-i18n="upload_back_to_station">← Назад к станции</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}" data-i18n="upload_to_station_list">К списку станций</a>
 </div>
 <div class="alert alert-info py-2 px-3 small">
-  <b>Тик автоистории:</b>
+  <b data-i18n="upload_auto_tick">Тик автоистории:</b>
   {% if station.auto_history_last_check_at %}
     {{ station.auto_history_last_check_at|date:"d.m.Y H:i:s" }}
   {% else %}
-    ещё не было
+    <span data-i18n="upload_no_tick_yet">ещё не было</span>
   {% endif %}
-  | <b>Статус:</b> {{ station.auto_history_last_status|default:"—" }}
-  | <b>Строк:</b> {{ station.auto_history_last_rows|default:0 }}
+  | <b data-i18n="upload_status">Статус:</b> {{ station.auto_history_last_status|default:"—" }}
+  | <b data-i18n="upload_rows">Строк:</b> {{ station.auto_history_last_rows|default:0 }}
   {% if station.auto_history_last_message %}
-    | <b>Сообщение:</b> {{ station.auto_history_last_message }}
+    | <b data-i18n="edit_message">Сообщение:</b> {{ station.auto_history_last_message }}
   {% endif %}
 </div>
 
 <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
   <div>
-    <label class="form-label mb-0 small">База истории</label>
+    <label class="form-label mb-0 small" data-i18n="upload_db_label">База истории</label>
     <select class="form-select form-select-sm" name="history_scope" id="history-scope-select" style="min-width: 170px;">
-      <option value="main" {% if history_scope == 'main' %}selected{% endif %}>Основная</option>
-      <option value="test" {% if history_scope == 'test' %}selected{% endif %}>Тестовая</option>
+      <option value="main" {% if history_scope == 'main' %}selected{% endif %} data-i18n="upload_main_db_short">Основная</option>
+      <option value="test" {% if history_scope == 'test' %}selected{% endif %} data-i18n="upload_test_db_short">Тестовая</option>
     </select>
   </div>
   <div>
-    <label class="form-label mb-0 small">С даты</label>
+    <label class="form-label mb-0 small" data-i18n="detail_date_from">С даты</label>
     <input type="date" name="from" id="history-from-date" value="{{ from_date }}" class="form-control form-control-sm">
   </div>
   <div>
-    <label class="form-label mb-0 small">По дату</label>
+    <label class="form-label mb-0 small" data-i18n="detail_date_to">По дату</label>
     <input type="date" name="to" id="history-to-date" value="{{ to_date }}" class="form-control form-control-sm">
   </div>
   <div>
-    <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
+    <button class="btn btn-sm btn-outline-primary" type="submit" data-i18n="upload_filter">Фильтр</button>
   </div>
 
   <div class="ms-auto d-flex gap-2">
     <a class="btn btn-sm btn-success"
        href="{% url 'dashboard:station-export-history' station.pk %}?history_scope={{ history_scope }}&from={{ from_date }}&to={{ to_date }}">
-      Скачать Excel
+      <span data-i18n="detail_download_excel">Скачать Excel</span>
     </a>
   </div>
 </form>
@@ -60,35 +60,35 @@
           data-confirm-all="Точно очистить всю историю станции?"
           data-confirm-range="Точно удалить историю в выбранном диапазоне дат?"
           onclick="return confirm(this.dataset.confirmText || this.dataset.confirmAll);">
-    {% if from_date or to_date %}Удалить по фильтру дат{% else %}Очистить историю{% endif %}
+    {% if from_date or to_date %}<span data-i18n="upload_delete_filtered">Удалить по фильтру дат</span>{% else %}<span data-i18n="upload_clear_history">Очистить историю</span>{% endif %}
   </button>
 </form>
 
 <div class="card mb-3">
   <div class="card-body">
-    <h5 class="card-title mb-2">Загрузить историю (CSV/XLSX)</h5>
+    <h5 class="card-title mb-2" data-i18n="page_upload_history">Загрузить историю (CSV/XLSX)</h5>
     <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
       {% csrf_token %}
       <input type="hidden" name="action" value="upload">
       <input type="hidden" name="history_scope" value="{{ history_scope }}">
       <input type="file" name="file" class="form-control form-control-sm" style="max-width: 420px;">
-      <button type="submit" class="btn btn-primary btn-sm">Загрузить</button>
+      <button type="submit" class="btn btn-primary btn-sm" data-i18n="upload_upload_btn">Загрузить</button>
     </form>
     <div class="text-muted small mt-2">
-      Ожидаемые колонки: <code>ds, Irradiation, Air_Temp, PV_Temp, Power_KW</code>
+      <span data-i18n="upload_expected_columns">Ожидаемые колонки</span>: <code>ds, Irradiation, Air_Temp, PV_Temp, Power_KW</code>
     </div>
   </div>
 </div>
 
 <div class="text-muted small mb-2">
-  Всего записей: <b>{{ total_count }}</b>. Отфильтровано: <b>{{ history_count }}</b>.
+  <span data-i18n="upload_total_records">Всего записей</span>: <b>{{ total_count }}</b>. <span data-i18n="upload_filtered_records">Отфильтровано</span>: <b>{{ history_count }}</b>.
 </div>
 
 <div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
   <table class="table table-sm table-striped mb-0">
     <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
       <tr>
-        <th>Дата/время</th>
+        <th data-i18n="upload_datetime">Дата/время</th>
         <th>Irradiation</th>
         <th>Air_Temp</th>
         <th>PV_Temp</th>
@@ -105,7 +105,7 @@
           <td>{{ r.power_kw }}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="5" class="text-center text-muted py-4">Нет данных</td></tr>
+        <tr><td colspan="5" class="text-center text-muted py-4" data-i18n="upload_no_data">Нет данных</td></tr>
       {% endfor %}
     </tbody>
   </table>
