@@ -116,6 +116,33 @@
 {% block extra_scripts %}
 <script>
   (function () {
+    var preferredLang = localStorage.getItem("preferredLang") || "ru";
+    var uploadI18n = {
+      ru: {
+        clearAll: "Очистить историю",
+        clearRange: "Удалить по фильтру дат",
+        confirmAll: "Точно очистить всю историю станции?",
+        confirmRange: "Точно удалить историю в выбранном диапазоне дат?"
+      },
+      kz: {
+        clearAll: "Тарихты тазарту",
+        clearRange: "Күн сүзгісі бойынша өшіру",
+        confirmAll: "Станцияның бүкіл тарихын тазартуға сенімдісіз бе?",
+        confirmRange: "Таңдалған күн диапазоны бойынша тарихты өшіруге сенімдісіз бе?"
+      },
+      en: {
+        clearAll: "Clear history",
+        clearRange: "Delete by date filter",
+        confirmAll: "Are you sure you want to clear the station history?",
+        confirmRange: "Are you sure you want to delete history in the selected date range?"
+      }
+    };
+
+    function t(key) {
+      var dict = uploadI18n[preferredLang] || uploadI18n.ru;
+      return dict[key] || uploadI18n.ru[key] || "";
+    }
+
     var scopeSelect = document.getElementById("history-scope-select");
     if (!scopeSelect) return;
     scopeSelect.addEventListener("change", function () {
@@ -135,8 +162,10 @@
       clearFromInput.value = fromInput.value || "";
       clearToInput.value = toInput.value || "";
       var hasRange = Boolean(clearFromInput.value || clearToInput.value);
-      clearBtn.textContent = hasRange ? "Удалить по фильтру дат" : "Очистить историю";
-      clearBtn.dataset.confirmText = hasRange ? clearBtn.dataset.confirmRange : clearBtn.dataset.confirmAll;
+      clearBtn.textContent = hasRange ? t("clearRange") : t("clearAll");
+      clearBtn.dataset.confirmAll = t("confirmAll");
+      clearBtn.dataset.confirmRange = t("confirmRange");
+      clearBtn.dataset.confirmText = hasRange ? t("confirmRange") : t("confirmAll");
     }
 
     if (fromInput) fromInput.addEventListener("input", syncClearFormState);
