@@ -54,7 +54,7 @@
           <div class="form-check m-0">
             <input class="form-check-input" type="checkbox" name="{{ schedule_form.manual_snow_enable.name }}" id="{{ schedule_form.manual_snow_enable.id_for_label }}"
                    {% if schedule_form.manual_snow_enable.value %}checked{% endif %}>
-            <label class="form-check-label ms-1" for="{{ schedule_form.manual_snow_enable.id_for_label }}">{{ schedule_form.manual_snow_enable.label }}</label>
+            <label class="form-check-label ms-1" for="{{ schedule_form.manual_snow_enable.id_for_label }}" data-i18n="forecast_snow_factor">Снег/облака (ручной фактор)</label>
           </div>
           {{ schedule_form.manual_snow_factor }}
           {{ schedule_form.manual_snow_dates }}
@@ -238,6 +238,66 @@
 {% block extra_scripts %}
 <script>
   (function () {
+    function normalizeText(text) {
+      return (text || "")
+        .replace(/\s+/g, " ")
+        .replace(/\u00a0/g, " ")
+        .trim()
+        .replace(/:$/, "");
+    }
+
+    function localizeDynamicForecastTexts() {
+      var lang = localStorage.getItem("preferredLang") || "ru";
+      if (lang === "ru") return;
+
+      var maps = {
+        kz: {
+          "Обычный (старый)": "Қалыпты (ескі)",
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Күнтізбе: Дс–Бс → +2 күн, Жм → +2/+3/+4 (Жс/Дс/Сс)",
+          "Open‑Meteo без истории (только эвристика)": "Open‑Meteo тарихсыз (тек эвристика)",
+          "Visual Crossing без истории (только эвристика)": "Visual Crossing тарихсыз (тек эвристика)",
+          "Последняя отправка: прогноз за": "Соңғы жіберу: болжам күні",
+          "отправлен в": "жіберілді"
+        },
+        en: {
+          "Обычный (старый)": "Normal (legacy)",
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Calendar: Mon–Thu → +2 days, Fri → +2/+3/+4 (Sun/Mon/Tue)",
+          "Open‑Meteo без истории (только эвристика)": "Open‑Meteo without history (heuristics only)",
+          "Visual Crossing без истории (только эвристика)": "Visual Crossing without history (heuristics only)",
+          "Последняя отправка: прогноз за": "Last sent: forecast for",
+          "отправлен в": "sent at"
+        }
+      };
+      var dict = maps[lang];
+      if (!dict) return;
+
+      // translate choice options rendered by Django forms (both schedule + manual mode)
+      document.querySelectorAll('select[name="horizon_mode"] option').forEach(function (option) {
+        var key = normalizeText(option.textContent);
+        if (dict[key]) option.textContent = dict[key];
+      });
+
+      // translate dynamic checkbox labels rendered by Django form in schedule block
+      document.querySelectorAll("label").forEach(function (label) {
+        var key = normalizeText(label.textContent);
+        if (dict[key]) {
+          var hasColon = /:\s*$/.test(label.textContent || "");
+          label.textContent = dict[key] + (hasColon ? ":" : "");
+        }
+      });
+
+      // translate runtime status message prefix parts
+      document.querySelectorAll(".alert.alert-info.small, .alert.alert-info.py-2.px-3.mt-2.mb-0.small").forEach(function (node) {
+        var text = node.textContent || "";
+        Object.keys(dict).forEach(function (ruText) {
+          if (text.includes(ruText)) {
+            text = text.replaceAll(ruText, dict[ruText]);
+          }
+        });
+        node.textContent = text.trim();
+      });
+    }
+
     function bindScopeSwitcher() {
       var scopeSelect = document.getElementById("scope-mode");
       if (!scopeSelect) return;
@@ -249,6 +309,7 @@
     }
 
     bindScopeSwitcher();
+    localizeDynamicForecastTexts();
   })();
 </script>
 {% endblock %}
