@@ -51,6 +51,28 @@
   font-weight:600;
 }
 
+.lang-switcher {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.lang-switcher .lang-btn {
+  border: 1px solid rgba(173, 181, 189, 0.5);
+  background: transparent;
+  color: #f8f9fa;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  border-radius: 4px;
+  padding: 0.23rem 0.45rem;
+}
+
+.lang-switcher .lang-btn.is-active {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
 @media (max-width: 991.98px) {
   .navbar {
     min-height: auto;
@@ -95,40 +117,49 @@
       <span class="brand-text">InTech-Forecast</span>
     </a>
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Переключить навигацию">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Переключить навигацию" data-i18n-aria-label="toggle_nav">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <div class="collapse navbar-collapse" id="mainNavbar">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}">Станции</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}" data-i18n="nav_stations">Станции</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'onboarding-guide' %} active{% endif %}" href="{% url 'dashboard:onboarding-guide' %}">Инструкция</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'onboarding-guide' %} active{% endif %}" href="{% url 'dashboard:onboarding-guide' %}" data-i18n="nav_guide">Инструкция</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}">О компании</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}" data-i18n="nav_about">О компании</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts">Контакты</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts" data-i18n="nav_contacts">Контакты</a>
         </li>
       </ul>
 
       <div class="d-flex align-items-center gap-2 me-3">
-        <a class="btn btn-sm {% if request.path|slice:":11" == "/dashboard/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'dashboard:station-list' %}" title="Солнечный модуль">☀️ Солнце</a>
-        <a class="btn btn-sm {% if request.path|slice:":6" == "/wind/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'wind:station-list' %}" title="Ветровой модуль">🌬️ Ветер</a>
+        <div class="lang-switcher" aria-label="Language switcher">
+          <button type="button" class="lang-btn" data-lang="ru">RU</button>
+          <button type="button" class="lang-btn" data-lang="kz">KZ</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <a class="btn btn-sm {% if request.path|slice:":11" == "/dashboard/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'dashboard:station-list' %}" title="Солнечный модуль" data-i18n-title="title_solar">
+          ☀️ <span data-i18n="module_solar">Солнце</span>
+        </a>
+        <a class="btn btn-sm {% if request.path|slice:":6" == "/wind/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'wind:station-list' %}" title="Ветровой модуль" data-i18n-title="title_wind">
+          🌬️ <span data-i18n="module_wind">Ветер</span>
+        </a>
       </div>
 
       {% if user.is_authenticated %}
         <span class="navbar-text text-white me-3">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}" class="d-inline">
           {% csrf_token %}
-          <button class="btn btn-outline-light btn-sm" type="submit">Выйти</button>
+          <button class="btn btn-outline-light btn-sm" type="submit" data-i18n="btn_logout">Выйти</button>
         </form>
       {% else %}
-        <a class="btn btn-outline-light btn-sm me-2" href="{% url 'login' %}">Войти</a>
-        <a class="btn btn-primary btn-sm" href="{% url 'register' %}">Регистрация</a>
+        <a class="btn btn-outline-light btn-sm me-2" href="{% url 'login' %}" data-i18n="btn_login">Войти</a>
+        <a class="btn btn-primary btn-sm" href="{% url 'register' %}" data-i18n="btn_register">Регистрация</a>
       {% endif %}
     </div>
   </div>
@@ -143,6 +174,147 @@
 
   {% block content %}{% endblock %}
 </div>
+<script>
+  (function () {
+    const i18n = {
+      ru: {
+        nav_stations: "Станции",
+        nav_guide: "Инструкция",
+        nav_about: "О компании",
+        nav_contacts: "Контакты",
+        toggle_nav: "Переключить навигацию",
+        module_solar: "Солнце",
+        module_wind: "Ветер",
+        title_solar: "Солнечный модуль",
+        title_wind: "Ветровой модуль",
+        btn_logout: "Выйти",
+        btn_login: "Войти",
+        btn_register: "Регистрация",
+        page_station_list_title: "Станции",
+        page_add_station: "Добавить станцию",
+        page_guide_label: "Инструкция",
+        page_guide_text: "Как добавить станцию, загрузить историю и запустить прогноз",
+        page_capacity: "Мощность",
+        page_coords: "Коорд",
+        page_open_earth: "Открыть станцию в Google Earth",
+        page_co2_from_history: "CO₂ из истории",
+        page_co2_total: "Общий",
+        page_co2_yesterday: "За вчера",
+        page_co2_calc_prefix: "Расчет: история ×",
+        page_co2_calc_suffix: "кг CO₂/кВт·ч.",
+        page_co2_empty: "Пока нет истории для расчета CO₂.",
+        page_move_up: "Поднять выше",
+        page_move_down: "Опустить ниже",
+        page_graph_details: "График / Детали",
+        page_edit: "Редактировать",
+        page_upload_history: "Загрузить историю",
+        page_forecast: "Прогноз",
+        page_train_models: "Обучить модели",
+        page_no_stations: "Пока нет станций."
+      },
+      kz: {
+        nav_stations: "Станциялар",
+        nav_guide: "Нұсқаулық",
+        nav_about: "Компания туралы",
+        nav_contacts: "Байланыс",
+        toggle_nav: "Навигацияны ауыстыру",
+        module_solar: "Күн",
+        module_wind: "Жел",
+        title_solar: "Күн модулі",
+        title_wind: "Жел модулі",
+        btn_logout: "Шығу",
+        btn_login: "Кіру",
+        btn_register: "Тіркелу",
+        page_station_list_title: "Станциялар",
+        page_add_station: "Станция қосу",
+        page_guide_label: "Нұсқаулық",
+        page_guide_text: "Станция қосу, тарих жүктеу және болжамды іске қосу жолы",
+        page_capacity: "Қуат",
+        page_coords: "Коорд",
+        page_open_earth: "Станцияны Google Earth-та ашу",
+        page_co2_from_history: "Тарихтан CO₂",
+        page_co2_total: "Жалпы",
+        page_co2_yesterday: "Кеше",
+        page_co2_calc_prefix: "Есеп: тарих ×",
+        page_co2_calc_suffix: "кг CO₂/кВт·сағ.",
+        page_co2_empty: "CO₂ есептеу үшін тарих әлі жоқ.",
+        page_move_up: "Жоғары көтеру",
+        page_move_down: "Төмен түсіру",
+        page_graph_details: "График / Деталь",
+        page_edit: "Өңдеу",
+        page_upload_history: "Тарихты жүктеу",
+        page_forecast: "Болжам",
+        page_train_models: "Модельдерді үйрету",
+        page_no_stations: "Станциялар әзірге жоқ."
+      },
+      en: {
+        nav_stations: "Stations",
+        nav_guide: "Guide",
+        nav_about: "About",
+        nav_contacts: "Contacts",
+        toggle_nav: "Toggle navigation",
+        module_solar: "Solar",
+        module_wind: "Wind",
+        title_solar: "Solar module",
+        title_wind: "Wind module",
+        btn_logout: "Logout",
+        btn_login: "Login",
+        btn_register: "Register",
+        page_station_list_title: "Stations",
+        page_add_station: "Add station",
+        page_guide_label: "Guide",
+        page_guide_text: "How to add a station, upload history, and run forecasting",
+        page_capacity: "Capacity",
+        page_coords: "Coords",
+        page_open_earth: "Open station in Google Earth",
+        page_co2_from_history: "CO₂ from history",
+        page_co2_total: "Total",
+        page_co2_yesterday: "Yesterday",
+        page_co2_calc_prefix: "Calculation: history ×",
+        page_co2_calc_suffix: "kg CO₂/kWh.",
+        page_co2_empty: "No history yet for CO₂ calculation.",
+        page_move_up: "Move up",
+        page_move_down: "Move down",
+        page_graph_details: "Chart / Details",
+        page_edit: "Edit",
+        page_upload_history: "Upload history",
+        page_forecast: "Forecast",
+        page_train_models: "Train models",
+        page_no_stations: "No stations yet."
+      }
+    };
+
+    const buttons = document.querySelectorAll(".lang-btn");
+    const textNodes = document.querySelectorAll("[data-i18n]");
+    const titleNodes = document.querySelectorAll("[data-i18n-title]");
+    const ariaNodes = document.querySelectorAll("[data-i18n-aria-label]");
+
+    function applyLanguage(langCode) {
+      const dict = i18n[langCode] || i18n.ru;
+      textNodes.forEach((node) => {
+        const key = node.getAttribute("data-i18n");
+        if (dict[key]) node.textContent = dict[key];
+      });
+      titleNodes.forEach((node) => {
+        const key = node.getAttribute("data-i18n-title");
+        if (dict[key]) node.setAttribute("title", dict[key]);
+      });
+      ariaNodes.forEach((node) => {
+        const key = node.getAttribute("data-i18n-aria-label");
+        if (dict[key]) node.setAttribute("aria-label", dict[key]);
+      });
+
+      buttons.forEach((btn) => btn.classList.toggle("is-active", btn.dataset.lang === langCode));
+      document.documentElement.setAttribute("lang", langCode === "kz" ? "kk" : langCode);
+      localStorage.setItem("preferredLang", langCode);
+    }
+
+    const preferredLang = localStorage.getItem("preferredLang");
+    const initialLang = preferredLang && i18n[preferredLang] ? preferredLang : "ru";
+    applyLanguage(initialLang);
+    buttons.forEach((btn) => btn.addEventListener("click", () => applyLanguage(btn.dataset.lang)));
+  })();
+</script>
 <script>
   (function () {
     if (window.__dashboardSchedulerTickInitialized) return;
