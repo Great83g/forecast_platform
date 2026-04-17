@@ -1,60 +1,66 @@
 {% extends "dashboard/base.html" %}
 {% block content %}
 
-<h2 class="mb-2">{{ station.name }} — План / Факт</h2>
-<div class="text-muted mb-3">Оператор: {{ station.operator }}</div>
+<h2 class="mb-2">{{ station.name }} — <span data-i18n="detail_plan_fact">План / Факт</span></h2>
+<div class="text-muted mb-3"><span data-i18n="detail_operator">Оператор</span>: {{ station.operator }}</div>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-list' %}">← Назад</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' station.pk %}">Редактировать</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' station.pk %}">История / загрузка</a>
-  <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' station.pk %}">Обучить модель</a>
-  <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' station.pk %}">Смотреть прогноз</a>
+  <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-list' %}" data-i18n="detail_back">← Назад</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' station.pk %}" data-i18n="page_edit">Редактировать</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' station.pk %}" data-i18n="detail_history_upload">История / загрузка</a>
+  <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' station.pk %}" data-i18n="detail_train_model">Обучить модель</a>
+  <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' station.pk %}" data-i18n="detail_view_forecast">Смотреть прогноз</a>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
       <div class="col-sm-3">
-        <label class="form-label form-label-sm">Дата с</label>
+        <label class="form-label form-label-sm" data-i18n="detail_date_from">Дата с</label>
         <input type="date" class="form-control form-control-sm" name="date_from" value="{{ date_from }}">
       </div>
       <div class="col-sm-3">
-        <label class="form-label form-label-sm">Дата по</label>
+        <label class="form-label form-label-sm" data-i18n="detail_date_to">Дата по</label>
         <input type="date" class="form-control form-control-sm" name="date_to" value="{{ date_to }}">
       </div>
       <div class="col-sm-6 d-flex gap-2">
-        <button class="btn btn-primary btn-sm" type="submit">Применить фильтр</button>
-        <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">Сбросить</a>
-        <a class="btn btn-outline-success btn-sm" href="{% url 'dashboard:station-plan-fact-export' station.pk %}?{{ export_query }}">Скачать Excel</a>
+        <button class="btn btn-primary btn-sm" type="submit" data-i18n="detail_apply_filter">Применить фильтр</button>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}" data-i18n="detail_reset">Сбросить</a>
+        <a class="btn btn-outline-success btn-sm" href="{% url 'dashboard:station-plan-fact-export' station.pk %}?{{ export_query }}" data-i18n="detail_download_excel">Скачать Excel</a>
       </div>
     </form>
-    <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию с начала текущего месяца)</div>
+    <div class="small text-muted mt-2"><span data-i18n="detail_points_compare">Точек в сравнении</span>: <b>{{ points_count }}</b> <span data-i18n="detail_points_hint">(по умолчанию с начала текущего месяца)</span></div>
   </div>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
-    <h6 class="card-title">График план / факт (МВт)</h6>
-    <div class="small text-muted mb-2">Разрез: {% if is_single_day_range %}<b>по часам</b>{% else %}<b>детально (как раньше)</b>{% endif %}</div>
+    <h6 class="card-title" data-i18n="detail_chart_title">График план / факт (МВт)</h6>
+    <div class="small text-muted mb-2"><span data-i18n="detail_slice">Разрез</span>: {% if is_single_day_range %}<b data-i18n="detail_by_hours">по часам</b>{% else %}<b data-i18n="detail_detailed">детально (как раньше)</b>{% endif %}</div>
 
     
       <div class="row g-2 mb-3">
         <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
-            <div class="small text-muted">Прогноз {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
+            <div class="small text-muted">
+              <span data-i18n="detail_forecast">Прогноз</span>
+              {% if is_single_day_range %}<span data-i18n="detail_for_day">за день</span>{% else %}<span data-i18n="detail_for_period">за период</span>{% endif %}
+            </div>
             <div class="h5 mb-0">{{ plan_energy_kwh|default:0 }} кВт·ч</div>
           </div>
         </div>
         <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
-            <div class="small text-muted">Факт {% if is_single_day_range %}за день{% else %}за период{% endif %}</div>
+            <div class="small text-muted">
+              <span data-i18n="detail_fact">Факт</span>
+              {% if is_single_day_range %}<span data-i18n="detail_for_day">за день</span>{% else %}<span data-i18n="detail_for_period">за период</span>{% endif %}
+            </div>
             <div class="h5 mb-0">{{ fact_energy_kwh|default:0 }} кВт·ч</div>
           </div>
         </div>
         <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
-            <div class="small text-muted">Отклонение (Факт − Прогноз)</div>
+            <div class="small text-muted" data-i18n="detail_deviation">Отклонение (Факт − Прогноз)</div>
             <div class="h5 mb-0 {% if deviation_kwh < 0 %}text-danger{% elif deviation_kwh > 0 %}text-success{% endif %}">
               {{ deviation_kwh|default:0 }} кВт·ч
               {% if deviation_percent is not None %}
@@ -62,15 +68,15 @@
               {% endif %}
             </div>
             <div class="small mt-1 {% if mape_percent is not None and mape_percent > 30 %}text-danger{% else %}text-muted{% endif %}">
-              MAPE {% if is_single_day_range %}(дневные часы){% else %}(за период){% endif %}: {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}{% if mape_points_count %} <span class="text-muted">по {{ mape_points_count }} тчк.</span>{% endif %}
+              MAPE {% if is_single_day_range %}<span data-i18n="detail_day_hours">(дневные часы)</span>{% else %}<span data-i18n="detail_for_period_brackets">(за период)</span>{% endif %}: {% if mape_percent is not None %}<b>{{ mape_percent }}%</b>{% else %}—{% endif %}{% if mape_points_count %} <span class="text-muted"><span data-i18n="detail_by_points">по</span> {{ mape_points_count }} <span data-i18n="detail_points_short">тчк.</span></span>{% endif %}
             </div>
           </div>
         </div>
         <div class="col-12 col-md-3">
           <div class="border rounded p-2 h-100">
-            <div class="small text-muted">Диагностика модели</div>
+            <div class="small text-muted" data-i18n="detail_model_diagnostics">Диагностика модели</div>
             <div class="small mt-1">
-              Утро 06–09 MAPE:
+              <span data-i18n="detail_morning_mape">Утро 06–09 MAPE</span>:
               {% if morning_mape_percent is not None %}
                 <b>{{ morning_mape_percent }}%</b>
               {% else %}
@@ -78,16 +84,16 @@
               {% endif %}
             </div>
             <div class="small mt-1">
-              Недобор пиков:
+              <span data-i18n="detail_peak_underforecast">Недобор пиков</span>:
               {% if peak_underforecast_share_percent is not None %}
                 <b>{{ peak_underforecast_share_percent }}%</b>
-                <span class="text-muted">по {{ peak_points_count }} тчк.</span>
+                <span class="text-muted"><span data-i18n="detail_by_points">по</span> {{ peak_points_count }} <span data-i18n="detail_points_short">тчк.</span></span>
               {% else %}
                 —
               {% endif %}
             </div>
             <div class="small mt-1">
-              Системный bias (энергия):
+              <span data-i18n="detail_system_bias">Системный bias (энергия)</span>:
               {% if energy_bias_percent is not None %}
                 <b class="{% if energy_bias_percent < -10 %}text-danger{% endif %}">{{ energy_bias_percent }}%</b>
               {% else %}
@@ -95,10 +101,10 @@
               {% endif %}
             </div>
             <div class="small mt-1">
-              Рекоменд. сдвиг времени:
+              <span data-i18n="detail_recommended_shift">Рекоменд. сдвиг времени</span>:
               <b>{{ suggested_shift_hours }}ч</b>
               {% if suggested_shift_points %}
-                <span class="text-muted">({{ suggested_shift_points }} тчк.)</span>
+                <span class="text-muted">({{ suggested_shift_points }} <span data-i18n="detail_points_short">тчк.</span>)</span>
               {% endif %}
             </div>
           </div>
@@ -106,14 +112,14 @@
       </div>
     
     <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
-      <div class="fw-semibold">Показывать:</div>
+      <div class="fw-semibold" data-i18n="detail_show">Показывать:</div>
       <div class="form-check form-check-inline mb-0">
         <input class="form-check-input" type="checkbox" id="toggleIrradiation" checked>
-        <label class="form-check-label" for="toggleIrradiation">Иррадиация (план/факт)</label>
+        <label class="form-check-label" for="toggleIrradiation" data-i18n="detail_irr_plan_fact">Иррадиация (план/факт)</label>
       </div>
       <div class="form-check form-check-inline mb-0">
         <input class="form-check-input" type="checkbox" id="toggleTemperature">
-        <label class="form-check-label" for="toggleTemperature">Температура (план/факт)</label>
+        <label class="form-check-label" for="toggleTemperature" data-i18n="detail_temp_plan_fact">Температура (план/факт)</label>
       </div>
     </div>
     <div style="height: 420px;"><canvas id="planFactChart"></canvas></div>
@@ -124,9 +130,9 @@
   <table class="table table-sm table-striped mb-0">
     <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
       <tr>
-        <th>Время</th>
-        <th class="text-end">Факт, МВт</th>
-        <th class="text-end">План, МВт</th>
+        <th data-i18n="detail_time">Время</th>
+        <th class="text-end" data-i18n="detail_fact_mw">Факт, МВт</th>
+        <th class="text-end" data-i18n="detail_plan_mw">План, МВт</th>
       </tr>
     </thead>
     <tbody>
@@ -137,7 +143,7 @@
           <td class="text-end">{% if row.plan_mw is not None %}{{ row.plan_mw|floatformat:3 }}{% else %}—{% endif %}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="3" class="text-center text-muted py-4">Нет данных для сравнения</td></tr>
+        <tr><td colspan="3" class="text-center text-muted py-4" data-i18n="detail_no_compare_data">Нет данных для сравнения</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -157,6 +163,44 @@
 {{ is_single_day_range|json_script:"pf-single-day" }}
 <script>
   (function () {
+    const lang = localStorage.getItem("preferredLang") || "ru";
+    const chartI18n = {
+      ru: {
+        fact: "Факт",
+        plan: "План",
+        irrFact: "Иррадиация факт",
+        irrPlan: "Иррадиация план",
+        tempFact: "Темп. факт",
+        tempPlan: "Темп. план",
+        mw: "МВт",
+        irr: "Иррадиация (Вт/м²)",
+        temp: "Температура (°C)"
+      },
+      kz: {
+        fact: "Нақты",
+        plan: "Жоспар",
+        irrFact: "Иррадиация нақты",
+        irrPlan: "Иррадиация жоспар",
+        tempFact: "Темп. нақты",
+        tempPlan: "Темп. жоспар",
+        mw: "МВт",
+        irr: "Иррадиация (Вт/м²)",
+        temp: "Температура (°C)"
+      },
+      en: {
+        fact: "Actual",
+        plan: "Plan",
+        irrFact: "Irradiation actual",
+        irrPlan: "Irradiation plan",
+        tempFact: "Temp actual",
+        tempPlan: "Temp plan",
+        mw: "MW",
+        irr: "Irradiation (W/m²)",
+        temp: "Temperature (°C)"
+      }
+    };
+    const c = chartI18n[lang] || chartI18n.ru;
+
     const labels = JSON.parse(document.getElementById("pf-labels").textContent || "[]");
     const factRaw = JSON.parse(document.getElementById("pf-fact").textContent || "[]");
     const planRaw = JSON.parse(document.getElementById("pf-plan").textContent || "[]");
@@ -190,12 +234,12 @@
       data: {
         labels: labelsSynced,
         datasets: [
-          {label: "Факт", data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
-          {label: "План", data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
-          {label: "Иррадиация факт", data: irrFact, borderColor: "#f59f00", backgroundColor: "rgba(245,159,0,0.10)", borderDash: [6, 4], tension: 0.2, spanGaps: true, yAxisID: "yIrr", hidden: false},
-          {label: "Иррадиация план", data: irrPlan, borderColor: "#fd7e14", backgroundColor: "rgba(253,126,20,0.10)", borderDash: [2, 4], tension: 0.2, spanGaps: true, yAxisID: "yIrr", hidden: false},
-          {label: "Темп. факт", data: tempFact, borderColor: "#6f42c1", backgroundColor: "rgba(111,66,193,0.10)", borderDash: [8, 3], tension: 0.2, spanGaps: true, yAxisID: "yTemp", hidden: true},
-          {label: "Темп. план", data: tempPlan, borderColor: "#d63384", backgroundColor: "rgba(214,51,132,0.10)", borderDash: [3, 3], tension: 0.2, spanGaps: true, yAxisID: "yTemp", hidden: true}
+          {label: c.fact, data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: c.plan, data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: c.irrFact, data: irrFact, borderColor: "#f59f00", backgroundColor: "rgba(245,159,0,0.10)", borderDash: [6, 4], tension: 0.2, spanGaps: true, yAxisID: "yIrr", hidden: false},
+          {label: c.irrPlan, data: irrPlan, borderColor: "#fd7e14", backgroundColor: "rgba(253,126,20,0.10)", borderDash: [2, 4], tension: 0.2, spanGaps: true, yAxisID: "yIrr", hidden: false},
+          {label: c.tempFact, data: tempFact, borderColor: "#6f42c1", backgroundColor: "rgba(111,66,193,0.10)", borderDash: [8, 3], tension: 0.2, spanGaps: true, yAxisID: "yTemp", hidden: true},
+          {label: c.tempPlan, data: tempPlan, borderColor: "#d63384", backgroundColor: "rgba(214,51,132,0.10)", borderDash: [3, 3], tension: 0.2, spanGaps: true, yAxisID: "yTemp", hidden: true}
         ]
       },
       options: {
@@ -207,13 +251,13 @@
           intersect: false
         },
         scales: {
-          yPower: {type: "linear", position: "left", title: {display: true, text: "МВт"}},
+          yPower: {type: "linear", position: "left", title: {display: true, text: c.mw}},
           yIrr: {
             type: "linear",
             position: "right",
             min: 0,
             suggestedMax: maxIrrValue > 0 ? Math.ceil(maxIrrValue * irradiationMultiplier / 100) * 100 : undefined,
-            title: {display: true, text: "Иррадиация (Вт/м²)", color: "#fd7e14"},
+            title: {display: true, text: c.irr, color: "#fd7e14"},
             ticks: {color: "#fd7e14"},
             border: {color: "#fd7e14"},
             grid: {drawOnChartArea: false},
@@ -223,7 +267,7 @@
             type: "linear",
             position: "right",
             offset: true,
-            title: {display: true, text: "Температура (°C)"},
+            title: {display: true, text: c.temp},
             grid: {drawOnChartArea: false},
             display: false
           },
