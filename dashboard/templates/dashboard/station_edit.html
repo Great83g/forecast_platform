@@ -88,10 +88,20 @@
       var dict = map[lang];
       if (!dict) return;
 
+      function normalize(text) {
+        return (text || "")
+          .replace(/\s+/g, " ")
+          .replace(/\u00a0/g, " ")
+          .trim()
+          .replace(/:$/, "");
+      }
+
       document.querySelectorAll("label, .helptext").forEach(function (node) {
-        var text = (node.textContent || "").trim();
-        if (dict[text]) {
-          node.textContent = dict[text];
+        var original = node.textContent || "";
+        var normalized = normalize(original);
+        if (dict[normalized]) {
+          var suffixColon = /:\s*$/.test(original) ? ":" : "";
+          node.textContent = dict[normalized] + suffixColon;
         }
       });
     })();
