@@ -99,3 +99,69 @@
 </div>
 
 {% endblock %}
+
+{% block extra_scripts %}
+  {{ block.super }}
+  <script>
+    (function () {
+      var lang = localStorage.getItem("preferredLang") || "ru";
+      if (lang === "ru") return;
+      var map = {
+        kz: {
+          "История ветра": "Жел тарихы",
+          "Режим истории": "Тарих режимі",
+          "Тестовая база": "Тест базасы",
+          "Основная база": "Негізгі база",
+          "← Назад к станции": "← Станцияға қайту",
+          "К списку станций": "Станциялар тізіміне",
+          "База истории": "Тарих базасы",
+          "Основная": "Негізгі",
+          "Тестовая": "Тест",
+          "С даты": "Күні",
+          "По дату": "Күніне дейін",
+          "Фильтр": "Сүзгі",
+          "Скачать Excel": "Excel жүктеу",
+          "Удалить по фильтру дат": "Күн сүзгісі бойынша өшіру",
+          "Очистить историю": "Тарихты тазарту",
+          "Загрузить историю ветра (CSV/XLSX)": "Жел тарихын жүктеу (CSV/XLSX)",
+          "Загрузить": "Жүктеу",
+          "Ожидаемые колонки": "Күтілетін бағандар",
+          "Всего записей": "Жалпы жазба",
+          "Отфильтровано": "Сүзілгені",
+          "Дата/время": "Күн/уақыт",
+          "Нет данных": "Дерек жоқ"
+        },
+        en: {
+          "История ветра": "Wind history",
+          "Режим истории": "History mode",
+          "Тестовая база": "Test database",
+          "Основная база": "Main database",
+          "← Назад к станции": "← Back to station",
+          "К списку станций": "To station list",
+          "База истории": "History database",
+          "Основная": "Main",
+          "Тестовая": "Test",
+          "С даты": "Date from",
+          "По дату": "Date to",
+          "Фильтр": "Filter",
+          "Скачать Excel": "Download Excel",
+          "Удалить по фильтру дат": "Delete by date filter",
+          "Очистить историю": "Clear history",
+          "Загрузить историю ветра (CSV/XLSX)": "Upload wind history (CSV/XLSX)",
+          "Загрузить": "Upload",
+          "Ожидаемые колонки": "Expected columns",
+          "Всего записей": "Total records",
+          "Отфильтровано": "Filtered",
+          "Дата/время": "Date/time",
+          "Нет данных": "No data"
+        }
+      }[lang];
+      if (!map) return;
+
+      document.querySelectorAll("h2,h5,label,button,a,th,.text-muted,.btn").forEach(function (node) {
+        var text = (node.textContent || "").trim();
+        if (map[text]) node.textContent = map[text];
+      });
+    })();
+  </script>
+{% endblock %}
