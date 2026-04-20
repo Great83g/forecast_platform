@@ -12,6 +12,11 @@
   </div>
 </div>
 
+<a class="station-list-guide mb-3" href="{% url 'dashboard:onboarding-guide' %}">
+  <span class="station-list-guide__badge">ИНСТРУКЦИЯ</span>
+  <span class="station-list-guide__text">Как добавить станцию, загрузить историю и запустить прогноз</span>
+</a>
+
 {% if blocked_orgs %}
   <div class="alert alert-warning">
     <strong>Trial expired / Upgrade:</strong>
@@ -119,83 +124,53 @@
 {% endif %}
 
 <style>
-.station-guide-link__anchor {
+.station-list-guide {
   display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.8rem 1rem;
-  border-radius: 999px;
-  background: #fff;
-  border: 1px solid rgba(13, 110, 253, 0.14);
-  color: #0d6efd;
+  gap: .75rem;
+  padding: .5rem .9rem;
+  border-radius: 9999px;
+  background: #eef2f7;
+  color: #51627a;
   text-decoration: none;
-  box-shadow: 0 8px 24px rgba(13, 110, 253, 0.08);
+  font-size: 1.1rem;
+  line-height: 1.2;
 }
 
-.station-guide-link__anchor:hover {
-  color: #0a58ca;
-  border-color: rgba(13, 110, 253, 0.28);
+.station-list-guide:hover {
+  text-decoration: none;
+  color: #415069;
+  background: #e4eaf2;
 }
 
-.station-guide-link__label {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.32rem 0.75rem;
-  border-radius: 999px;
-  background: rgba(13, 110, 253, 0.1);
-  font-size: 0.78rem;
+.station-list-guide__badge {
+  border-radius: 9999px;
+  background: #2e86ff;
+  color: #fff;
+  font-size: .95rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: .02em;
+  padding: .3rem .8rem;
 }
 
-.station-guide-link__text {
-  color: #4f6788;
-  line-height: 1.5;
-}
-
-.station-list-card__co2 {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.station-list-card__co2-title {
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: #198754;
-}
-
-.station-list-card__co2-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.station-list-card__co2-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
-  background: rgba(25, 135, 84, 0.12);
-  color: #146c43;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.station-list-card__co2-pill--muted {
-  background: rgba(13, 110, 253, 0.08);
-  color: #355b91;
-}
-
-.station-list-card__co2-note {
-  line-height: 1.4;
+.station-list-guide__text {
+  white-space: nowrap;
 }
 
 @media (max-width: 767.98px) {
+  .station-list-guide {
+    font-size: .95rem;
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    border-radius: 14px;
+  }
+
+  .station-list-guide__text {
+    white-space: normal;
+    text-align: center;
+  }
+
   .station-list-header__actions {
     width: 100%;
   }
