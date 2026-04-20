@@ -430,6 +430,59 @@ document.addEventListener('DOMContentLoaded', function () {
       nav.appendChild(li);
     }
   }
+
+  // Явно привязываем переключатели RU/KZ/EN к параметру lang и cookie,
+  // чтобы смена языка реально применялась на странице.
+  var langButtons = Array.from(document.querySelectorAll('.navbar a, .navbar button')).filter(function (el) {
+    var t = (el.textContent || '').trim().toUpperCase();
+    return t === 'RU' || t === 'KZ' || t === 'EN';
+  });
+
+  var selectedLang = (
+    new URLSearchParams(window.location.search).get('lang') ||
+    (document.cookie.match(/(?:^|;\s*)(?:django_language|language|lang)=([^;]+)/) || [])[1] ||
+    'ru'
+  ).toLowerCase();
+
+  var navTranslations = {
+    ru: {stations: 'Станции', about: 'О компании', contacts: 'Контакты', guide: 'Инструкция'},
+    kk: {stations: 'Станциялар', about: 'Компания туралы', contacts: 'Байланыс', guide: 'Нұсқаулық'},
+    en: {stations: 'Stations', about: 'About', contacts: 'Contacts', guide: 'Guide'}
+  };
+
+  function applyNavLabels(langCode) {
+    var labels = navTranslations[langCode] || navTranslations.ru;
+    Array.from(document.querySelectorAll('.navbar .nav-link')).forEach(function (link) {
+      var href = link.getAttribute('href') || '';
+      if (href.indexOf('/dashboard/') !== -1 && href.indexOf('onboarding-guide') === -1 && href.indexOf('about') === -1) {
+        link.textContent = labels.stations;
+      } else if (href.indexOf('about') !== -1 && href.indexOf('#contacts') === -1) {
+        link.textContent = labels.about;
+      } else if (href.indexOf('#contacts') !== -1) {
+        link.textContent = labels.contacts;
+      } else if (href.indexOf('onboarding-guide') !== -1) {
+        link.textContent = labels.guide;
+      }
+    });
+  }
+
+  applyNavLabels(selectedLang);
+
+  langButtons.forEach(function (btn) {
+    btn.addEventListener('click', function (event) {
+      var langCode = (btn.textContent || '').trim().toLowerCase();
+      if (!langCode) {
+        return;
+      }
+      event.preventDefault();
+      document.cookie = 'django_language=' + langCode + ';path=/;max-age=31536000';
+      document.cookie = 'language=' + langCode + ';path=/;max-age=31536000';
+      document.cookie = 'lang=' + langCode + ';path=/;max-age=31536000';
+      var url = new URL(window.location.href);
+      url.searchParams.set('lang', langCode);
+      window.location.href = url.toString();
+    });
+  });
 });
 </script>
 {% endblock %}
