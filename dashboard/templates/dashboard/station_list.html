@@ -12,6 +12,11 @@
   </div>
 </div>
 
+<a class="station-list-guide mb-3" href="{% url 'dashboard:onboarding-guide' %}">
+  <span class="station-list-guide__badge">ИНСТРУКЦИЯ</span>
+  <span class="station-list-guide__text">Как добавить станцию, загрузить историю и запустить прогноз</span>
+</a>
+
 {% if blocked_orgs %}
   <div class="alert alert-warning">
     <strong>Trial expired / Upgrade:</strong>
@@ -107,7 +112,53 @@
 {% endif %}
 
 <style>
+.station-list-guide {
+  display: inline-flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .5rem .9rem;
+  border-radius: 9999px;
+  background: #eef2f7;
+  color: #51627a;
+  text-decoration: none;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.station-list-guide:hover {
+  text-decoration: none;
+  color: #415069;
+  background: #e4eaf2;
+}
+
+.station-list-guide__badge {
+  border-radius: 9999px;
+  background: #2e86ff;
+  color: #fff;
+  font-size: .95rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  padding: .3rem .8rem;
+}
+
+.station-list-guide__text {
+  white-space: nowrap;
+}
+
 @media (max-width: 767.98px) {
+  .station-list-guide {
+    font-size: .95rem;
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    border-radius: 14px;
+  }
+
+  .station-list-guide__text {
+    white-space: normal;
+    text-align: center;
+  }
+
   .station-list-header__actions {
     width: 100%;
   }

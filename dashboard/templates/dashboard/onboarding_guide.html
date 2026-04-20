@@ -1,0 +1,26 @@
+{% extends "dashboard/base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="m-0">Инструкция по запуску станции</h2>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">
+    ← К списку станций
+  </a>
+</div>
+
+<p class="text-muted">
+  Короткая памятка для первого запуска: добавьте станцию, загрузите историю, запустите прогноз и проверьте итоговые данные.
+</p>
+
+{% for section in guide_sections %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="card-title">{{ section.title }}</h5>
+      <ul class="mb-0">
+        {% for item in section.items %}
+          <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}
