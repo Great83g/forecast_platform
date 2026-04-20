@@ -51,28 +51,6 @@
   font-weight:600;
 }
 
-.lang-switcher {
-  display: inline-flex;
-  gap: 0.35rem;
-}
-
-.lang-switcher .lang-btn {
-  border: 1px solid rgba(173, 181, 189, 0.5);
-  background: transparent;
-  color: #f8f9fa;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.1;
-  border-radius: 4px;
-  padding: 0.23rem 0.45rem;
-}
-
-.lang-switcher .lang-btn.is-active {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.75);
-}
-
 @media (max-width: 991.98px) {
   .navbar {
     min-height: auto;
@@ -124,16 +102,13 @@
     <div class="collapse navbar-collapse" id="mainNavbar">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}" data-i18n="nav_stations">Станции</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}">Станции</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'onboarding-guide' %} active{% endif %}" href="{% url 'dashboard:onboarding-guide' %}" data-i18n="nav_guide">Инструкция</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}">О компании</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}" data-i18n="nav_about">О компании</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts" data-i18n="nav_contacts">Контакты</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts">Контакты</a>
         </li>
       </ul>
 

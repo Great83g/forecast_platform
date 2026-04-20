@@ -265,19 +265,12 @@
           <img src="{% url 'brand-logo' %}" alt="InTech logo">
           <span>InTech-Forecast</span>
         </a>
-        <div class="d-flex align-items-center">
-          <ul class="hero-menu">
-            <li><a href="{% url 'dashboard:station-list' %}" data-i18n="menu_stations">Станции</a></li>
-            <li><a href="{% url 'dashboard:about-company' %}" data-i18n="menu_about">О компании</a></li>
-            <li><a href="{% url 'dashboard:about-company' %}#contacts" data-i18n="menu_contacts">Контакты</a></li>
-            <li><a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a></li>
-          </ul>
-          <div class="lang-switcher" aria-label="Language switcher">
-            <button type="button" class="lang-btn" data-lang="ru">RU</button>
-            <button type="button" class="lang-btn" data-lang="kz">KZ</button>
-            <button type="button" class="lang-btn" data-lang="en">EN</button>
-          </div>
-        </div>
+        <ul class="hero-menu">
+          <li><a href="{% url 'dashboard:station-list' %}">Станции</a></li>
+          <li><a href="{% url 'dashboard:about-company' %}">О компании</a></li>
+          <li><a href="{% url 'dashboard:about-company' %}#contacts">Контакты</a></li>
+          <li><a href="{% url 'register' %}">Регистрация</a></li>
+        </ul>
       </header>
 
       <div class="left-copy">

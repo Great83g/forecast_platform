@@ -325,25 +325,39 @@ def _start_station_training_subprocess(station_id: int) -> tuple[bool, str]:
     return True, str(log_path)
 
 # ----------------------------
+# about page content
+# ----------------------------
+ABOUT_COMPANY_CONTENT = {
+    # Редактируйте только этот словарь, если нужно обновить контент страницы «О компании».
+    "company_name": 'ТОО «Центр Зелёных Технологий»',
+    "company_description": (
+        'ТОО «Центр Зелёных Технологий» — казахстанская компания, которая развивает '
+        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.'
+    ),
+    "company_subtitle": 'Развитие проектов в сфере ВИЭ и инновационных IT-решений',
+    "company_accent_label": 'О компании',
+    "company_accent_text": 'Казахстанская компания, развивающая инновационные решения в сфере зелёных технологий',
+    "company_points_section_label": 'Достижения',
+    "company_points_title": 'Достижения InTech-Forecast',
+    "company_points": [
+        'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
+        'С 2022 года является резидентом Astana Hub.',
+        'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
+        'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
+        'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
+        'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
+        'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
+        'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
+        'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
+    ],
+    "company_note": 'Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.',
+}
+
+
+# ----------------------------
 # stations
 # ----------------------------
 def about_company(request):
-    company_description = (
-        'ТОО «ТехноГруппСервис» (далее — ТГС) является инжиниринговой группой компаний, '
-        'которая занимается реализацией проектов в области возобновляемых источников энергии, '
-        'используя адаптивные инновационные решения и максимизируя отечественное содержание.'
-    )
-    company_points = [
-        'Большой опыт работы сотрудников в составе лидеров отрасли АО «KEGOC», АО «Энергоинформ», АО «Самрук-Энерго», TOO «Samruk-Green Energy».',
-        'Предоставление решений в короткие сроки за счёт использования собственных ресурсов и опыта зарубежных компаний.',
-        'Обеспечение качества и выполнение гарантийных обязательств поставщиками оборудования и услуг.',
-        'Обеспечение лучшего соотношения цена/качество.',
-        'Участие в строительстве СЭС 10 МВт Кенгир Жезказган, ВЭС Ерейментау 45 МВт, СЭС 2 МВт Капчагай, СЭС 50 МВт Балхаш, СЭС 1,2 МВт Жез-Солар и др.',
-        'Осуществление измерения ветроэнергопотенциала в Павлодарской, Актюбинской, Карагандинской, Акмолинской и Мангистауской областях.',
-        'Разработка собственной патентованной IT-программы для энергопрогнозирования выработки от источников ВИЭ.',
-        'Победитель Президентского конкурса «АЛТЫН САПА» в 2021 году.',
-        'Члены Казахстанской электроэнергетической ассоциации и ВИЭ.',
-    ]
     contacts = {
         'country': 'Республика Казахстан',
         'postal_code': '050051',
@@ -357,147 +371,10 @@ def about_company(request):
         request,
         'dashboard/about_company.html',
         {
-            'company_description': company_description,
-            'company_points': company_points,
+            **ABOUT_COMPANY_CONTENT,
             'contacts': contacts,
         },
     )
-
-
-def onboarding_guide(request):
-    guide_dir = Path(settings.BASE_DIR) / "dashboard" / "static" / "dashboard" / "img" / "guide"
-
-    def _step_images(step_number: int, fallback: list[str]) -> list[str]:
-        if not guide_dir.exists():
-            return fallback
-
-        candidates = []
-        for path in guide_dir.glob(f"step-{step_number}-screen-*.*"):
-            if path.suffix.lower() not in {".svg", ".png", ".jpg", ".jpeg", ".webp"}:
-                continue
-            match = re.search(rf"step-{step_number}-screen-(\d+)", path.stem)
-            order = int(match.group(1)) if match else 9999
-            candidates.append((order, path.name))
-
-        if not candidates:
-            return fallback
-
-        candidates.sort(key=lambda item: (item[0], item[1]))
-        return [f"dashboard/img/guide/{name}" for _, name in candidates[:5]]
-
-    guide_steps = [
-        {
-            "title": "Добавьте первую станцию",
-            "summary": "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».",
-            "details": [
-                "Заполните название станции, мощность, координаты и организацию.",
-                "После сохранения проверьте, что станция появилась в общем списке.",
-            ],
-            "images": _step_images(1, [
-                "dashboard/img/guide/step-1-screen-1.svg",
-                "dashboard/img/guide/step-1-screen-2.svg",
-            ]),
-        },
-        {
-            "title": "Заполните параметры станции",
-            "summary": "Проверьте мощность, координаты, организацию и остальные обязательные поля.",
-            "details": [
-                "Сверьте технические параметры перед сохранением карточки станции.",
-                "Если есть несколько станций, используйте понятные названия для каждой из них.",
-            ],
-            "images": _step_images(2, [
-                "dashboard/img/guide/step-2-screen-1.svg",
-                "dashboard/img/guide/step-2-screen-2.svg",
-            ]),
-        },
-        {
-            "title": "Загрузите исторические данные",
-            "summary": "Перейдите в карточку станции и откройте раздел загрузки истории.",
-            "details": [
-                "Подготовьте файл с историей генерации в нужном формате.",
-                "После импорта убедитесь, что данные появились без ошибок.",
-                "Если истории пока нет, этот шаг можно пропустить и использовать режим прогноза без истории.",
-            ],
-            "images": _step_images(3, [
-                "dashboard/img/guide/step-3-screen-1.svg",
-                "dashboard/img/guide/step-3-screen-2.svg",
-            ]),
-        },
-        {
-            "title": "Обучите модель и запустите прогноз",
-            "summary": "После загрузки истории перейдите в прогноз станции, запустите обучение и затем расчёт прогноза.",
-            "details": [
-                "После импорта истории обязательно запустите обучение модели для станции.",
-                "Дождитесь завершения обучения и проверьте статус доступных моделей.",
-                "Затем выполните расчёт прогноза и проверьте итоговые значения.",
-                "Если истории нет, запустите режим прогноза без истории (только эвристика).",
-            ],
-            "images": _step_images(4, [
-                "dashboard/img/guide/step-4-screen-1.svg",
-                "dashboard/img/guide/step-4-screen-2.svg",
-            ]),
-        },
-        {
-            "title": "Проверьте отчёт и доступы",
-            "summary": "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.",
-            "details": [
-                "Проверьте почасовой прогноз, отчёт и экспортируемые данные.",
-                "Выдайте доступ коллегам, если они тоже будут работать со станцией.",
-            ],
-            "images": _step_images(5, [
-                "dashboard/img/guide/step-5-screen-1.svg",
-                "dashboard/img/guide/step-5-screen-2.svg",
-            ]),
-        },
-    ]
-    support_steps = [
-        "Создайте станцию с корректными параметрами мощности и координат.",
-        "Загрузите историю генерации (если есть) через раздел «Загрузить историю».",
-        "После загрузки истории обучите модели, затем запустите прогноз.",
-        "Если истории нет, используйте прогноз без истории (эвристический режим).",
-    ]
-    return render(
-        request,
-        "dashboard/onboarding_guide.html",
-        {
-            "guide_steps": guide_steps,
-            "support_steps": support_steps,
-        },
-    )
-
-
-CO2_KZ_GRID_FACTOR_KG_PER_KWH = 0.53
-
-
-def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
-    qs = SolarRecord.objects.filter(
-        station=station,
-        history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
-        power_kw__isnull=False,
-    )
-
-    total_generation_kwh = float(qs.aggregate(total=Sum("power_kw")).get("total") or 0.0)
-
-    station_tz_name = getattr(station, "timezone", "") or str(timezone.get_current_timezone())
-    try:
-        station_tz = ZoneInfo(station_tz_name)
-    except Exception:
-        station_tz = timezone.get_current_timezone()
-
-    now_station_tz = timezone.localtime(timezone.now(), station_tz)
-    yesterday_start = now_station_tz.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
-    today_start = yesterday_start + timedelta(days=1)
-
-    yesterday_generation_kwh = float(
-        qs.filter(timestamp__gte=yesterday_start, timestamp__lt=today_start).aggregate(total=Sum("power_kw")).get("total") or 0.0
-    )
-
-    return {
-        "factor_kg_per_kwh": CO2_KZ_GRID_FACTOR_KG_PER_KWH,
-        "total_kg": total_generation_kwh * CO2_KZ_GRID_FACTOR_KG_PER_KWH,
-        "yesterday_kg": yesterday_generation_kwh * CO2_KZ_GRID_FACTOR_KG_PER_KWH,
-        "has_history": total_generation_kwh > 0,
-    }
 
 
 @login_required
