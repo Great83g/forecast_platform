@@ -29,6 +29,13 @@
   </div>
 {% endif %}
 
+<div class="station-guide-link mb-3">
+  <a class="station-guide-link__anchor" href="{% url 'dashboard:onboarding-guide' %}">
+    <span class="station-guide-link__label">{{ station_guide_label }}</span>
+    <span class="station-guide-link__text">{{ station_guide_text }}</span>
+  </a>
+</div>
+
 {% if messages %}
   {% for m in messages %}
     <div class="alert alert-{{ m.tags }} mb-3">{{ m }}</div>
@@ -117,6 +124,28 @@
 {% endif %}
 
 <style>
+.station-guide-link__anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(13, 110, 253, 0.18);
+  color: #0d6efd;
+  text-decoration: none;
+}
+
+.station-guide-link__label {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.station-guide-link__text {
+  color: #4f6788;
+}
+
 .station-list-card__co2 {
   display: flex;
   flex-direction: column;
@@ -155,10 +184,6 @@
     width: 100%;
   }
 
-  .station-list-header__actions .btn {
-    width: 100%;
-  }
-
   .station-list-card {
     align-items: stretch !important;
   }
@@ -185,5 +210,24 @@
   }
 }
 </style>
+
+<script>
+  (function () {
+    var nav = document.querySelector('.navbar .navbar-nav');
+    if (!nav) return;
+    var hasGuide = Array.from(nav.querySelectorAll('a')).some(function (a) {
+      return (a.getAttribute('href') || '').indexOf('/dashboard/onboarding-guide') !== -1;
+    });
+    if (hasGuide) return;
+    var li = document.createElement('li');
+    li.className = 'nav-item';
+    var link = document.createElement('a');
+    link.className = 'nav-link';
+    link.href = '{% url "dashboard:onboarding-guide" %}';
+    link.textContent = '{{ nav_guide_label|escapejs }}';
+    li.appendChild(link);
+    nav.appendChild(li);
+  })();
+</script>
 
 {% endblock %}

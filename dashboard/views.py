@@ -555,7 +555,26 @@ def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
 
 @login_required
 def station_list(request):
-    stations = list(_station_queryset_for_user(request.user, station_kind=Station.KIND_SOLAR).select_related("org").order_by("sort_order", "id"))
+    lang = (
+        request.GET.get("lang")
+        or request.GET.get("language")
+        or request.COOKIES.get("django_language")
+        or request.COOKIES.get("language")
+        or request.COOKIES.get("lang")
+        or getattr(request, "LANGUAGE_CODE", "")
+        or "ru"
+    )[:2].lower()
+    if lang == "kz":
+        lang = "kk"
+
+    def tr(ru: str, kk: str | None = None, en: str | None = None) -> str:
+        if lang == "kk" and kk:
+            return kk
+        if lang == "en" and en:
+            return en
+        return ru
+
+    stations = list(_station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id"))
     for station in stations:
         station.co2_metrics = _station_co2_metrics(station)
 
@@ -568,6 +587,13 @@ def station_list(request):
             "stations": stations,
             "blocked_orgs": blocked_orgs,
             "co2_grid_factor_kg_per_kwh": CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+            "station_guide_label": tr("Инструкция", "Нұсқаулық", "Guide"),
+            "station_guide_text": tr(
+                "Как добавить станцию, загрузить историю и запустить прогноз",
+                "Станцияны қалай қосу, тарихты жүктеу және болжамды іске қосу",
+                "How to add a station, upload history, and run forecast",
+            ),
+            "nav_guide_label": tr("Инструкция", "Нұсқаулық", "Guide"),
         },
     )
 
