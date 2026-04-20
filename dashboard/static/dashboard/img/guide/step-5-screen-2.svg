@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" fill="none">
+  <rect width="1200" height="700" rx="28" fill="#F7FAFF"/>
+  <rect x="55" y="55" width="1090" height="590" rx="24" fill="#FFFFFF" stroke="#C8DBFF" stroke-width="2"/>
+  <rect x="90" y="95" width="220" height="48" rx="16" fill="#0D6EFD" fill-opacity="0.12"/>
+  <text x="105" y="127" fill="#0D6EFD" font-family="Arial, sans-serif" font-size="24" font-weight="700">Шаг 5 / экран 2</text>
+  <text x="95" y="205" fill="#214F97" font-family="Arial, sans-serif" font-size="34" font-weight="700">Сюда вставьте ваш принтскрин</text>
+  <text x="95" y="255" fill="#58719A" font-family="Arial, sans-serif" font-size="24">Папка: dashboard/static/dashboard/img/guide/</text>
+  <text x="95" y="295" fill="#58719A" font-family="Arial, sans-serif" font-size="24">Файл: step-5-screen-2.svg</text>
+  <text x="95" y="355" fill="#58719A" font-family="Arial, sans-serif" font-size="22">Можно заменить на PNG/JPG/SVG и обновить путь в dashboard/views.py.</text>
+</svg>

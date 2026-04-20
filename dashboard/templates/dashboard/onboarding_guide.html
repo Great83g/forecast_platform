@@ -1,0 +1,470 @@
+{% extends "dashboard/base.html" %}
+{% load static %}
+
+{% block content %}
+<section class="guide-page mb-5">
+  <div class="guide-hero card border-0 shadow-sm overflow-hidden mb-4">
+    <div class="card-body p-4 p-lg-5">
+      <div class="row g-4 align-items-center">
+        <div class="col-lg-8">
+          <div class="guide-eyebrow mb-2" data-i18n="guide_eyebrow">Инструкция</div>
+          <h1 class="guide-title mb-3" data-i18n="guide_title">Как пользоваться платформой</h1>
+          <p class="guide-lead mb-0" data-i18n="guide_lead">
+            Здесь собраны основные шаги для нового пользователя: от создания станции до запуска прогноза и проверки результата.
+          </p>
+        </div>
+        <div class="col-lg-4">
+          <div class="guide-hero-card">
+            <div class="guide-hero-card__title" data-i18n="guide_quick_start">Быстрый старт</div>
+            <div class="guide-hero-card__text" data-i18n="guide_quick_start_text">Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.</div>
+            <a class="btn btn-light btn-sm mt-3" href="{% url 'dashboard:station-create' %}" data-i18n="page_add_station">Добавить станцию</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body p-4 p-lg-5">
+          <div class="guide-eyebrow mb-2" data-i18n="guide_steps">Шаги</div>
+          <h2 class="guide-section-title mb-4" data-i18n="guide_main_flow">Основной порядок работы</h2>
+          <div class="guide-step-list">
+            {% for step in guide_steps %}
+              <details class="guide-step-item"{% if forloop.first %} open{% endif %}>
+                <summary class="guide-step-item__summary">
+                  <span class="guide-step-item__number">{{ forloop.counter }}</span>
+                  <span>
+                    <span class="guide-step-item__title">{{ step.title }}</span>
+                    <span class="guide-step-item__text">{{ step.summary }}</span>
+                  </span>
+                </summary>
+
+                <div class="guide-step-item__body">
+                  <div class="guide-step-item__details">
+                    {% for detail in step.details %}
+                      <p class="mb-2">{{ detail }}</p>
+                    {% endfor %}
+                  </div>
+
+                  <div class="guide-step-gallery">
+                    {% for image in step.images %}
+                      <figure class="guide-step-gallery__item">
+                        <button
+                          type="button"
+                          class="guide-step-gallery__trigger"
+                          data-guide-image-src="{% static image %}"
+                          data-guide-image-alt="Скриншот для шага {{ forloop.parentloop.counter }}"
+                          aria-label="Открыть изображение в полном размере"
+                          data-i18n-aria-label="guide_open_full_image"
+                        >
+                          <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                        </button>
+                      </figure>
+                    {% endfor %}
+                  </div>
+                </div>
+              </details>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-body p-4 p-lg-5">
+          <div class="guide-eyebrow mb-2" data-i18n="guide_tips">Подсказки</div>
+          <h2 class="guide-section-title mb-4" data-i18n="guide_important">Что важно не пропустить</h2>
+          <div class="guide-tip-list">
+            {% for item in support_steps %}
+              <article class="guide-tip-item">
+                <div class="guide-tip-item__icon">✓</div>
+                <div class="guide-tip-item__text">{{ item }}</div>
+              </article>
+            {% endfor %}
+          </div>
+          <div class="guide-note mt-4" data-i18n="guide_need_help">
+            Если нужна помощь, перейдите в раздел «Контакты» и свяжитесь с нами удобным способом.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="guide-image-modal" data-guide-image-modal hidden>
+  <div class="guide-image-modal__backdrop" data-guide-image-close></div>
+  <div class="guide-image-modal__dialog" role="dialog" aria-modal="true" aria-label="Увеличенный скриншот" data-i18n-aria-label="guide_zoomed_screenshot">
+    <button type="button" class="guide-image-modal__close" data-guide-image-close aria-label="Закрыть увеличенное изображение" data-i18n-aria-label="guide_close_zoomed">
+      ×
+    </button>
+    <img src="" alt="" class="guide-image-modal__image" data-guide-image-modal-content>
+  </div>
+</div>
+
+<style>
+.guide-page {
+  color: #12385c;
+}
+
+.guide-hero {
+  background:
+    radial-gradient(circle at top right, rgba(13, 110, 253, 0.18), transparent 30%),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 45%, #ffffff 100%);
+}
+
+.guide-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.1);
+  color: #0d6efd;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.guide-title,
+.guide-section-title {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.guide-title {
+  font-size: clamp(2rem, 4vw, 3.2rem);
+}
+
+.guide-section-title {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.guide-lead {
+  font-size: 1.08rem;
+  line-height: 1.8;
+  color: #4f6788;
+}
+
+.guide-hero-card {
+  background: linear-gradient(135deg, #214f97 0%, #3f73c9 100%);
+  color: #fff;
+  border-radius: 1.4rem;
+  padding: 1.5rem;
+  box-shadow: 0 18px 45px rgba(33, 79, 151, 0.25);
+}
+
+.guide-hero-card__title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.75rem;
+}
+
+.guide-hero-card__text {
+  line-height: 1.7;
+}
+
+.guide-step-list,
+.guide-tip-list {
+  display: grid;
+  gap: 0.95rem;
+}
+
+.guide-step-item,
+.guide-tip-item {
+  border-radius: 1rem;
+  border: 1px solid rgba(33, 79, 151, 0.09);
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, #ffffff 100%);
+}
+
+.guide-tip-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+}
+
+.guide-step-item__summary {
+  list-style: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+}
+
+.guide-step-item__summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-step-item__number,
+.guide-tip-item__icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.guide-step-item__number {
+  background: #0d6efd;
+  color: #fff;
+}
+
+.guide-tip-item__icon {
+  background: rgba(13, 110, 253, 0.12);
+  color: #0d6efd;
+}
+
+.guide-step-item__title {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.guide-step-item__text,
+.guide-tip-item__text,
+.guide-note {
+  line-height: 1.7;
+  color: #4f6788;
+}
+
+.guide-step-item__body {
+  padding: 0 1.1rem 1.1rem 4rem;
+}
+
+.guide-step-item__details {
+  color: #4f6788;
+}
+
+.guide-step-gallery {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.guide-step-gallery__item {
+  margin: 0;
+}
+
+.guide-step-gallery__trigger {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  border-radius: 1rem;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.guide-step-gallery__image {
+  width: 100%;
+  border-radius: 1rem;
+  border: 1px solid rgba(33, 79, 151, 0.12);
+  box-shadow: 0 10px 24px rgba(33, 79, 151, 0.08);
+}
+
+.guide-image-modal[hidden] {
+  display: none !important;
+}
+
+.guide-image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+}
+
+.guide-image-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 19, 37, 0.7);
+}
+
+.guide-image-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 1280px);
+  max-height: 92vh;
+  padding: 0.5rem;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(4, 21, 50, 0.35);
+}
+
+.guide-image-modal__image {
+  width: 100%;
+  max-height: calc(92vh - 1rem);
+  object-fit: contain;
+  border-radius: 0.8rem;
+}
+
+.guide-image-modal__close {
+  position: absolute;
+  top: -0.75rem;
+  right: -0.75rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 50%;
+  background: #0d6efd;
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(13, 110, 253, 0.35);
+}
+
+.guide-note {
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  background: rgba(33, 79, 151, 0.08);
+}
+
+@media (max-width: 767.98px) {
+  .guide-hero-card,
+  .guide-tip-item,
+  .guide-note {
+    padding: 0.95rem;
+  }
+
+  .guide-step-item__summary {
+    padding: 0.95rem;
+  }
+
+  .guide-step-item__body {
+    padding: 0 0.95rem 0.95rem 0.95rem;
+  }
+}
+</style>
+
+{% block extra_scripts %}
+  {{ block.super }}
+  <script>
+    (function () {
+      const lang = localStorage.getItem("preferredLang") || "ru";
+      if (lang === "ru") return;
+
+      const maps = {
+        kz: {
+          "Добавьте первую станцию": "Алғашқы станцияны қосыңыз",
+          "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».": "«Станциялар» бөліміне өтіп, «Станция қосу» батырмасын басыңыз.",
+          "Заполните название станции, мощность, координаты и организацию.": "Станция атауын, қуатын, координаттарын және ұйымын толтырыңыз.",
+          "После сохранения проверьте, что станция появилась в общем списке.": "Сақтағаннан кейін станция жалпы тізімде пайда болғанын тексеріңіз.",
+          "Заполните параметры станции": "Станция параметрлерін толтырыңыз",
+          "Проверьте мощность, координаты, организацию и остальные обязательные поля.": "Қуатты, координаттарды, ұйымды және қалған міндетті өрістерді тексеріңіз.",
+          "Сверьте технические параметры перед сохранением карточки станции.": "Станция картасын сақтар алдында техникалық параметрлерді салыстырыңыз.",
+          "Если есть несколько станций, используйте понятные названия для каждой из них.": "Бірнеше станция болса, әрқайсысына түсінікті атау қолданыңыз.",
+          "Загрузите исторические данные": "Тарихи деректерді жүктеңіз",
+          "Перейдите в карточку станции и откройте раздел загрузки истории.": "Станция карточкасына өтіп, тарих жүктеу бөлімін ашыңыз.",
+          "Подготовьте файл с историей генерации в нужном формате.": "Генерация тарихы файлын қажетті форматта дайындаңыз.",
+          "После импорта убедитесь, что данные появились без ошибок.": "Импорттан кейін деректер қатесіз жүктелгенін тексеріңіз.",
+          "Если истории пока нет, этот шаг можно пропустить и использовать режим прогноза без истории.": "Егер тарих жоқ болса, бұл қадамды өткізіп, тарихсыз болжам режимін қолданыңыз.",
+          "Обучите модель и запустите прогноз": "Модельді үйретіп, болжамды іске қосыңыз",
+          "После загрузки истории перейдите в прогноз станции, запустите обучение и затем расчёт прогноза.": "Тарихты жүктегеннен кейін станция болжамына өтіп, оқытуды және содан соң есептеуді іске қосыңыз.",
+          "После импорта истории обязательно запустите обучение модели для станции.": "Тарих импортынан кейін станция үшін модель оқытуды міндетті түрде іске қосыңыз.",
+          "Дождитесь завершения обучения и проверьте статус доступных моделей.": "Оқыту аяқталғанша күтіп, қолжетімді модельдер мәртебесін тексеріңіз.",
+          "Затем выполните расчёт прогноза и проверьте итоговые значения.": "Содан кейін болжам есебін жасап, қорытынды мәндерді тексеріңіз.",
+          "Если истории нет, запустите режим прогноза без истории (только эвристика).": "Тарих жоқ болса, тарихсыз болжам режимін іске қосыңыз (тек эвристика).",
+          "Проверьте отчёт и доступы": "Есеп пен рұқсаттарды тексеріңіз",
+          "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.": "Қорытынды нәтижені қарап, қажет болса әріптестерді ұйымға шақырыңыз.",
+          "Проверьте почасовой прогноз, отчёт и экспортируемые данные.": "Сағаттық болжамды, есепті және экспортталатын деректерді тексеріңіз.",
+          "Выдайте доступ коллегам, если они тоже будут работать со станцией.": "Егер әріптестер станциямен жұмыс істесе, оларға рұқсат беріңіз.",
+          "Создайте станцию с корректными параметрами мощности и координат.": "Қуат пен координаттардың дұрыс параметрлерімен станция құрыңыз.",
+          "Загрузите историю генерации (если есть) через раздел «Загрузить историю».": "Генерация тарихын (бар болса) «Тарихты жүктеу» бөлімі арқылы жүктеңіз.",
+          "После загрузки истории обучите модели, затем запустите прогноз.": "Тарихты жүктегеннен кейін модельдерді үйретіп, содан кейін болжамды іске қосыңыз.",
+          "Если истории нет, используйте прогноз без истории (эвристический режим).": "Егер тарих жоқ болса, тарихсыз болжамды қолданыңыз (эвристикалық режим)."
+        },
+        en: {
+          "Добавьте первую станцию": "Add your first station",
+          "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».": "Open the “Stations” section and click “Add station”.",
+          "Заполните название станции, мощность, координаты и организацию.": "Fill in station name, capacity, coordinates, and organization.",
+          "После сохранения проверьте, что станция появилась в общем списке.": "After saving, make sure the station appears in the main list.",
+          "Заполните параметры станции": "Fill in station parameters",
+          "Проверьте мощность, координаты, организацию и остальные обязательные поля.": "Check capacity, coordinates, organization, and other required fields.",
+          "Сверьте технические параметры перед сохранением карточки станции.": "Verify technical parameters before saving the station card.",
+          "Если есть несколько станций, используйте понятные названия для каждой из них.": "If you have multiple stations, use clear names for each one.",
+          "Загрузите исторические данные": "Upload historical data",
+          "Перейдите в карточку станции и откройте раздел загрузки истории.": "Open the station card and go to the history upload section.",
+          "Подготовьте файл с историей генерации в нужном формате.": "Prepare a generation history file in the required format.",
+          "После импорта убедитесь, что данные появились без ошибок.": "After import, verify that data appears without errors.",
+          "Если истории пока нет, этот шаг можно пропустить и использовать режим прогноза без истории.": "If there is no history yet, skip this step and use forecast without history.",
+          "Обучите модель и запустите прогноз": "Train the model and run forecast",
+          "После загрузки истории перейдите в прогноз станции, запустите обучение и затем расчёт прогноза.": "After uploading history, open station forecast, run training, then run forecasting.",
+          "После импорта истории обязательно запустите обучение модели для станции.": "After importing history, run model training for the station.",
+          "Дождитесь завершения обучения и проверьте статус доступных моделей.": "Wait for training to complete and check available model statuses.",
+          "Затем выполните расчёт прогноза и проверьте итоговые значения.": "Then calculate forecast and verify final values.",
+          "Если истории нет, запустите режим прогноза без истории (только эвристика).": "If there is no history, run forecast without history (heuristics only).",
+          "Проверьте отчёт и доступы": "Check report and access",
+          "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.": "Review final results and invite colleagues to organization if needed.",
+          "Проверьте почасовой прогноз, отчёт и экспортируемые данные.": "Check hourly forecast, report, and exportable data.",
+          "Выдайте доступ коллегам, если они тоже будут работать со станцией.": "Grant access to colleagues if they also work with the station.",
+          "Создайте станцию с корректными параметрами мощности и координат.": "Create a station with correct capacity and coordinate parameters.",
+          "Загрузите историю генерации (если есть) через раздел «Загрузить историю».": "Upload generation history (if available) via the “Upload history” section.",
+          "После загрузки истории обучите модели, затем запустите прогноз.": "After uploading history, train models and then run forecast.",
+          "Если истории нет, используйте прогноз без истории (эвристический режим).": "If there is no history, use forecast without history (heuristic mode)."
+        }
+      };
+
+      const dict = maps[lang];
+      if (!dict) return;
+
+      document.querySelectorAll(".guide-step-item__title, .guide-step-item__text, .guide-step-item__details p, .guide-tip-item__text").forEach((node) => {
+        const text = (node.textContent || "").trim();
+        if (dict[text]) {
+          node.textContent = dict[text];
+        }
+      });
+    })();
+  </script>
+{% endblock %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modal = document.querySelector('[data-guide-image-modal]');
+  const modalImage = document.querySelector('[data-guide-image-modal-content]');
+  const triggers = document.querySelectorAll('[data-guide-image-src]');
+  const closeControls = document.querySelectorAll('[data-guide-image-close]');
+
+  if (!modal || !modalImage || !triggers.length) {
+    return;
+  }
+
+  const closeModal = function () {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    modalImage.src = '';
+    modalImage.alt = '';
+  };
+
+  const openModal = function (src, alt) {
+    modalImage.src = src;
+    modalImage.alt = alt;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  };
+
+  triggers.forEach(function (trigger) {
+    trigger.addEventListener('click', function () {
+      openModal(trigger.dataset.guideImageSrc, trigger.dataset.guideImageAlt || 'Увеличенный скриншот');
+    });
+  });
+
+  closeControls.forEach(function (control) {
+    control.addEventListener('click', closeModal);
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !modal.hidden) {
+      closeModal();
+    }
+  });
+});
+</script>
+{% endblock %}
