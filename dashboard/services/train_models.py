@@ -26,6 +26,8 @@ def _capacity_mw_from_fields(station) -> float | None:
     for name in ["capacity_mw", "capacity_ac_mw"]:
         if hasattr(station, name) and getattr(station, name):
             capacity_mw = float(getattr(station, name))
+            if capacity_mw >= 1000:
+                return capacity_mw / 1000.0
             if capacity_mw > 100 and capacity_ac_kw:
                 return capacity_mw / 1000.0
             return capacity_mw
