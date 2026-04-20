@@ -111,8 +111,13 @@ def _forecast_value_to_kw(value, station_capacity_mw: Optional[float] = None) ->
     except (TypeError, ValueError):
         return 0.0
 
-    if station_capacity_mw and station_capacity_mw > 0:
-        upper_mw_like = station_capacity_mw * 1.5
+    try:
+        capacity_mw = float(station_capacity_mw)
+    except (TypeError, ValueError):
+        capacity_mw = 0.0
+
+    if capacity_mw > 0:
+        upper_mw_like = capacity_mw * 1.5
         if abs(v) <= upper_mw_like:
             return v * 1000.0
 
