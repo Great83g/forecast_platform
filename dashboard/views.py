@@ -44,6 +44,11 @@ from .models import ForecastSchedule
 logger = logging.getLogger(__name__)
 
 
+CO2_KZ_GRID_FACTOR_KG_PER_KWH = float(
+    getattr(settings, "CO2_KZ_GRID_FACTOR_KG_PER_KWH", 0.0) or 0.0
+)
+
+
 # ----------------------------
 # helpers
 # ----------------------------
@@ -88,6 +93,9 @@ def _station_co2_metrics(station) -> dict:
             metrics[key] = float(value)
         except (TypeError, ValueError):
             metrics[key] = None
+
+    if metrics["co2_factor_kg_per_kwh"] is None:
+        metrics["co2_factor_kg_per_kwh"] = CO2_KZ_GRID_FACTOR_KG_PER_KWH
 
     return metrics
 
