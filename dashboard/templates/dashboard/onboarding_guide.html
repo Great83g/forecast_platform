@@ -15,9 +15,9 @@
         </div>
         <div class="col-lg-4">
           <div class="guide-hero-card">
-            <div class="guide-hero-card__title">Быстрый старт</div>
-            <div class="guide-hero-card__text">Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.</div>
-            <a class="btn btn-light btn-sm mt-3" href="{% url 'dashboard:station-create' %}">Добавить станцию</a>
+            <div class="guide-hero-card__title" data-i18n="guide_quick_start">Быстрый старт</div>
+            <div class="guide-hero-card__text" data-i18n="guide_quick_start_text">Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.</div>
+            <a class="btn btn-light btn-sm mt-3" href="{% url 'dashboard:station-create' %}" data-i18n="page_add_station">Добавить станцию</a>
           </div>
         </div>
       </div>
@@ -74,8 +74,8 @@
     <div class="col-lg-5">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
-          <div class="guide-eyebrow mb-2">Подсказки</div>
-          <h2 class="guide-section-title mb-4">Что важно не пропустить</h2>
+          <div class="guide-eyebrow mb-2" data-i18n="guide_tips">Подсказки</div>
+          <h2 class="guide-section-title mb-4" data-i18n="guide_important">Что важно не пропустить</h2>
           <div class="guide-tip-list">
             {% for item in support_steps %}
               <article class="guide-tip-item">
@@ -84,7 +84,7 @@
               </article>
             {% endfor %}
           </div>
-          <div class="guide-note mt-4">
+          <div class="guide-note mt-4" data-i18n="guide_need_help">
             Если нужна помощь, перейдите в раздел «Контакты» и свяжитесь с нами удобным способом.
           </div>
         </div>

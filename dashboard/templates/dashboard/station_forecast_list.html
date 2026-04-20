@@ -9,17 +9,17 @@
     {% endfor %}
   {% endif %}
 
-  <h2 class="mb-2">Прогноз: {{ station.name }}</h2>
-  <div class="mb-2 small text-muted">Режим данных: <b>{% if forecast_scope == 'test' %}Тестовая база{% else %}Основная база{% endif %}</b></div>
+  <h2 class="mb-2"><span data-i18n="forecast_title">Прогноз</span>: {{ station.name }}</h2>
+  <div class="mb-2 small text-muted"><span data-i18n="forecast_data_mode">Режим данных</span>: <b>{% if forecast_scope == 'test' %}<span data-i18n="upload_test_db">Тестовая база</span>{% else %}<span data-i18n="upload_main_db">Основная база</span>{% endif %}</b></div>
 
   <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}">← Назад к станции</a>
-    <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}">К списку станций</a>
+    <a class="btn btn-secondary btn-sm" href="{% url 'dashboard:station-detail' station.pk %}" data-i18n="upload_back_to_station">← Назад к станции</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-list' %}" data-i18n="upload_to_station_list">К списку станций</a>
   </div>
 
   <div class="card mb-3">
     <div class="card-body">
-      <h6 class="card-title mb-2">Автопрогноз по расписанию</h6>
+      <h6 class="card-title mb-2" data-i18n="forecast_schedule_title">Автопрогноз по расписанию</h6>
       <form method="post" action="{% url 'dashboard:station-forecast-schedule' station.pk %}" class="d-flex flex-wrap gap-3 align-items-center">
         {% csrf_token %}
         <div class="form-check m-0">
@@ -27,23 +27,23 @@
           <label class="form-check-label ms-1" for="{{ schedule_form.enabled.id_for_label }}">{{ schedule_form.enabled.label }}</label>
         </div>
         <div class="d-flex align-items-center gap-2">
-          <label class="text-muted mb-0" for="{{ schedule_form.run_time.id_for_label }}">Время:</label>
+          <label class="text-muted mb-0" for="{{ schedule_form.run_time.id_for_label }}" data-i18n="forecast_time">Время:</label>
           {{ schedule_form.run_time }}
         </div>
         <div class="d-flex align-items-center gap-2">
-          <label class="text-muted mb-0" for="{{ schedule_form.start_at.id_for_label }}">Дата/время старта:</label>
+          <label class="text-muted mb-0" for="{{ schedule_form.start_at.id_for_label }}" data-i18n="forecast_start_datetime">Дата/время старта:</label>
           {{ schedule_form.start_at }}
         </div>
         <div class="d-flex align-items-center gap-2">
-          <label class="text-muted mb-0" for="{{ schedule_form.days.id_for_label }}">Дней:</label>
+          <label class="text-muted mb-0" for="{{ schedule_form.days.id_for_label }}" data-i18n="forecast_days">Дней:</label>
           {{ schedule_form.days }}
         </div>
         <div class="d-flex align-items-center gap-2">
-          <label class="text-muted mb-0" for="{{ schedule_form.horizon_mode.id_for_label }}">Режим:</label>
+          <label class="text-muted mb-0" for="{{ schedule_form.horizon_mode.id_for_label }}" data-i18n="forecast_mode">Режим:</label>
           {{ schedule_form.horizon_mode }}
         </div>
         <div class="d-flex align-items-center gap-2 small">
-          <span class="text-muted">Провайдеры:</span>
+          <span class="text-muted" data-i18n="forecast_providers">Провайдеры:</span>
           {{ schedule_form.providers }}
         </div>
         <div class="d-flex align-items-center gap-2 small">
@@ -54,15 +54,15 @@
           <div class="form-check m-0">
             <input class="form-check-input" type="checkbox" name="{{ schedule_form.manual_snow_enable.name }}" id="{{ schedule_form.manual_snow_enable.id_for_label }}"
                    {% if schedule_form.manual_snow_enable.value %}checked{% endif %}>
-            <label class="form-check-label ms-1" for="{{ schedule_form.manual_snow_enable.id_for_label }}">{{ schedule_form.manual_snow_enable.label }}</label>
+            <label class="form-check-label ms-1" for="{{ schedule_form.manual_snow_enable.id_for_label }}" data-i18n="forecast_snow_factor">Снег/облака (ручной фактор)</label>
           </div>
           {{ schedule_form.manual_snow_factor }}
           {{ schedule_form.manual_snow_dates }}
         </div>
-        <button class="btn btn-sm btn-outline-primary" type="submit">Сохранить расписание</button>
+        <button class="btn btn-sm btn-outline-primary" type="submit" data-i18n="forecast_save_schedule">Сохранить расписание</button>
       </form>
       <div class="text-muted small mt-2">
-        Автопрогноз запускается серверным планировщиком (cron/systemd/Celery) и использует эти настройки.
+        <span data-i18n="forecast_schedule_note">Автопрогноз запускается серверным планировщиком (cron/systemd/Celery) и использует эти настройки.</span>
       </div>
       {% if last_scheduled_email_message %}
         <div class="alert alert-info py-2 px-3 mt-2 mb-0 small">
@@ -74,11 +74,11 @@
 
   <div class="card mb-3 border-primary-subtle">
     <div class="card-body">
-      <h6 class="card-title mb-3">Ручной режим</h6>
+      <h6 class="card-title mb-3" data-i18n="forecast_manual_mode">Ручной режим</h6>
       <form class="d-flex flex-column gap-3" method="get" action="{% url 'dashboard:station-forecast-run' station.pk %}">
         <div class="d-flex flex-wrap align-items-center gap-3">
           <div class="d-flex align-items-center gap-2 small">
-            <label class="small mb-0 text-muted">Дней:</label>
+            <label class="small mb-0 text-muted" data-i18n="forecast_days">Дней:</label>
             <select name="days" class="form-select form-select-sm" style="width: 100px;">
               {% for d in '1234567' %}
                 <option value="{{ d }}" {% if days|stringformat:'s' == d %}selected{% endif %}>{{ d }}</option>
@@ -86,17 +86,18 @@
             </select>
           </div>
           <div class="d-flex align-items-center gap-2 small">
-            <label class="text-muted mb-0" for="horizon-mode">Режим:</label>
-            <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 290px;">
-              <option value="legacy" {% if horizon_mode == 'legacy' %}selected{% endif %}>Обычный (старый)</option>
-              <option value="weekday_calendar" {% if horizon_mode == 'weekday_calendar' %}selected{% endif %}>Календарь: Пн–Чт → +2 дня, Пт → +1/+2/+3</option>
+            <label class="text-muted mb-0" for="horizon-mode" data-i18n="forecast_mode">Режим:</label>
+            <select id="horizon-mode" name="horizon_mode" class="form-select form-select-sm" style="width: 360px;">
+              {% for value, label in schedule_form.horizon_mode.field.choices %}
+                <option value="{{ value }}" {% if horizon_mode == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="d-flex align-items-center gap-2 small">
-            <label class="text-muted mb-0" for="scope-mode">База:</label>
+            <label class="text-muted mb-0" for="scope-mode" data-i18n="forecast_db">База:</label>
             <select id="scope-mode" name="scope" class="form-select form-select-sm" style="width: 180px;">
-              <option value="main" {% if forecast_scope == 'main' %}selected{% endif %}>Основная</option>
-              <option value="test" {% if forecast_scope == 'test' %}selected{% endif %}>Тестовая</option>
+              <option value="main" {% if forecast_scope == 'main' %}selected{% endif %} data-i18n="upload_main_db_short">Основная</option>
+              <option value="test" {% if forecast_scope == 'test' %}selected{% endif %} data-i18n="upload_test_db_short">Тестовая</option>
             </select>
           </div>
         </div>
@@ -106,7 +107,7 @@
             <div class="form-check form-check-inline m-0">
               <input class="form-check-input" type="checkbox" name="manual_snow_enable" id="manual-snow-enable" value="1"
                      {% if manual_snow_enable %}checked{% endif %}>
-              <label class="form-check-label" for="manual-snow-enable">Снег/облака (ручной фактор)</label>
+              <label class="form-check-label" for="manual-snow-enable" data-i18n="forecast_snow_factor">Снег/облака (ручной фактор)</label>
             </div>
             <input class="form-control form-control-sm" type="number" step="0.05" min="0" max="1.5" name="manual_snow_factor"
                    style="width: 90px;" placeholder="1.10" title="< 1 уменьшает прогноз, > 1 увеличивает прогноз (до 1.5)" value="{{ manual_snow_factor }}">
@@ -114,7 +115,7 @@
                    style="width: 230px;" placeholder="2025-02-05, 2025-02-06" value="{{ manual_snow_dates }}">
           </div>
           <div class="d-flex align-items-center gap-2 small">
-            <label class="text-muted mb-0" for="target-dates-run">Постфактум даты:</label>
+            <label class="text-muted mb-0" for="target-dates-run" data-i18n="forecast_postfact_dates">Постфактум даты:</label>
             <input id="target-dates-run" class="form-control form-control-sm" type="text" name="target_dates"
                    style="width: 230px;" placeholder="2026-02-22, 2026-02-23" value="{{ target_dates_raw }}">
           </div>
@@ -122,7 +123,7 @@
 
         <div class="d-flex flex-wrap align-items-center gap-3">
           <div class="d-flex align-items-center gap-2 small">
-            <span class="text-muted">Провайдеры:</span>
+            <span class="text-muted" data-i18n="forecast_providers">Провайдеры:</span>
             <div class="form-check form-check-inline m-0">
               <input class="form-check-input" type="checkbox" name="providers" id="provider-visual-crossing" value="visual_crossing"
                      {% if 'visual_crossing' in selected_providers %}checked{% endif %}>
@@ -136,12 +137,12 @@
             <div class="form-check m-0">
               <input class="form-check-input" type="checkbox" name="open_meteo_only" id="open-meteo-only" value="1"
                      {% if open_meteo_only %}checked{% endif %}>
-              <label class="form-check-label" for="open-meteo-only">Open‑Meteo без истории (только эвристика)</label>
+              <label class="form-check-label" for="open-meteo-only" data-i18n="forecast_open_meteo_only">Open‑Meteo без истории (только эвристика)</label>
             </div>
             <div class="form-check m-0">
               <input class="form-check-input" type="checkbox" name="visual_crossing_only" id="visual-crossing-only" value="1"
                      {% if visual_crossing_only %}checked{% endif %}>
-              <label class="form-check-label" for="visual-crossing-only">Visual Crossing без истории (только эвристика)</label>
+              <label class="form-check-label" for="visual-crossing-only" data-i18n="forecast_visual_crossing_only">Visual Crossing без истории (только эвристика)</label>
             </div>
           </div>
         </div>
@@ -153,9 +154,9 @@
           </div>
           <div class="form-check m-0">
             <input class="form-check-input" type="checkbox" name="manual_auto_send" id="manual-auto-send" value="1" {% if manual_auto_send %}checked{% endif %}>
-            <label class="form-check-label small" for="manual-auto-send">Авто-отправка отчёта в ручном режиме</label>
+            <label class="form-check-label small" for="manual-auto-send" data-i18n="forecast_manual_auto_send">Авто-отправка отчёта в ручном режиме</label>
           </div>
-          <button class="btn btn-sm btn-primary" type="submit">Сделать прогноз</button>
+          <button class="btn btn-sm btn-primary" type="submit" data-i18n="forecast_run">Сделать прогноз</button>
         </div>
       </form>
     </div>
@@ -164,10 +165,10 @@
   <div class="d-flex flex-wrap gap-2 mb-3">
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-list' station.pk %}">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
-      <label class="small mb-0 text-muted">Дата:</label>
+      <label class="small mb-0 text-muted" data-i18n="forecast_date">Дата:</label>
       <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
-      <button class="btn btn-sm btn-outline-secondary" type="submit">Показать дату</button>
-      <a class="btn btn-sm btn-outline-light border" href="{% url 'dashboard:station-forecast-list' station.pk %}">Сброс</a>
+      <button class="btn btn-sm btn-outline-secondary" type="submit" data-i18n="forecast_show_date">Показать дату</button>
+      <a class="btn btn-sm btn-outline-light border" href="{% url 'dashboard:station-forecast-list' station.pk %}" data-i18n="detail_reset">Сброс</a>
     </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-export' station.pk %}">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
@@ -181,39 +182,39 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="all">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
-      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить все прогнозы этой станции?');">Очистить прогнозы</button>
+      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить все прогнозы этой станции?');" data-i18n="forecast_clear_all">Очистить прогнозы</button>
     </form>
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-flex align-items-center gap-2 flex-wrap">
       {% csrf_token %}
       <input type="hidden" name="action" value="before_date">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
-      <label class="small mb-0 text-muted">Удалить старые до:</label>
+      <label class="small mb-0 text-muted" data-i18n="forecast_delete_old_before">Удалить старые до:</label>
       <input class="form-control form-control-sm" type="date" name="before_date" style="width: 160px;" required>
-      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить старые прогнозы до выбранной даты?');">Удалить старые</button>
+      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить старые прогнозы до выбранной даты?');" data-i18n="forecast_delete_old">Удалить старые</button>
     </form>
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-flex align-items-center gap-2 flex-wrap">
       {% csrf_token %}
       <input type="hidden" name="action" value="date_range">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
-      <label class="small mb-0 text-muted">Удалить с:</label>
+      <label class="small mb-0 text-muted" data-i18n="forecast_delete_from">Удалить с:</label>
       <input class="form-control form-control-sm" type="date" name="from_date" style="width: 160px;" required>
-      <label class="small mb-0 text-muted">по:</label>
+      <label class="small mb-0 text-muted" data-i18n="forecast_to">по:</label>
       <input class="form-control form-control-sm" type="date" name="to_date" style="width: 160px;" required>
-      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить прогнозы за выбранный период?');">Удалить диапазон</button>
+      <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить прогнозы за выбранный период?');" data-i18n="forecast_delete_range">Удалить диапазон</button>
     </form>
   </div>
 
-  <div class="text-muted small mb-2">Всего прогнозных строк (почасово): <b>{{ count }}</b></div>
+  <div class="text-muted small mb-2"><span data-i18n="forecast_total_rows">Всего прогнозных строк (почасово)</span>: <b>{{ count }}</b></div>
 
   <div class="table-responsive" style="max-height: 70vh; overflow:auto; border:1px solid #ddd;">
     <table class="table table-sm table-striped mb-0">
       <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
         <tr>
-          <th>Дата</th>
-          <th class="text-end">Итог, МВт</th>
+          <th data-i18n="forecast_col_date">Дата</th>
+          <th class="text-end" data-i18n="forecast_col_total">Итог, МВт</th>
           <th class="text-end">NP, МВт</th>
           <th class="text-end">XGB, МВт</th>
-          <th class="text-end">Эвристика, МВт</th>
+          <th class="text-end" data-i18n="forecast_col_heur">Эвристика, МВт</th>
         </tr>
       </thead>
       <tbody>
@@ -226,7 +227,7 @@
             <td class="text-end">{{ r.pred_heur_mw|default_if_none:""|floatformat:2 }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="5" class="text-center text-muted py-4">Пока нет прогнозов</td></tr>
+          <tr><td colspan="5" class="text-center text-muted py-4" data-i18n="forecast_no_data">Пока нет прогнозов</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -237,6 +238,66 @@
 {% block extra_scripts %}
 <script>
   (function () {
+    function normalizeText(text) {
+      return (text || "")
+        .replace(/\s+/g, " ")
+        .replace(/\u00a0/g, " ")
+        .trim()
+        .replace(/:$/, "");
+    }
+
+    function localizeDynamicForecastTexts() {
+      var lang = localStorage.getItem("preferredLang") || "ru";
+      if (lang === "ru") return;
+
+      var maps = {
+        kz: {
+          "Обычный (старый)": "Қалыпты (ескі)",
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Күнтізбе: Дс–Бс → +2 күн, Жм → +2/+3/+4 (Жс/Дс/Сс)",
+          "Open‑Meteo без истории (только эвристика)": "Open‑Meteo тарихсыз (тек эвристика)",
+          "Visual Crossing без истории (только эвристика)": "Visual Crossing тарихсыз (тек эвристика)",
+          "Последняя отправка: прогноз за": "Соңғы жіберу: болжам күні",
+          "отправлен в": "жіберілді"
+        },
+        en: {
+          "Обычный (старый)": "Normal (legacy)",
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Calendar: Mon–Thu → +2 days, Fri → +2/+3/+4 (Sun/Mon/Tue)",
+          "Open‑Meteo без истории (только эвристика)": "Open‑Meteo without history (heuristics only)",
+          "Visual Crossing без истории (только эвристика)": "Visual Crossing without history (heuristics only)",
+          "Последняя отправка: прогноз за": "Last sent: forecast for",
+          "отправлен в": "sent at"
+        }
+      };
+      var dict = maps[lang];
+      if (!dict) return;
+
+      // translate choice options rendered by Django forms (both schedule + manual mode)
+      document.querySelectorAll('select[name="horizon_mode"] option').forEach(function (option) {
+        var key = normalizeText(option.textContent);
+        if (dict[key]) option.textContent = dict[key];
+      });
+
+      // translate dynamic checkbox labels rendered by Django form in schedule block
+      document.querySelectorAll("label").forEach(function (label) {
+        var key = normalizeText(label.textContent);
+        if (dict[key]) {
+          var hasColon = /:\s*$/.test(label.textContent || "");
+          label.textContent = dict[key] + (hasColon ? ":" : "");
+        }
+      });
+
+      // translate runtime status message prefix parts
+      document.querySelectorAll(".alert.alert-info.small, .alert.alert-info.py-2.px-3.mt-2.mb-0.small").forEach(function (node) {
+        var text = node.textContent || "";
+        Object.keys(dict).forEach(function (ruText) {
+          if (text.includes(ruText)) {
+            text = text.replaceAll(ruText, dict[ruText]);
+          }
+        });
+        node.textContent = text.trim();
+      });
+    }
+
     function bindScopeSwitcher() {
       var scopeSelect = document.getElementById("scope-mode");
       if (!scopeSelect) return;
@@ -248,6 +309,7 @@
     }
 
     bindScopeSwitcher();
+    localizeDynamicForecastTexts();
   })();
 </script>
 {% endblock %}
