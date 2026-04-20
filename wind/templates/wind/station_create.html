@@ -1,0 +1,72 @@
+{% extends "dashboard/base.html" %}
+
+{% block title %}{% if is_edit %}Редактирование ветростанции{% else %}Новая ветростанция{% endif %}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h3 class="mb-3">{% if is_edit %}<span data-i18n="wind_edit_station">Редактировать ветростанцию</span>{% else %}<span data-i18n="wind_create_station">Создать ветростанцию</span>{% endif %}</h3>
+
+  <div class="card">
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+
+        <h5 class="mb-2" data-i18n="wind_basic_data">Основные данные</h5>
+        {{ station_form.as_p }}
+
+        <hr>
+        <h5 class="mb-2" data-i18n="wind_turbine_params">Параметры турбин</h5>
+        {{ profile_form.as_p }}
+
+        <div class="mt-3 d-flex gap-2">
+          <button type="submit" class="btn btn-primary">{% if is_edit %}<span data-i18n="wind_save_changes">Сохранить изменения</span>{% else %}<span data-i18n="edit_save">Сохранить</span>{% endif %}</button>
+          <a href="{% url 'wind:station-list' %}" class="btn btn-secondary" data-i18n="edit_cancel">Отмена</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+  {{ block.super }}
+  <script>
+    (function () {
+      var lang = localStorage.getItem("preferredLang") || "ru";
+      if (lang === "ru") return;
+      var map = {
+        kz: {
+          "Название станции": "Станция атауы",
+          "Оператор": "Оператор",
+          "Номинал (MW, legacy)": "Номинал (MW, legacy)",
+          "Широта": "Ендік",
+          "Долгота": "Бойлық",
+          "Часовой пояс": "Уақыт белдеуі",
+          "Количество турбин": "Турбина саны",
+          "Мощность турбины, кВт": "Турбина қуаты, кВт",
+          "Высота ступицы, м": "Тірек биіктігі, м",
+          "Диаметр ротора, м": "Ротор диаметрі, м",
+          "Кривая мощности турбины": "Турбина қуат қисығы"
+        },
+        en: {
+          "Название станции": "Station name",
+          "Оператор": "Operator",
+          "Номинал (MW, legacy)": "Capacity (MW, legacy)",
+          "Широта": "Latitude",
+          "Долгота": "Longitude",
+          "Часовой пояс": "Timezone",
+          "Количество турбин": "Number of turbines",
+          "Мощность турбины, кВт": "Turbine rated power, kW",
+          "Высота ступицы, м": "Hub height, m",
+          "Диаметр ротора, м": "Rotor diameter, m",
+          "Кривая мощности турбины": "Turbine power curve"
+        }
+      }[lang];
+      if (!map) return;
+      document.querySelectorAll("label, .helptext").forEach(function (node) {
+        var text = (node.textContent || "").trim().replace(/:$/, "");
+        if (map[text]) node.textContent = map[text] + ":";
+      });
+    })();
+  </script>
+{% endblock %}
