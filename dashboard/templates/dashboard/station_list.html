@@ -3,14 +3,19 @@
 {% block content %}
 
 <div class="station-list-header d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
-  <h2 class="m-0">Станции</h2>
+  <h2 class="m-0" data-i18n="page_station_list_title">Станции</h2>
 
   <div class="d-flex gap-2 station-list-header__actions">
-    <a class="btn btn-primary" href="{% url 'dashboard:station-create' %}">
+    <a class="btn btn-primary" href="{% url 'dashboard:station-create' %}" data-i18n="page_add_station">
       Добавить станцию
     </a>
   </div>
 </div>
+
+<a class="station-list-guide mb-3" href="{% url 'dashboard:onboarding-guide' %}">
+  <span class="station-list-guide__badge">ИНСТРУКЦИЯ</span>
+  <span class="station-list-guide__text">Как добавить станцию, загрузить историю и запустить прогноз</span>
+</a>
 
 {% if blocked_orgs %}
   <div class="alert alert-warning">
@@ -45,10 +50,10 @@
         <div class="station-list-card__meta">
           <div class="fw-bold">{{ st.name }}</div>
           <div class="text-muted small">
-            {% if st.capacity_mw %}Мощность: {{ st.capacity_mw }} МВт{% endif %}
+            {% if st.capacity_mw %}<span data-i18n="page_capacity">Мощность</span>: {{ st.capacity_mw }} МВт{% endif %}
             {% if st.latitude and st.longitude %}
               {% if st.capacity_mw %} | {% endif %}
-              Коорд: {{ st.latitude }}, {{ st.longitude }}
+              <span data-i18n="page_coords">Коорд</span>: {{ st.latitude }}, {{ st.longitude }}
               <a
                 class="ms-1 text-decoration-none"
                 href="https://earth.google.com/web/search/{{ st.latitude|unlocalize }},{{ st.longitude|unlocalize }}"
@@ -56,22 +61,24 @@
                 rel="noopener noreferrer"
                 title="Открыть станцию в Google Earth"
                 aria-label="Открыть станцию в Google Earth"
+                data-i18n-title="page_open_earth"
+                data-i18n-aria-label="page_open_earth"
               >
                 🌍
               </a>
             {% endif %}
           </div>
           <div class="station-list-card__co2 mt-2">
-            <div class="station-list-card__co2-title">CO₂ из истории</div>
+            <div class="station-list-card__co2-title" data-i18n="page_co2_from_history">CO₂ из истории</div>
             <div class="station-list-card__co2-values">
-              <span class="station-list-card__co2-pill">Общий: {{ st.co2_metrics.total_kg|floatformat:0 }} кг</span>
-              <span class="station-list-card__co2-pill station-list-card__co2-pill--muted">За вчера: {{ st.co2_metrics.yesterday_kg|floatformat:0 }} кг</span>
+              <span class="station-list-card__co2-pill"><span data-i18n="page_co2_total">Общий</span>: {{ st.co2_metrics.total_kg|floatformat:0 }} кг</span>
+              <span class="station-list-card__co2-pill station-list-card__co2-pill--muted"><span data-i18n="page_co2_yesterday">За вчера</span>: {{ st.co2_metrics.yesterday_kg|floatformat:0 }} кг</span>
             </div>
             <div class="station-list-card__co2-note small text-muted">
               {% if st.co2_metrics.has_history %}
-                Расчет: история × {{ co2_grid_factor_kg_per_kwh|floatformat:2 }} кг CO₂/кВт·ч.
+                <span data-i18n="page_co2_calc_prefix">Расчет: история ×</span> {{ co2_grid_factor_kg_per_kwh|floatformat:2 }} <span data-i18n="page_co2_calc_suffix">кг CO₂/кВт·ч.</span>
               {% else %}
-                Пока нет истории для расчета CO₂.
+                <span data-i18n="page_co2_empty">Пока нет истории для расчета CO₂.</span>
               {% endif %}
             </div>
           </div>
@@ -80,31 +87,31 @@
         <div class="d-flex flex-wrap gap-2 align-items-center station-list-card__actions">
           <form method="post" action="{% url 'dashboard:station-move' st.pk 'up' %}" class="m-0">
             {% csrf_token %}
-            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Поднять выше">↑</button>
+            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Поднять выше" data-i18n-title="page_move_up">↑</button>
           </form>
 
           <form method="post" action="{% url 'dashboard:station-move' st.pk 'down' %}" class="m-0">
             {% csrf_token %}
-            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Опустить ниже">↓</button>
+            <button type="submit" class="btn btn-outline-secondary btn-sm" title="Опустить ниже" data-i18n-title="page_move_down">↓</button>
           </form>
 
-          <a class="btn btn-outline-primary btn-sm" href="{% url 'dashboard:station-detail' st.pk %}">
+          <a class="btn btn-outline-primary btn-sm" href="{% url 'dashboard:station-detail' st.pk %}" data-i18n="page_graph_details">
             График / Детали
           </a>
 
-          <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' st.pk %}">
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-edit' st.pk %}" data-i18n="page_edit">
             Редактировать
           </a>
 
-          <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' st.pk %}">
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'dashboard:station-upload' st.pk %}" data-i18n="page_upload_history">
             Загрузить историю
           </a>
 
-          <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' st.pk %}">
+          <a class="btn btn-success btn-sm" href="{% url 'dashboard:station-forecast-list' st.pk %}" data-i18n="page_forecast">
             Прогноз
           </a>
 
-          <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' st.pk %}">
+          <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' st.pk %}" data-i18n="page_train_models">
             Обучить модели
           </a>
         </div>
@@ -113,7 +120,7 @@
     </div>
   {% endfor %}
 {% else %}
-  <div class="alert alert-info">Пока нет станций.</div>
+  <div class="alert alert-info" data-i18n="page_no_stations">Пока нет станций.</div>
 {% endif %}
 
 <style>
@@ -145,46 +152,35 @@
   gap: 0.35rem;
 }
 
-.station-list-card__co2-title {
-  font-size: 0.82rem;
+.station-list-guide__badge {
+  border-radius: 9999px;
+  background: #2e86ff;
+  color: #fff;
+  font-size: .95rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: #198754;
+  letter-spacing: .02em;
+  padding: .3rem .8rem;
 }
 
-.station-list-card__co2-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.station-list-card__co2-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.3rem 0.65rem;
-  border-radius: 999px;
-  background: rgba(25, 135, 84, 0.12);
-  color: #146c43;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.station-list-card__co2-pill--muted {
-  background: rgba(13, 110, 253, 0.08);
-  color: #355b91;
-}
-
-.station-list-card__co2-note {
-  line-height: 1.4;
+.station-list-guide__text {
+  white-space: nowrap;
 }
 
 @media (max-width: 767.98px) {
-  .station-list-header__actions {
+  .station-list-guide {
+    font-size: .95rem;
     width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+    border-radius: 14px;
   }
 
-  .station-list-header__actions .btn {
+  .station-list-guide__text {
+    white-space: normal;
+    text-align: center;
+  }
+
+  .station-list-header__actions {
     width: 100%;
   }
 
