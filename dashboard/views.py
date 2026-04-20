@@ -64,6 +64,91 @@ def _parse_int_query(value, default: int) -> int:
         return default
 
 
+def _forecast_value_to_kw(value: Optional[float], station_capacity_mw: Optional[float]) -> float:
+    """
+    Нормализует исторически смешанные единицы прогноза:
+    - legacy-строки могли храниться в MW;
+    - текущие строки хранятся в kW.
+
+    Эвристика:
+    если абсолютное значение «слишком маленькое» относительно мощности станции,
+    считаем, что это MW, и переводим в kW.
+    """
+    if value is None:
+        return 0.0
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not pd.notna(v):
+        return 0.0
+
+    cap = None
+    try:
+        if station_capacity_mw is not None:
+            cap = float(station_capacity_mw)
+    except (TypeError, ValueError):
+        cap = None
+
+    # Порог, ниже которого вероятнее всего это MW, а не kW.
+    # Пример: для 8.8 MW порог ~17.6; для 1.2 MW порог ~10.
+    mw_threshold = max((cap or 0.0) * 2.0, 10.0)
+    if abs(v) <= mw_threshold:
+        return v * 1000.0
+    return v
+
+
+def _plan_value_with_heuristic_fallback(pred_final: Optional[float], pred_heur: Optional[float]) -> Optional[float]:
+    """
+    Возвращает значение итогового прогноза для графиков/экспорта.
+    Если pred_final отсутствует или нулевой, берём эвристику.
+    """
+    try:
+        final_value = float(pred_final) if pred_final is not None else None
+    except (TypeError, ValueError):
+        final_value = None
+    if final_value is not None and pd.notna(final_value) and final_value > 0:
+        return final_value
+
+    try:
+        heur_value = float(pred_heur) if pred_heur is not None else None
+    except (TypeError, ValueError):
+        heur_value = None
+    if heur_value is not None and pd.notna(heur_value):
+        return heur_value
+    return None
+
+
+def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
+    """
+    Строит map вида {timestamp: plan_kw} с fallback на эвристику.
+    """
+    plan_map = {}
+    for row in rows:
+        plan_value = _plan_value_with_heuristic_fallback(row.get("pred_final"), row.get("pred_heur"))
+        if plan_value is None:
+            continue
+        plan_map[row[timestamp_key]] = plan_value
+    return plan_map
+
+
+def _forecast_export_filters(dt_from: Optional[datetime], dt_to: Optional[datetime], dt_date: Optional[datetime]) -> dict:
+    """
+    Фильтры диапазона выгрузки прогноза:
+    - точечная дата приоритетнее диапазона;
+    - границы диапазона включительные по календарным датам.
+    """
+    if dt_date:
+        return {"timestamp__date": dt_date.date()}
+
+    filters = {}
+    if dt_from:
+        filters["timestamp__date__gte"] = dt_from.date()
+    if dt_to:
+        filters["timestamp__date__lte"] = dt_to.date()
+    return filters
+
+
 def _build_training_status(station: Station) -> dict:
     paths = _model_paths_for_station(station)
     resolved_dir, resolved_source = describe_station_model_dir(
@@ -177,14 +262,17 @@ def _localize_timestamp(value):
 
 
 
-def _station_queryset_for_user(user):
+def _station_queryset_for_user(user, station_kind: str | None = None):
     org_ids = Organization.objects.filter(owner=user).values_list("id", flat=True)
     member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
-    return Station.objects.filter(org_id__in=(org_ids.union(member_org_ids))).distinct()
+    qs = Station.objects.filter(org_id__in=(org_ids.union(member_org_ids))).distinct()
+    if station_kind:
+        qs = qs.filter(station_kind=station_kind)
+    return qs
 
 
-def _get_station_or_404(user, pk: int):
-    return get_object_or_404(_station_queryset_for_user(user), pk=pk)
+def _get_station_or_404(user, pk: int, station_kind: str | None = None):
+    return get_object_or_404(_station_queryset_for_user(user, station_kind=station_kind), pk=pk)
 
 
 
@@ -467,7 +555,7 @@ def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
 
 @login_required
 def station_list(request):
-    stations = list(_station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id"))
+    stations = list(_station_queryset_for_user(request.user, station_kind=Station.KIND_SOLAR).select_related("org").order_by("sort_order", "id"))
     for station in stations:
         station.co2_metrics = _station_co2_metrics(station)
 
@@ -489,14 +577,14 @@ def station_move(request, pk: int, direction: str):
     if request.method != "POST":
         return redirect("dashboard:station-list")
 
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     if direction not in {"up", "down"}:
         messages.error(request, "Неизвестное направление перемещения.")
         return redirect("dashboard:station-list")
 
     siblings = list(
-        _station_queryset_for_user(request.user)
+        _station_queryset_for_user(request.user, station_kind=Station.KIND_SOLAR)
         .filter(org=st.org)
         .order_by("sort_order", "id")
         .only("id", "sort_order")
@@ -551,7 +639,7 @@ def _run_station_auto_history_fill_safe(station: Station) -> int:
 
 @login_required
 def station_edit(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
 
@@ -598,7 +686,7 @@ def station_edit(request, pk: int):
 
 @login_required
 def station_detail(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
@@ -641,6 +729,7 @@ def station_detail(request, pk: int):
             .values("bucket")
             .annotate(
                 pred_final=Avg("pred_final"),
+                pred_heur=Avg("pred_heur"),
                 irradiation_fc=Avg("irradiation_fc"),
                 air_temp_fc=Avg("air_temp_fc"),
             )
@@ -651,11 +740,7 @@ def station_detail(request, pk: int):
             for row in history_rows
             if row.get("power_kw") is not None
         }
-        forecast_map = {
-            row["bucket"]: float(row["pred_final"])
-            for row in forecast_rows
-            if row.get("pred_final") is not None
-        }
+        forecast_map = _build_forecast_plan_map(forecast_rows, "bucket")
         irr_fact_map = {
             row["bucket"]: float(row["irradiation"])
             for row in history_rows
@@ -684,6 +769,7 @@ def station_detail(request, pk: int):
         ).order_by("timestamp")
         forecast_rows = forecast_qs.values("timestamp").annotate(
             pred_final=Avg("pred_final"),
+            pred_heur=Avg("pred_heur"),
             irradiation_fc=Avg("irradiation_fc"),
             air_temp_fc=Avg("air_temp_fc"),
         ).order_by("timestamp")
@@ -692,11 +778,7 @@ def station_detail(request, pk: int):
             for row in history_rows
             if row.get("power_kw") is not None
         }
-        forecast_map = {
-            row["timestamp"]: float(row["pred_final"])
-            for row in forecast_rows
-            if row.get("pred_final") is not None
-        }
+        forecast_map = _build_forecast_plan_map(forecast_rows, "timestamp")
         irr_fact_map = {
             row["timestamp"]: float(row["irradiation"])
             for row in history_rows
@@ -821,7 +903,7 @@ def station_detail(request, pk: int):
 
 @login_required
 def station_plan_fact_export(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     date_from = request.GET.get("date_from") or ""
     date_to = request.GET.get("date_to") or ""
@@ -838,7 +920,15 @@ def station_plan_fact_export(request, pk: int):
         forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
 
     history_df = pd.DataFrame(list(history_qs.values("timestamp").annotate(fact_kw=Avg("power_kw")).order_by("timestamp")))
-    forecast_df = pd.DataFrame(list(forecast_qs.values("timestamp").annotate(plan_kw=Avg("pred_final")).order_by("timestamp")))
+    forecast_rows = list(
+        forecast_qs.values("timestamp")
+        .annotate(pred_final=Avg("pred_final"), pred_heur=Avg("pred_heur"))
+        .order_by("timestamp")
+    )
+    forecast_plan_map = _build_forecast_plan_map(forecast_rows, "timestamp")
+    forecast_df = pd.DataFrame(
+        [{"timestamp": ts, "plan_kw": plan_kw} for ts, plan_kw in forecast_plan_map.items()]
+    )
 
     if history_df.empty:
         history_df = pd.DataFrame(columns=["timestamp", "fact_kw"])
@@ -872,16 +962,36 @@ def station_plan_fact_export(request, pk: int):
 # ----------------------------
 @login_required
 def station_upload(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
     history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
 
     if request.method == "POST":
         if request.POST.get("action") == "clear":
-            SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
-            messages.success(request, "История очищена.")
-            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
+            from_s = (request.POST.get("from") or "").strip()
+            to_s = (request.POST.get("to") or "").strip()
+            dt_from = _aware_datetime(_parse_date(from_s), end_of_day=False)
+            dt_to = _aware_datetime(_parse_date(to_s), end_of_day=True)
+
+            clear_qs = SolarRecord.objects.filter(station=st, history_scope=history_scope)
+            if dt_from:
+                clear_qs = clear_qs.filter(timestamp__gte=dt_from)
+            if dt_to:
+                clear_qs = clear_qs.filter(timestamp__lte=dt_to)
+
+            deleted_count, _ = clear_qs.delete()
+            if dt_from or dt_to:
+                messages.success(request, f"Удалено записей истории: {deleted_count} (по фильтру дат).")
+            else:
+                messages.success(request, f"История очищена: удалено {deleted_count} записей.")
+
+            query = {"history_scope": history_scope}
+            if from_s:
+                query["from"] = from_s
+            if to_s:
+                query["to"] = to_s
+            return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?{urlencode(query)}")
 
         form = UploadHistoryForm(request.POST, request.FILES)
         if not form.is_valid():
@@ -979,7 +1089,7 @@ def station_upload(request, pk: int):
 
 @login_required
 def station_export_history(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     history_scope = _normalize_history_scope(request.GET.get("history_scope") or "main")
     qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
@@ -1011,7 +1121,7 @@ def station_train(request, pk: int):
     Страница обучения (GET) + запуск обучения (POST).
     """
     try:
-        st = _get_station_or_404(request.user, pk)
+        st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
         if not _ensure_station_write_access(request, st):
             return redirect("dashboard:station-detail", pk=st.pk)
 
@@ -1053,7 +1163,7 @@ def station_train_models(request, pk: int):
 # ----------------------------
 @login_required
 def station_forecast_list(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
     open_meteo_only = request.GET.get("open_meteo_only") in {"1", "true", "on", "yes"}
@@ -1132,19 +1242,20 @@ def station_forecast_list(request, pk: int):
     forecasts_raw = list(qs)
 
     daily = defaultdict(lambda: {"pred_final": 0.0, "pred_np": 0.0, "pred_xgb": 0.0, "pred_heur": 0.0})
+    station_capacity_mw = getattr(st, "capacity_mw", None)
     for f in forecasts_raw:
         ts = _localize_timestamp(f.timestamp)
         if ts is None:
             continue
         day_key = ts.date()
         if f.pred_final is not None:
-            daily[day_key]["pred_final"] += float(f.pred_final)
+            daily[day_key]["pred_final"] += _forecast_value_to_kw(f.pred_final, station_capacity_mw)
         if f.pred_np is not None:
-            daily[day_key]["pred_np"] += float(f.pred_np)
+            daily[day_key]["pred_np"] += _forecast_value_to_kw(f.pred_np, station_capacity_mw)
         if f.pred_xgb is not None:
-            daily[day_key]["pred_xgb"] += float(f.pred_xgb)
+            daily[day_key]["pred_xgb"] += _forecast_value_to_kw(f.pred_xgb, station_capacity_mw)
         if f.pred_heur is not None:
-            daily[day_key]["pred_heur"] += float(f.pred_heur)
+            daily[day_key]["pred_heur"] += _forecast_value_to_kw(f.pred_heur, station_capacity_mw)
 
     forecasts = [
         {
@@ -1188,7 +1299,7 @@ def station_forecast_list(request, pk: int):
 @login_required
 def station_forecast_run(request, pk: int):
     try:
-        st = _get_station_or_404(request.user, pk)
+        st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
         if not _ensure_station_write_access(request, st):
             return redirect("dashboard:station-detail", pk=st.pk)
         days = _parse_int_query(request.GET.get("days", "7") or 7, 7)
@@ -1355,7 +1466,7 @@ def station_forecast_run(request, pk: int):
 
 @login_required
 def station_forecast_schedule_update(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
     if request.method != "POST":
@@ -1404,7 +1515,7 @@ def station_forecast_scheduler_tick(request):
 
 @login_required
 def station_forecast_clear(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
     if not _ensure_station_write_access(request, st):
         return redirect("dashboard:station-detail", pk=st.pk)
     scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
@@ -1441,7 +1552,7 @@ def station_forecast_clear(request, pk: int):
 
 @login_required
 def station_forecast_export(request, pk: int):
-    st = _get_station_or_404(request.user, pk)
+    st = _get_station_or_404(request.user, pk, station_kind=Station.KIND_SOLAR)
 
     from_s = request.GET.get("from") or ""
     to_s = request.GET.get("to") or ""
@@ -1452,12 +1563,9 @@ def station_forecast_export(request, pk: int):
     scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
 
     qs = SolarForecast.objects.filter(station=st, forecast_scope=scope).order_by("timestamp")
-    if dt_from:
-        qs = qs.filter(timestamp__gte=dt_from)
-    if dt_to:
-        qs = qs.filter(timestamp__lte=dt_to)
-    if dt_date:
-        qs = qs.filter(timestamp__date=dt_date.date())
+    export_filters = _forecast_export_filters(dt_from, dt_to, dt_date)
+    if export_filters:
+        qs = qs.filter(**export_filters)
 
     data = list(
         qs.values(
