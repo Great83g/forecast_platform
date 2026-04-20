@@ -4,8 +4,8 @@
 <section class="company-page mb-5">
   <div class="company-topbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
     <div>
-      <div class="section-label mb-2">TGS Energy</div>
-      <div class="company-subtitle">Инжиниринговая группа компаний в области ВИЭ и энергопрогнозирования</div>
+      <div class="section-label mb-2">{{ company_name }}</div>
+      <div class="company-subtitle">Развитие проектов в сфере ВИЭ и инновационных IT-решений</div>
     </div>
     <div class="company-topbar__actions d-flex flex-wrap gap-2">
       <a href="mailto:{{ contacts.email }}" class="btn btn-outline-primary">Написать на e-mail</a>
@@ -16,14 +16,14 @@
     <div class="card-body p-4 p-lg-5">
       <div class="row g-4 align-items-center">
         <div class="col-lg-8">
-          <span class="company-badge">TGS Energy</span>
+          <span class="company-badge">{{ company_name }}</span>
           <h1 class="company-title mt-3 mb-3">О компании</h1>
           <p class="company-lead mb-0">{{ company_description }}</p>
         </div>
         <div class="col-lg-4">
           <div class="company-accent-card ms-lg-auto">
-            <div class="company-accent-card__label">Инжиниринг и ВИЭ</div>
-            <div class="company-accent-card__value">Опыт, качество и современные решения для энергетических проектов</div>
+            <div class="company-accent-card__label">О компании</div>
+            <div class="company-accent-card__value">Казахстанская компания, развивающая инновационные решения в сфере зелёных технологий</div>
             <a href="#contacts" class="btn btn-light btn-sm mt-3">Связаться с нами</a>
           </div>
         </div>
@@ -35,8 +35,8 @@
     <div class="col-xl-8">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
-          <div class="section-label mb-2">Преимущества</div>
-          <h2 class="section-title mb-4">Почему выбирают ТГС</h2>
+          <div class="section-label mb-2">Достижения</div>
+          <h2 class="section-title mb-4">{{ company_points_title }}</h2>
           <div class="company-feature-list">
             {% for point in company_points %}
               <article class="company-feature-item">
@@ -51,7 +51,7 @@
 
     <div class="col-xl-4">
       <div id="contacts" class="card border-0 shadow-sm h-100 company-contacts-card">
-        <div class="card-body p-4 p-lg-5 d-flex flex-column h-100">
+        <div class="card-body p-4 p-lg-5 d-flex flex-column">
           <div class="section-label mb-2">Контакты</div>
           <h2 class="section-title mb-4">Свяжитесь с нами</h2>
 
@@ -63,58 +63,20 @@
               {{ contacts.business_center }}<br>
               {{ contacts.street }}
             </div>
-
-            <div class="contact-block mb-3">
-              <div class="contact-label">E-mail</div>
-              <a class="contact-link" href="mailto:{{ contacts.email }}">{{ contacts.email }}</a>
-            </div>
-
-            <div class="contact-block mb-4">
-              <div class="contact-label">Телефон</div>
-              <a class="contact-link" href="tel:+77014090810">{{ contacts.phone }}</a>
-            </div>
-
-            <div class="company-note mt-auto">
-              Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
-            </div>
           </div>
-        </div>
 
-        <div class="card border-0 shadow-sm company-guide-card">
-          <div class="card-body p-4 p-lg-5">
-            <div class="section-label mb-2">Как пользоваться</div>
-            <h2 class="section-title mb-3">Краткая инструкция для новых пользователей</h2>
-            <p class="company-note mb-4">
-              Начать работу можно за несколько минут: добавьте станцию, загрузите историю и откройте прогноз в личном кабинете.
-            </p>
+          <div class="contact-block mb-3">
+            <div class="contact-label">E-mail</div>
+            <a class="contact-link" href="mailto:{{ contacts.email }}">{{ contacts.email }}</a>
+          </div>
 
-            <div class="company-guide-list">
-              <article class="company-guide-item">
-                <div class="company-guide-item__step">1</div>
-                <div>
-                  <div class="company-guide-item__title">Добавьте станцию</div>
-                  <div class="company-guide-item__text">Откройте раздел «Станции» и создайте объект с основными параметрами вашей СЭС или ВЭС.</div>
-                </div>
-              </article>
-              <article class="company-guide-item">
-                <div class="company-guide-item__step">2</div>
-                <div>
-                  <div class="company-guide-item__title">Загрузите данные</div>
-                  <div class="company-guide-item__text">Импортируйте исторические значения мощности, чтобы система подготовила базу для прогнозирования.</div>
-                </div>
-              </article>
-              <article class="company-guide-item">
-                <div class="company-guide-item__step">3</div>
-                <div>
-                  <div class="company-guide-item__title">Проверьте прогноз</div>
-                  <div class="company-guide-item__text">Откройте карточку станции, чтобы увидеть почасовой прогноз, статус модели и доступные обновления.</div>
-                </div>
-              </article>
-            </div>
+          <div class="contact-block mb-4">
+            <div class="contact-label">Телефон</div>
+            <a class="contact-link" href="tel:+77014090810">{{ contacts.phone }}</a>
+          </div>
 
-            <div class="company-guide-tip mt-4">
-              Если понадобится помощь с настройкой — напишите или позвоните нам, и мы подскажем оптимальный порядок запуска.
-            </div>
+          <div class="company-note mt-auto">
+            Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
           </div>
         </div>
       </div>
@@ -233,63 +195,8 @@
   line-height: 1.65;
 }
 
-.company-side-stack {
-  grid-template-rows: repeat(2, minmax(0, auto));
-}
-
 .company-contacts-card {
   background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
-}
-
-.company-guide-card {
-  background:
-    radial-gradient(circle at top right, rgba(87, 146, 255, 0.16), transparent 30%),
-    linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-}
-
-.company-guide-list {
-  display: grid;
-  gap: 0.9rem;
-}
-
-.company-guide-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.9rem;
-  padding: 1rem 1.1rem;
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(33, 79, 151, 0.09);
-}
-
-.company-guide-item__step {
-  width: 2.2rem;
-  height: 2.2rem;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #214f97 0%, #3f73c9 100%);
-  color: #fff;
-  font-weight: 800;
-}
-
-.company-guide-item__title {
-  font-weight: 700;
-  margin-bottom: 0.25rem;
-}
-
-.company-guide-item__text,
-.company-guide-tip {
-  color: #4b678d;
-  line-height: 1.65;
-}
-
-.company-guide-tip {
-  padding: 1rem 1.1rem;
-  border-radius: 1rem;
-  background: rgba(33, 79, 151, 0.06);
-  border: 1px dashed rgba(33, 79, 151, 0.18);
 }
 
 .contact-block {

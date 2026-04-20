@@ -64,6 +64,11 @@
             Станции
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'wind:station-list' %}">
+            Ветер
+          </a>
+        </li>
         {% if request.user.is_authenticated %}
           <li class="nav-item">
             <span class="nav-link">
