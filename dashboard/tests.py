@@ -1,9 +1,10 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
 from django.db.models import Max
 from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 import pandas as pd
 import tempfile
@@ -13,6 +14,7 @@ from unittest.mock import patch
 from dashboard.models import ForecastSchedule
 from dashboard.services.forecast_engine import (
     _station_data_shift_hours as forecast_station_shift_hours,
+    _station_capacity_mw as forecast_station_capacity_mw,
     _station_model_dir as forecast_station_model_dir,
     _target_offsets_for_weekday_calendar,
     _postprocess_xgb_prediction,
@@ -32,7 +34,15 @@ from dashboard.services.model_storage import (
     resolve_station_model_dir,
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
-from dashboard.views import _parse_history_datetime, station_forecast_scheduler_tick
+from dashboard.services.train_models import _capacity_mw_from_fields
+from dashboard.views import (
+    _build_forecast_plan_map,
+    _forecast_export_filters,
+    _forecast_value_to_kw,
+    _parse_history_datetime,
+    _plan_value_with_heuristic_fallback,
+    station_forecast_scheduler_tick,
+)
 from dashboard.services.history_autofill import (
     _station_data_shift_hours as auto_history_station_shift_hours,
     _normalize_auto_history_script,
@@ -74,6 +84,78 @@ class StationDataShiftHoursTests(TestCase):
     def test_auto_history_shift_helper_fallbacks_to_zero(self):
         station = SimpleNamespace(data_shift_hours="bad")
         self.assertEqual(auto_history_station_shift_hours(station), 0)
+
+
+class ForecastValueNormalizationTests(TestCase):
+    def test_converts_legacy_mw_values_to_kw(self):
+        self.assertEqual(_forecast_value_to_kw(8.8, 8.8), 8800.0)
+        self.assertEqual(_forecast_value_to_kw(1.2, 1.2), 1200.0)
+
+    def test_keeps_kw_values_as_is(self):
+        self.assertEqual(_forecast_value_to_kw(5400.0, 8.8), 5400.0)
+        self.assertEqual(_forecast_value_to_kw(350.0, 1.2), 350.0)
+
+
+class PlanValueFallbackTests(TestCase):
+    def test_uses_pred_final_when_it_is_positive(self):
+        self.assertEqual(_plan_value_with_heuristic_fallback(123.0, 456.0), 123.0)
+
+    def test_falls_back_to_heuristic_when_final_is_missing_or_zero(self):
+        self.assertEqual(_plan_value_with_heuristic_fallback(None, 456.0), 456.0)
+        self.assertEqual(_plan_value_with_heuristic_fallback(0.0, 456.0), 456.0)
+
+    def test_build_map_keeps_only_rows_with_plan_value(self):
+        rows = [
+            {"timestamp": "t1", "pred_final": 100.0, "pred_heur": 90.0},
+            {"timestamp": "t2", "pred_final": None, "pred_heur": 80.0},
+            {"timestamp": "t3", "pred_final": None, "pred_heur": None},
+        ]
+        self.assertEqual(
+            _build_forecast_plan_map(rows, "timestamp"),
+            {"t1": 100.0, "t2": 80.0},
+        )
+
+
+class ForecastExportDateFilterTests(TestCase):
+    def test_same_day_range_is_inclusive_for_full_day(self):
+        dt = _parse_history_datetime("2026-03-31 00:00")
+        filters = _forecast_export_filters(dt, dt, None)
+        self.assertEqual(
+            filters,
+            {
+                "timestamp__date__gte": date(2026, 3, 31),
+                "timestamp__date__lte": date(2026, 3, 31),
+            },
+        )
+
+    def test_exact_date_has_priority_over_range(self):
+        dt_from = _parse_history_datetime("2026-03-31 00:00")
+        dt_to = _parse_history_datetime("2026-04-01 00:00")
+        dt_date = _parse_history_datetime("2026-03-31 00:00")
+        self.assertEqual(_forecast_export_filters(dt_from, dt_to, dt_date), {"timestamp__date": date(2026, 3, 31)})
+
+
+class CapacityFieldsNormalizationTests(TestCase):
+    def test_train_capacity_helper_converts_kw_in_capacity_mw_field(self):
+        station = SimpleNamespace(capacity_mw=8800, capacity_ac_kw=None, capacity_kw=None, capacity_dc_kw=None)
+        self.assertEqual(_capacity_mw_from_fields(station), 8.8)
+
+    @patch("dashboard.services.forecast_engine.SolarRecord")
+    def test_forecast_capacity_helper_converts_kw_in_capacity_mw_field(self, solar_record_mock):
+        qs = solar_record_mock.objects.filter.return_value
+        qs.exclude.return_value = qs
+        qs.order_by.return_value = qs
+        qs.values_list.return_value = []
+
+        station = SimpleNamespace(
+            pk=1,
+            capacity_mw=8800,
+            capacity_ac_kw=None,
+            capacity_kw=None,
+            capacity_dc_kw=None,
+            history_source_id=None,
+        )
+        self.assertEqual(forecast_station_capacity_mw(station), 8.8)
 
 
 class StationModelDirResolutionTests(TestCase):
@@ -1103,13 +1185,81 @@ class ForecastEngineManualSnowFactorIncreaseTests(TestCase):
         self.assertEqual(applied_factor, 1.5)
 
 
+class ForecastEngineGlobalBiasTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="global-bias", password="pass")
+        org = Organization.objects.create(name="Global Bias Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Bias Station",
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+            latitude=None,
+            longitude=None,
+        )
+        SolarRecord.objects.create(
+            station=self.station,
+            timestamp=timezone.datetime(2026, 2, 25, 12, 0, tzinfo=timezone.get_current_timezone()),
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            irradiation=620.0,
+            air_temp=11.0,
+        )
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_global_bias_increases_final_forecast(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+
+        baseline = run_forecast_for_station(
+            station_id=self.station.pk,
+            days=1,
+            use_models=False,
+            forecast_scope="test",
+            target_dates=[date(2026, 2, 25)],
+        )
+        self.assertTrue(baseline["ok"])
+        baseline_max = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+
+        with override_settings(FORECAST_GLOBAL_BIAS=1.10):
+            boosted = run_forecast_for_station(
+                station_id=self.station.pk,
+                days=1,
+                use_models=False,
+                forecast_scope="test",
+                target_dates=[date(2026, 2, 25)],
+            )
+        self.assertTrue(boosted["ok"])
+        boosted_max = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+
+        self.assertGreater(boosted_max, baseline_max)
+
+    @patch("dashboard.services.forecast_engine.timezone.now")
+    def test_global_bias_is_clipped_by_capacity_and_safe_limit(self, now_mock):
+        now = timezone.datetime(2026, 2, 25, 15, 0, tzinfo=timezone.get_current_timezone())
+        now_mock.return_value = now
+
+        with override_settings(FORECAST_GLOBAL_BIAS=9.0):
+            result = run_forecast_for_station(
+                station_id=self.station.pk,
+                days=1,
+                use_models=False,
+                forecast_scope="test",
+                target_dates=[date(2026, 2, 25)],
+            )
+
+        self.assertTrue(result["ok"])
+        max_pred_final = SolarForecast.objects.filter(station=self.station).aggregate(Max("pred_final"))["pred_final__max"]
+        self.assertLessEqual(max_pred_final, self.station.capacity_mw * 1000)
+
+
 class ForecastEngineWeekdayCalendarTests(TestCase):
-    def test_friday_offsets_cover_exactly_three_next_days(self):
+    def test_friday_offsets_skip_saturday_and_cover_sun_mon_tue(self):
         friday = timezone.datetime(2026, 2, 13, 9, 0)
 
         offsets = _target_offsets_for_weekday_calendar(friday)
 
-        self.assertEqual(offsets, [1, 2, 3])
+        self.assertEqual(offsets, [2, 3, 4])
 
     def test_weekday_mode_report_days_do_not_depend_on_requested_days(self):
         user = User.objects.create_user(username="daysmode", password="pass")
@@ -1124,7 +1274,7 @@ class ForecastEngineWeekdayCalendarTests(TestCase):
             longitude=None,
         )
 
-        with patch("dashboard.services.forecast_engine._target_offsets_for_weekday_calendar", return_value=[1, 2, 3]):
+        with patch("dashboard.services.forecast_engine._target_offsets_for_weekday_calendar", return_value=[2, 3, 4]):
             result_days_1 = run_forecast_for_station(
                 station_id=station.pk,
                 days=1,
@@ -1689,6 +1839,66 @@ class StationOrderingTests(TestCase):
 
 
 
+class StationUploadClearByDateTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="history-clear-user", password="pass")
+        self.org = Organization.objects.create(name="History Org", owner=self.user)
+        OrganizationMember.objects.create(org=self.org, user=self.user, role=OrganizationMember.ROLE_OWNER)
+        self.station = Station.objects.create(name="SES Clear", org=self.org, capacity_mw=1.2)
+        self.client.login(username="history-clear-user", password="pass")
+
+    def _record(self, ts: str, power_kw: float) -> SolarRecord:
+        aware_ts = timezone.make_aware(datetime.strptime(ts, "%Y-%m-%d %H:%M:%S"), timezone.get_current_timezone())
+        return SolarRecord.objects.create(
+            station=self.station,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            timestamp=aware_ts,
+            power_kw=power_kw,
+        )
+
+    def test_clear_action_deletes_only_records_in_selected_date_range(self):
+        keep_before = self._record("2026-03-28 12:00:00", 1.0)
+        delete_mid = self._record("2026-03-29 08:00:00", 2.0)
+        delete_late = self._record("2026-03-29 18:00:00", 3.0)
+        keep_after = self._record("2026-03-30 09:00:00", 4.0)
+
+        response = self.client.post(
+            f"/dashboard/station/{self.station.pk}/upload/",
+            data={
+                "action": "clear",
+                "history_scope": "main",
+                "from": "2026-03-29",
+                "to": "2026-03-29",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        remaining_ids = list(
+            SolarRecord.objects.filter(station=self.station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
+            .order_by("timestamp")
+            .values_list("id", flat=True)
+        )
+        self.assertEqual(remaining_ids, [keep_before.id, keep_after.id])
+        self.assertNotIn(delete_mid.id, remaining_ids)
+        self.assertNotIn(delete_late.id, remaining_ids)
+
+    def test_clear_action_without_dates_deletes_full_history_scope(self):
+        self._record("2026-03-28 12:00:00", 1.0)
+        self._record("2026-03-29 08:00:00", 2.0)
+
+        response = self.client.post(
+            f"/dashboard/station/{self.station.pk}/upload/",
+            data={"action": "clear", "history_scope": "main"},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            SolarRecord.objects.filter(station=self.station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).exists()
+        )
+
+
 class RunScheduledForecastsCommandTests(TestCase):
     @patch("dashboard.management.commands.run_scheduled_forecasts.importlib.import_module")
     def test_auto_history_safe_helper_returns_zero_on_import_error(self, import_module_mock):
@@ -1759,7 +1969,7 @@ class Ses88MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
             self.assertEqual(len(out), 1)
-            self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-26 08:00:00")
+            self.assertEqual(str(out.iloc[0]["ds"]), "2026-02-26 09:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
             self.assertGreater(float(out.iloc[0]["irradiation"]), 40.0)
 
@@ -1785,9 +1995,70 @@ class Ses88MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
             self.assertEqual(len(out), 1)
-            self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 08:00:00")
+            self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-01 09:00:00")
             self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 290.0)
 
+
+
+
+
+class SesShieli20MwHistoryScriptTests(TestCase):
+    def test_build_history_dataframe_parses_daily_report_and_filters_noise(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_shieli_20mw import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "shieli_report.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["time", "x", "power"])
+            ws.append(["05.04.2026 00:00", "", 5])
+            ws.append(["05.04.2026 01:00", "", 14])
+            ws.append(["05.04.2026 02:00", "", 120])
+            ws.append(["05.04.2026 03:00", "", 9])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder), data_shift_hours=0)
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 2)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-04-05 05:00:00")
+        self.assertEqual(str(out.iloc[1]["ds"]), "2026-04-05 06:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 14.0)
+        self.assertAlmostEqual(float(out.iloc[1]["power_kw"]), 120.0)
+
+    def test_build_history_dataframe_applies_station_shift(self):
+        from openpyxl import Workbook
+        from dashboard.services.history_scripts.ses_shieli_20mw import build_history_dataframe
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            xlsx_path = folder / "shieli_shifted.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["time", "x", "power"])
+            ws.append(["06.04.2026 08:00", "", 50])
+            wb.save(xlsx_path)
+
+            station = SimpleNamespace(auto_history_folder=str(folder), data_shift_hours=-1)
+            out = build_history_dataframe(station)
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-04-06 11:00:00")
+        self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 50.0)
+
+
+
+
+class SesSheleAliasHistoryScriptTests(TestCase):
+    def test_alias_module_exports_same_builder(self):
+        from dashboard.services.history_scripts.ses_shele_20mw import build_history_dataframe as alias_builder
+        from dashboard.services.history_scripts.ses_shieli_20mw import build_history_dataframe as base_builder
+
+        self.assertIs(alias_builder, base_builder)
 
 
 class Ses50BalkhashHistoryScriptTests(TestCase):
@@ -1813,7 +2084,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 08:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-09 09:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 300.0)
 
     def test_build_history_dataframe_extracts_year_from_sheet_header(self):
@@ -1837,7 +2108,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-07 23:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-08 00:00:00")
 
     def test_build_history_dataframe_parses_comma_decimal_text_values(self):
         from openpyxl import Workbook
@@ -1861,7 +2132,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 09:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-11 10:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["irradiation"]), 417.255, places=3)
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 33600.0, places=2)
 
@@ -1891,7 +2162,7 @@ class Ses12MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 06:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 07:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 77.7)
         collect_mock.assert_called_once()
 
@@ -2018,3 +2289,37 @@ class ForecastReportFilenameTests(TestCase):
 
         self.assertIn("forecast_SES_10_MW_", report.file.name)
         self.assertTrue(report.file.name.endswith("_mw.xlsx"))
+
+
+class StationListScopeTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="scope_user", password="secret123")
+        self.org = Organization.objects.create(name="Scope Org", owner=self.user)
+        self.solar_station = Station.objects.create(
+            org=self.org,
+            name="Solar A",
+            station_kind=Station.KIND_SOLAR,
+            capacity_mw=10.0,
+        )
+        self.wind_station = Station.objects.create(
+            org=self.org,
+            name="Wind A",
+            station_kind=Station.KIND_WIND,
+            capacity_mw=12.0,
+        )
+
+    def test_dashboard_station_list_shows_only_solar(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("dashboard:station-list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Solar A")
+        self.assertNotContains(response, "Wind A")
+
+    def test_wind_station_cannot_be_moved_from_dashboard_endpoint(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse("dashboard:station-move", args=[self.wind_station.pk, "up"]))
+
+        self.assertEqual(response.status_code, 404)

@@ -538,6 +538,11 @@ def _resolve_station_share_folder(station: Station, share_root: Optional[Path] =
     return folder
 
 def upsert_station_history_from_share(station: Station) -> int:
+    if getattr(station, "station_kind", Station.KIND_SOLAR) == Station.KIND_WIND:
+        from wind.services.history_autofill import upsert_station_history_from_share as upsert_wind_history_from_share
+
+        return upsert_wind_history_from_share(station)
+
     folder = _resolve_station_share_folder(station)
     if not folder.exists():
         return 0
