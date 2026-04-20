@@ -1,0 +1,66 @@
+{% extends "dashboard/base.html" %}
+{% load l10n %}
+
+{% block content %}
+<div class="station-list-header d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+  <h2 class="m-0" data-i18n="wind_stations_title">Ветростанции</h2>
+
+  <div class="d-flex gap-2 station-list-header__actions">
+    <a class="btn btn-primary" href="{% url 'wind:station-create' %}" data-i18n="page_add_station">
+      Добавить станцию
+    </a>
+  </div>
+</div>
+
+<div class="alert alert-info py-2" data-i18n="wind_module_note">
+  Ветровой модуль отдельный от солнечного. Историю можно загрузить позже или работать без истории.
+</div>
+
+{% if stations %}
+  {% for st in stations %}
+    <div class="card mb-2">
+      <div class="card-body station-list-card d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="station-list-card__meta">
+          <div class="fw-bold">{{ st.name }}</div>
+          <div class="text-muted small">
+            {% if st.wind_profile %}
+              <span data-i18n="wind_turbines">Турбин</span>: {{ st.wind_profile.turbine_count }} ·
+              <span data-i18n="wind_turbine_power">Мощность турбины</span>: {{ st.wind_profile.turbine_rated_power_kw|floatformat:0 }} кВт ·
+              <span data-i18n="wind_total">Итого</span>: {{ st.capacity_mw|floatformat:2 }} МВт
+            {% else %}
+              <span data-i18n="wind_total">Итого</span>: {{ st.capacity_mw|floatformat:2 }} МВт
+            {% endif %}
+          </div>
+          <div class="text-muted small">
+            {% if st.latitude and st.longitude %}
+              <span data-i18n="page_coords">Коорд</span>: {{ st.latitude }}, {{ st.longitude }}
+              <a
+                class="ms-1 text-decoration-none"
+                href="https://earth.google.com/web/search/{{ st.latitude|unlocalize }},{{ st.longitude|unlocalize }}"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Открыть станцию в Google Earth"
+                aria-label="Открыть станцию в Google Earth"
+              >
+                🌍
+              </a>
+            {% else %}
+              <span data-i18n="wind_coords_not_set">Координаты не заданы</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 align-items-center station-list-card__actions">
+          <a class="btn btn-outline-primary btn-sm" href="{% url 'wind:station-detail' st.pk %}" data-i18n="page_graph_details">График / Детали</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-edit' st.pk %}" data-i18n="page_edit">Редактировать</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-upload' st.pk %}" data-i18n="page_upload_history">Загрузить историю</a>
+          <a class="btn btn-success btn-sm" href="{% url 'wind:station-forecast-list' st.pk %}" data-i18n="page_forecast">Прогноз</a>
+          <a class="btn btn-warning btn-sm" href="{% url 'wind:station-train' st.pk %}" data-i18n="page_train_models">Обучить модели</a>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-info" data-i18n="wind_no_stations">Пока нет ветростанций.</div>
+{% endif %}
+{% endblock %}
