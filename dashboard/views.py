@@ -364,7 +364,15 @@ def about_company(request):
 
 
 def onboarding_guide(request):
-    lang = (getattr(request, "LANGUAGE_CODE", "") or "ru")[:2].lower()
+    lang = (
+        request.GET.get("lang")
+        or request.GET.get("language")
+        or request.COOKIES.get("django_language")
+        or request.COOKIES.get("language")
+        or request.COOKIES.get("lang")
+        or getattr(request, "LANGUAGE_CODE", "")
+        or "ru"
+    )[:2].lower()
 
     def tr(ru: str, kk: str | None = None, en: str | None = None) -> str:
         if lang == "kk" and kk:
