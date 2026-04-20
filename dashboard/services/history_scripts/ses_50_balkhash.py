@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 EXCEL_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
 HEADER_SCAN_ROWS = 20000
 MIN_POWER_KW = 0.0001
+HISTORY_SHIFT_HOURS = 1
 
 
 DATE_TIME_RE = re.compile(r"^(\d{2})\.(\d{2})(?:\.(\d{4}))?\s*-?\s*(\d{1,2}):(\d{2})$")
@@ -256,6 +257,17 @@ def _collect_excel_files(folder: Path) -> list[Path]:
     return sorted(files)
 
 
+def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
+    if df.empty or "ds" not in df.columns or not hours:
+        return df
+
+    out = df.copy()
+    out["ds"] = pd.to_datetime(out["ds"], errors="coerce") + pd.Timedelta(hours=hours)
+    out = out.dropna(subset=["ds"]).copy()
+    out["ds"] = out["ds"].dt.floor("h")
+    return out
+
+
 def build_history_dataframe(station) -> pd.DataFrame:
     folder = Path(getattr(station, "auto_history_folder", "") or "")
     if not folder.exists():
@@ -279,5 +291,6 @@ def build_history_dataframe(station) -> pd.DataFrame:
         return _empty_df()
 
     out = pd.concat(parts, ignore_index=True).sort_values("ds").reset_index(drop=True)
+    out = _shift_ds_hours(out, HISTORY_SHIFT_HOURS)
     out = out.drop_duplicates(subset=["ds"], keep="last")
     return out[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
