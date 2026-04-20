@@ -171,8 +171,10 @@
     </form>
     <form class="d-flex align-items-center gap-2 flex-wrap" method="get" action="{% url 'dashboard:station-forecast-export' station.pk %}">
       <input type="hidden" name="scope" value="{{ forecast_scope }}">
-      <label class="small mb-0 text-muted">Скачать по дате:</label>
-      <input class="form-control form-control-sm" type="date" name="date" style="width: 160px;" value="{{ date }}">
+      <label class="small mb-0 text-muted">Скачать с:</label>
+      <input class="form-control form-control-sm" type="date" name="from" style="width: 160px;" value="{{ from }}">
+      <label class="small mb-0 text-muted">по:</label>
+      <input class="form-control form-control-sm" type="date" name="to" style="width: 160px;" value="{{ to }}">
       <button class="btn btn-sm btn-outline-success" type="submit">Скачать Excel</button>
     </form>
     <form method="post" action="{% url 'dashboard:station-forecast-clear' station.pk %}" class="d-inline">
