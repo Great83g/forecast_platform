@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  cat <<'HELP'
+Usage:
+  bash deploy/apply_portal_update.sh
+  STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+
+Environment variables:
+  PROJECT_DIR               Project path (default: ~/forecast_platform)
+  VENV_PATH                 Virtualenv activate path (default: venv/bin/activate)
+  STASH_LOCAL_CHANGES=1     Automatically stash dirty worktree before pull
+  AUTO_STASH_MESSAGE        Stash message (default: manual-before-update)
+  GUNICORN_PID_FILE_DEFAULT Gunicorn pid file path (default: /run/gunicorn.pid)
+  GUNICORN_PORT_DEFAULT     Fallback app port for restart/smoke-check (default: 8000)
+
+Note:
+  When GUNICORN_PID_FILE_DEFAULT exists, restart_portal.sh will now prefer
+  direct gunicorn HUP reload first, without going through systemctl.
+HELP
+  exit 0
+fi
+
 # Простой прод-апдейт портала (как в ручных командах).
 PROJECT_DIR="${PROJECT_DIR:-$HOME/forecast_platform}"
 VENV_PATH="${VENV_PATH:-venv/bin/activate}"
@@ -44,6 +65,12 @@ source "$VENV_PATH"
 
 echo "[portal-update] python3 manage.py migrate"
 python3 manage.py migrate
+
+echo "[portal-update] python3 manage.py cleanup_model_cache"
+python3 manage.py cleanup_model_cache
+
+echo "[portal-update] python3 manage.py collectstatic --noinput"
+python3 manage.py collectstatic --noinput
 
 if [ -f "$GUNICORN_PID_FILE_DEFAULT" ]; then
   echo "[portal-update] restart via pid file: $GUNICORN_PID_FILE_DEFAULT"

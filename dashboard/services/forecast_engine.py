@@ -3,30 +3,38 @@ from __future__ import annotations
 
 import json
 import logging
+import importlib.util
 from datetime import date, timedelta
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
-from django.utils.text import slugify
 
 from neuralprophet import load as np_load
 
 from solar.models import SolarForecast, SolarRecord
 from solar.org_sync import sync_solar_forecasts
 from stations.models import Station
+from .model_storage import resolve_station_model_dir
 from .open_meteo import fetch_open_meteo_hourly
 from .vc_weather import fetch_visual_crossing_hourly
 
 
 MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
 logger = logging.getLogger(__name__)
+
+
+def _xgb_module() -> Any:
+    if importlib.util.find_spec("xgboost") is None:
+        return None
+    import xgboost
+
+    return xgboost
 
 
 def _station_data_shift_hours(station: Station) -> int:
@@ -37,8 +45,7 @@ def _station_data_shift_hours(station: Station) -> int:
 
 
 def _station_model_dir(station: Station) -> Path:
-    slug = slugify(getattr(station, "name", "")) or "station"
-    return MODEL_DIR / f"{station.pk}_{slug}"
+    return resolve_station_model_dir(MODEL_DIR, station)
 
 
 def _model_paths_for_station(station: Station) -> Dict[str, Path]:
@@ -53,6 +60,18 @@ def _model_paths_for_station(station: Station) -> Dict[str, Path]:
         "legacy_xgb": MODEL_DIR / f"xgb_model_{station.pk}.json",
         "legacy_xgb_meta": MODEL_DIR / f"xgb_model_{station.pk}.meta.json",
     }
+
+
+def _model_file_is_stale(path: Path, max_age_days: int) -> bool:
+    if max_age_days <= 0:
+        return False
+    if not path.exists():
+        return True
+    try:
+        age_seconds = max(0.0, float(timezone.now().timestamp()) - float(path.stat().st_mtime))
+    except Exception:
+        return False
+    return age_seconds > float(timedelta(days=max_age_days).total_seconds())
 
 
 XGB_EXPECTED_FEATURES = [
@@ -71,13 +90,55 @@ XGB_EXPECTED_FEATURES = [
 ]
 
 PR_FOR_EXPECTED = 0.90
+FORECAST_GLOBAL_BIAS_MAX = 1.5
+FORECAST_IRRADIATION_NOISE_WM2_DEFAULT = 35.0
+FORECAST_MORNING_IRR_BOOST_DEFAULT = 1.08
+FORECAST_MORNING_IRR_BOOST_MAX = 1.35
+FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT = 0.92
 
 AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
 AUTO_TEMP_MAX_FOR_SNOW = 2.0
 AUTO_SNOW_FACTOR = 1.0
+MANUAL_SNOW_FACTOR_MAX = 1.5
 AUTO_FOG_FACTOR = 1.0
 FOG_CODES = {45, 48}
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
+
+
+def _forecast_global_bias() -> float:
+    raw = getattr(settings, "FORECAST_GLOBAL_BIAS", 1.0)
+    try:
+        bias = float(raw)
+    except (TypeError, ValueError):
+        bias = 1.0
+    return float(np.clip(bias, 0.0, FORECAST_GLOBAL_BIAS_MAX))
+
+
+def _forecast_irradiation_noise_floor_wm2() -> float:
+    raw = getattr(settings, "FORECAST_IRRADIATION_NOISE_WM2", FORECAST_IRRADIATION_NOISE_WM2_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_IRRADIATION_NOISE_WM2_DEFAULT
+    return float(np.clip(value, 0.0, 120.0))
+
+
+def _forecast_morning_irradiation_boost() -> float:
+    raw = getattr(settings, "FORECAST_MORNING_IRR_BOOST", FORECAST_MORNING_IRR_BOOST_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_MORNING_IRR_BOOST_DEFAULT
+    return float(np.clip(value, 1.0, FORECAST_MORNING_IRR_BOOST_MAX))
+
+
+def _forecast_clear_sky_floor_ratio() -> float:
+    raw = getattr(settings, "FORECAST_CLEAR_SKY_FLOOR_RATIO", FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT
+    return float(np.clip(value, 0.0, 1.0))
 
 
 def _describe_np_model(model: object) -> str:
@@ -104,15 +165,84 @@ def _station_capacity_mw(st: Station) -> float:
             capacity_ac_kw = float(getattr(st, name))
             break
 
+    capacity_mw_from_fields = None
     for name in ["capacity_mw", "capacity_ac_mw"]:
         if hasattr(st, name) and getattr(st, name):
             capacity_mw = float(getattr(st, name))
+            # Частая проблема: в поле capacity_mw попадает значение в kW (например 8800).
+            # Если значение слишком большое, трактуем как kW и конвертируем в MW.
+            if capacity_mw >= 1000:
+                capacity_mw_from_fields = capacity_mw / 1000.0
+                break
             if capacity_mw > 100 and capacity_ac_kw:
-                return capacity_mw / 1000.0
-            return capacity_mw
+                capacity_mw_from_fields = capacity_mw / 1000.0
+                break
+            capacity_mw_from_fields = capacity_mw
+            break
 
     if capacity_ac_kw:
-        return capacity_ac_kw / 1000.0
+        if capacity_mw_from_fields is None:
+            capacity_mw_from_fields = capacity_ac_kw / 1000.0
+
+    history_sources = [st]
+    if getattr(st, "history_source_id", None):
+        history_sources.append(st.history_source)
+
+    hist_peak_kw = None
+    for src in history_sources:
+        qs = (
+            SolarRecord.objects.filter(
+                station=src,
+                history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            )
+            .exclude(power_kw__isnull=True)
+            .order_by("-timestamp")
+            .values_list("power_kw", flat=True)[:24 * 180]
+        )
+        if not qs:
+            continue
+        peak = float(np.nanmax(np.asarray(list(qs), dtype=float)))
+        if np.isfinite(peak) and peak > 0:
+            hist_peak_kw = max(hist_peak_kw or 0.0, peak)
+
+    hist_peak_mw = (hist_peak_kw / 1000.0) if hist_peak_kw else None
+
+    hist_uplift_factor_raw = getattr(settings, "FORECAST_HISTORY_CAPACITY_UPLIFT_FACTOR", 1.08)
+    hist_uplift_guard_raw = getattr(settings, "FORECAST_HISTORY_CAPACITY_UPLIFT_GUARD", 1.8)
+    try:
+        hist_uplift_factor = float(hist_uplift_factor_raw)
+    except (TypeError, ValueError):
+        hist_uplift_factor = 1.08
+    try:
+        hist_uplift_guard = float(hist_uplift_guard_raw)
+    except (TypeError, ValueError):
+        hist_uplift_guard = 1.8
+
+    if capacity_mw_from_fields and hist_peak_mw:
+        # Защита от выбросов в истории (невалидные единицы/разовые аномалии):
+        # не даём history-пику раздувать мощность в разы.
+        if hist_peak_mw > capacity_mw_from_fields * hist_uplift_guard:
+            logger.warning(
+                "[FORECAST] station %s skip historical capacity uplift as outlier: field=%.3f MW, hist_peak=%.3f MW, guard=%.2fx",
+                st.pk,
+                capacity_mw_from_fields,
+                hist_peak_mw,
+                hist_uplift_guard,
+            )
+        elif hist_peak_mw > capacity_mw_from_fields * hist_uplift_factor:
+            logger.warning(
+                "[FORECAST] station %s capacity uplift from %.3f MW to historical peak %.3f MW",
+                st.pk,
+                capacity_mw_from_fields,
+                hist_peak_mw,
+            )
+            return hist_peak_mw
+
+    if capacity_mw_from_fields:
+        return capacity_mw_from_fields
+
+    if hist_peak_mw:
+        return max(0.5, hist_peak_mw)
 
     # fallback: если нет поля — пусть будет 10MW, чтобы не было микроскопии
     return 10.0
@@ -373,6 +503,13 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     out["hour"] = pd.to_datetime(out["ds"]).dt.hour.astype(int)
     out["month"] = pd.to_datetime(out["ds"]).dt.month.astype(int)
 
+    noise_floor = _forecast_irradiation_noise_floor_wm2()
+    out.loc[out["Irradiation"] < noise_floor, "Irradiation"] = 0.0
+
+    morning_boost = _forecast_morning_irradiation_boost()
+    morning_mask = out["hour"].isin([6, 7, 8, 9]) & (out["Irradiation"] > 0)
+    out.loc[morning_mask, "Irradiation"] = out.loc[morning_mask, "Irradiation"] * morning_boost
+
     out["hour_sin"] = np.sin(2 * np.pi * out["hour"] / 24.0)
     out["hour_cos"] = np.cos(2 * np.pi * out["hour"] / 24.0)
     out["month_sin"] = np.sin(2 * np.pi * out["month"] / 12.0)
@@ -434,7 +571,10 @@ def _compute_winter_factors(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _load_xgb_model(path: Path) -> Optional[xgb.Booster]:
+def _load_xgb_model(path: Path) -> Optional[Any]:
+    xgb = _xgb_module()
+    if xgb is None:
+        return None
     try:
         booster = xgb.Booster()
         booster.load_model(str(path))
@@ -668,7 +808,10 @@ def _predict_np(
     return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
 
 
-def _predict_xgb(booster: xgb.Booster, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
+def _predict_xgb(booster: Any, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
+    xgb = _xgb_module()
+    if xgb is None:
+        return np.zeros(len(df_feat), dtype=float)
     X = df_feat[feature_names].astype(float)
     dmat = xgb.DMatrix(X, feature_names=feature_names)
     pred = booster.predict(dmat)
@@ -795,7 +938,9 @@ def _heuristic_mw(df_feat: pd.DataFrame, capacity_mw: float) -> np.ndarray:
 def _target_offsets_for_weekday_calendar(now_dt) -> List[int]:
     weekday = now_dt.weekday()
     if weekday == 4:  # Friday
-        return [1, 2, 3]
+        # По требованию календарного режима:
+        # Пятница -> Вс + Пн + Вт
+        return [2, 3, 4]
     if weekday in {0, 1, 2, 3}:  # Mon-Thu
         return [2]
     return []
@@ -930,14 +1075,25 @@ def run_forecast_for_station(
         except Exception:
             xgb_meta = {}
 
-    if use_models and (not np_path.exists() or not xgb_path.exists()):
+    stale_days_raw = getattr(settings, "FORECAST_AUTORETRAIN_STALE_DAYS", 14)
+    try:
+        stale_days = int(stale_days_raw)
+    except (TypeError, ValueError):
+        stale_days = 14
+    np_stale = _model_file_is_stale(np_path, stale_days)
+    xgb_stale = _model_file_is_stale(xgb_path, stale_days)
+
+    if use_models and (not np_path.exists() or not xgb_path.exists() or np_stale or xgb_stale):
         try:
             from .train_models import train_models_for_station
 
             logger.info(
-                "[MODEL] missing model files (np=%s, xgb=%s). Attempting auto-train.",
+                "[MODEL] auto-train triggered (np_exists=%s, xgb_exists=%s, np_stale=%s, xgb_stale=%s, stale_days=%s).",
                 np_path.exists(),
                 xgb_path.exists(),
+                np_stale,
+                xgb_stale,
+                stale_days,
             )
             _, np_path_new, xgb_path_new = train_models_for_station(st)
             if np_path_new is not None:
@@ -1128,6 +1284,18 @@ def run_forecast_for_station(
         ),
     )
 
+    clear_sky_floor_ratio = _forecast_clear_sky_floor_ratio()
+    cloudcover_raw = feat["cloudcover"] if "cloudcover" in feat.columns else pd.Series(np.nan, index=feat.index)
+    cloudcover_series = pd.to_numeric(cloudcover_raw, errors="coerce")
+    clear_mask = (
+        (feat["Irradiation"].to_numpy(dtype=float) >= 280.0)
+        & (cloudcover_series.fillna(100.0).to_numpy(dtype=float) <= 35.0)
+    )
+    clear_floor = np.clip(y_heur * clear_sky_floor_ratio, 0, capacity_mw)
+    y_final = np.where(clear_mask, np.maximum(y_final, clear_floor), y_final)
+
+    y_final = np.clip(y_final * _forecast_global_bias(), 0, capacity_mw)
+
     auto_winter_factor = feat.get("auto_winter_factor")
     if auto_winter_factor is None:
         auto_winter_factor = np.ones(len(feat), dtype=float)
@@ -1142,7 +1310,7 @@ def run_forecast_for_station(
             manual_factor_value = float(manual_snow_factor)
         except (TypeError, ValueError):
             manual_factor_value = 1.0
-    manual_factor_value = float(np.clip(manual_factor_value, 0.0, 1.0))
+    manual_factor_value = float(np.clip(manual_factor_value, 0.0, MANUAL_SNOW_FACTOR_MAX))
 
     feat["manual_snow_factor"] = manual_factor_value
     manual_dates = manual_snow_dates or []
@@ -1158,10 +1326,10 @@ def run_forecast_for_station(
             winter_factor = np.full(len(feat), manual_factor_value, dtype=float)
 
     feat["winter_factor_applied"] = winter_factor
-    y_np = y_np * winter_factor
-    y_xgb = y_xgb * winter_factor
-    y_heur = y_heur * winter_factor
-    y_final = y_final * winter_factor
+    y_np = np.clip(y_np * winter_factor, 0, capacity_mw)
+    y_xgb = np.clip(y_xgb * winter_factor, 0, capacity_mw)
+    y_heur = np.clip(y_heur * winter_factor, 0, capacity_mw)
+    y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
 
     y_np_kw = y_np * 1000.0
     y_xgb_kw = y_xgb * 1000.0
