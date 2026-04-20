@@ -119,6 +119,50 @@ def _forecast_value_to_kw(value, station_capacity_mw: Optional[float] = None) ->
     return v
 
 
+def _build_forecast_plan_map(*args, **kwargs) -> dict:
+    """Build timestamp->plan(kW) map defensively for forecast rows.
+
+    Supports legacy call sites with varying signatures.
+    """
+    rows = kwargs.get("forecast_rows")
+    if rows is None and args:
+        rows = args[0]
+    rows = rows or []
+
+    station_capacity_mw = kwargs.get("station_capacity_mw")
+    if station_capacity_mw is None and len(args) > 1:
+        station_capacity_mw = args[1]
+
+    ts_key = kwargs.get("timestamp_key")
+    value_key = kwargs.get("value_key", "pred_final")
+
+    rows = list(rows)
+    if ts_key is None and rows:
+        sample = rows[0]
+        if isinstance(sample, dict):
+            if "bucket" in sample:
+                ts_key = "bucket"
+            elif "timestamp" in sample:
+                ts_key = "timestamp"
+    ts_key = ts_key or "timestamp"
+
+    plan_map = {}
+    for row in rows:
+        if isinstance(row, dict):
+            ts = row.get(ts_key)
+            value = row.get(value_key)
+        else:
+            ts = getattr(row, ts_key, None)
+            value = getattr(row, value_key, None)
+
+        if ts is None or value is None:
+            continue
+
+        plan_map[ts] = _forecast_value_to_kw(value, station_capacity_mw)
+
+    return plan_map
+
+
 def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
     if value is None:
         return None

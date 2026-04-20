@@ -285,6 +285,49 @@ git stash list
 
 > Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
 
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
 ## Применить конкретный коммит на портале (копипастой)
 
 Если нужно применить **ровно один коммит** (например, который я только что дал), используйте:
