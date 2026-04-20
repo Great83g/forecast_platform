@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import defaultdict
 import importlib
 import logging
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -275,72 +276,135 @@ def about_company(request):
 
 
 def onboarding_guide(request):
+    lang = (
+        request.GET.get("lang")
+        or request.GET.get("language")
+        or request.COOKIES.get("django_language")
+        or request.COOKIES.get("language")
+        or request.COOKIES.get("lang")
+        or getattr(request, "LANGUAGE_CODE", "")
+        or "ru"
+    )[:2].lower()
+    if lang == "kz":
+        lang = "kk"
+
+    def tr(ru: str, kk: str | None = None, en: str | None = None) -> str:
+        if lang == "kk" and kk:
+            return kk
+        if lang == "en" and en:
+            return en
+        return ru
+
+    guide_dir = Path(settings.BASE_DIR) / "dashboard" / "static" / "dashboard" / "img" / "guide"
+
+    def _step_images(step_number: int, fallback: list[str]) -> list[str]:
+        if not guide_dir.exists():
+            return fallback
+
+        candidates = []
+        for path in guide_dir.glob(f"step-{step_number}-screen-*.*"):
+            if path.suffix.lower() not in {".svg", ".png", ".jpg", ".jpeg", ".webp"}:
+                continue
+            match = re.search(rf"step-{step_number}-screen-(\d+)", path.stem)
+            order = int(match.group(1)) if match else 9999
+            candidates.append((order, path.name))
+
+        if not candidates:
+            return fallback
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return [f"dashboard/img/guide/{name}" for _, name in candidates[:5]]
+
     guide_steps = [
         {
-            "title": "Добавьте первую станцию",
-            "summary": "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».",
+            "title": tr("Добавьте первую станцию", "Бірінші станцияны қосыңыз", "Add your first station"),
+            "summary": tr(
+                "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».",
+                "«Станциялар» бөліміне өтіп, «Станция қосу» батырмасын басыңыз.",
+                "Open the “Stations” section and click “Add station”.",
+            ),
             "details": [
-                "Заполните название станции, мощность, координаты и организацию.",
-                "После сохранения проверьте, что станция появилась в общем списке.",
+                tr("Заполните название станции, мощность, координаты и организацию.", "Станция атауын, қуатын, координаттарын және ұйымын толтырыңыз.", "Fill in station name, capacity, coordinates, and organization."),
+                tr("После сохранения проверьте, что станция появилась в общем списке.", "Сақтағаннан кейін станцияның жалпы тізімде пайда болғанын тексеріңіз.", "After saving, verify the station appears in the common list."),
             ],
-            "images": [
+            "images": _step_images(1, [
                 "dashboard/img/guide/step-1-screen-1.svg",
                 "dashboard/img/guide/step-1-screen-2.svg",
-            ],
+            ]),
         },
         {
-            "title": "Заполните параметры станции",
-            "summary": "Проверьте мощность, координаты, организацию и остальные обязательные поля.",
+            "title": tr("Заполните параметры станции", "Станция параметрлерін толтырыңыз", "Fill in station parameters"),
+            "summary": tr(
+                "Проверьте мощность, координаты, организацию и остальные обязательные поля.",
+                "Қуатты, координаттарды, ұйымды және қалған міндетті өрістерді тексеріңіз.",
+                "Check capacity, coordinates, organization, and other required fields.",
+            ),
             "details": [
-                "Сверьте технические параметры перед сохранением карточки станции.",
-                "Если есть несколько станций, используйте понятные названия для каждой из них.",
+                tr("Сверьте технические параметры перед сохранением карточки станции.", "Станция картасын сақтар алдында техникалық параметрлерді тексеріңіз.", "Verify technical parameters before saving the station card."),
+                tr("Если есть несколько станций, используйте понятные названия для каждой из них.", "Егер бірнеше станция болса, әрқайсысына түсінікті атау беріңіз.", "If you have several stations, use clear names for each one."),
             ],
-            "images": [
+            "images": _step_images(2, [
                 "dashboard/img/guide/step-2-screen-1.svg",
                 "dashboard/img/guide/step-2-screen-2.svg",
-            ],
+            ]),
         },
         {
-            "title": "Загрузите исторические данные",
-            "summary": "Перейдите в карточку станции и откройте раздел загрузки истории.",
+            "title": tr("Загрузите исторические данные", "Тарихи деректерді жүктеңіз", "Upload historical data"),
+            "summary": tr(
+                "Перейдите в карточку станции и откройте раздел загрузки истории.",
+                "Станция картасына өтіп, тарихты жүктеу бөлімін ашыңыз.",
+                "Open the station card and go to the history upload section.",
+            ),
             "details": [
-                "Подготовьте файл с историей генерации в нужном формате.",
-                "После импорта убедитесь, что данные появились без ошибок.",
+                tr("Подготовьте файл с историей генерации в нужном формате.", "Генерация тарихының файлын қажетті форматта дайындаңыз.", "Prepare the generation history file in the required format."),
+                tr("После импорта убедитесь, что данные появились без ошибок.", "Импорттан кейін деректер қателіксіз жүктелгенін тексеріңіз.", "After import, make sure data appeared without errors."),
+                tr("Если истории пока нет, этот шаг можно пропустить и использовать режим прогноза без истории.", "Егер тарих әзірге жоқ болса, бұл қадамды өткізіп, тарихсыз болжам режимін пайдаланыңыз.", "If there is no history yet, skip this step and use no-history forecast mode."),
             ],
-            "images": [
+            "images": _step_images(3, [
                 "dashboard/img/guide/step-3-screen-1.svg",
                 "dashboard/img/guide/step-3-screen-2.svg",
-            ],
+            ]),
         },
         {
-            "title": "Запустите прогноз",
-            "summary": "Откройте прогноз станции и убедитесь, что модель отработала корректно.",
+            "title": tr("Обучите модель и запустите прогноз", "Модельді оқытып, болжамды іске қосыңыз", "Train the model and run forecast"),
+            "summary": tr(
+                "После загрузки истории перейдите в прогноз станции, запустите обучение и затем расчёт прогноза.",
+                "Тарих жүктелгеннен кейін станция болжамына өтіп, оқытуды іске қосыңыз, содан кейін болжам есептеңіз.",
+                "After uploading history, open station forecast, run training, and then calculate forecast.",
+            ),
             "details": [
-                "При необходимости запустите обучение модели перед просмотром прогноза.",
-                "Проверьте расчёт прогноза и статус доступных моделей.",
+                tr("После импорта истории обязательно запустите обучение модели для станции.", "Тарих импортталғаннан кейін станция үшін модельді оқытуды міндетті түрде іске қосыңыз.", "After history import, be sure to run model training for the station."),
+                tr("Дождитесь завершения обучения и проверьте статус доступных моделей.", "Оқыту аяқталғанша күтіп, қолжетімді модельдердің күйін тексеріңіз.", "Wait for training to finish and check available model statuses."),
+                tr("Затем выполните расчёт прогноза и проверьте итоговые значения.", "Одан кейін болжамды есептеп, қорытынды мәндерді тексеріңіз.", "Then run forecast calculation and verify final values."),
+                tr("Если истории нет, запустите режим прогноза без истории (только эвристика).", "Егер тарих жоқ болса, тарихсыз болжам режимін іске қосыңыз (тек эвристика).", "If there is no history, run no-history forecast mode (heuristics only)."),
             ],
-            "images": [
+            "images": _step_images(4, [
                 "dashboard/img/guide/step-4-screen-1.svg",
                 "dashboard/img/guide/step-4-screen-2.svg",
-            ],
+            ]),
         },
         {
-            "title": "Проверьте отчёт и доступы",
-            "summary": "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.",
+            "title": tr("Проверьте отчёт и доступы", "Есеп пен қолжетімділікті тексеріңіз", "Check report and access"),
+            "summary": tr(
+                "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.",
+                "Қорытынды нәтижені қарап, қажет болса әріптестерді ұйымға шақырыңыз.",
+                "Review final results and invite colleagues to the organization if needed.",
+            ),
             "details": [
-                "Проверьте почасовой прогноз, отчёт и экспортируемые данные.",
-                "Выдайте доступ коллегам, если они тоже будут работать со станцией.",
+                tr("Проверьте почасовой прогноз, отчёт и экспортируемые данные.", "Сағаттық болжамды, есепті және экспортталатын деректерді тексеріңіз.", "Check hourly forecast, report, and exported data."),
+                tr("Выдайте доступ коллегам, если они тоже будут работать со станцией.", "Егер әріптестер де станциямен жұмыс істесе, оларға қолжетімділік беріңіз.", "Grant access to colleagues if they will also work with the station."),
             ],
-            "images": [
+            "images": _step_images(5, [
                 "dashboard/img/guide/step-5-screen-1.svg",
                 "dashboard/img/guide/step-5-screen-2.svg",
-            ],
+            ]),
         },
     ]
     support_steps = [
-        "Создайте станцию с корректными параметрами мощности и координат.",
-        "Загрузите историю генерации через раздел «Загрузить историю».",
-        "Откройте прогноз станции и при необходимости обучите модели.",
+        tr("Создайте станцию с корректными параметрами мощности и координат.", "Қуат пен координат параметрлері дұрыс станцияны жасаңыз.", "Create a station with correct capacity and coordinates."),
+        tr("Загрузите историю генерации (если есть) через раздел «Загрузить историю».", "Генерация тарихын (бар болса) «Тарихты жүктеу» бөлімі арқылы жүктеңіз.", "Upload generation history (if available) via “Upload history”."),
+        tr("После загрузки истории обучите модели, затем запустите прогноз.", "Тарих жүктелгеннен кейін модельдерді оқытып, содан соң болжамды іске қосыңыз.", "After history upload, train models and then run forecast."),
+        tr("Если истории нет, используйте прогноз без истории (эвристический режим).", "Егер тарих жоқ болса, тарихсыз болжамды пайдаланыңыз (эвристикалық режим).", "If there is no history, use no-history forecast mode (heuristic)."),
     ]
     return render(
         request,
@@ -348,6 +412,21 @@ def onboarding_guide(request):
         {
             "guide_steps": guide_steps,
             "support_steps": support_steps,
+            "guide_eyebrow": tr("Гид", "Нұсқаулық", "Guide"),
+            "guide_title": tr("Как работать в платформе", "Платформада қалай жұмыс істеу керек", "How to use the platform"),
+            "guide_lead": tr(
+                "Здесь собраны основные шаги для нового пользователя: от создания станции до запуска прогноза и проверки результата.",
+                "Мұнда жаңа пайдаланушыға арналған негізгі қадамдар жиналған: станция құрудан бастап болжамды іске қосу және нәтижені тексеруге дейін.",
+                "This page includes the main steps for a new user: from creating a station to running forecast and checking the result.",
+            ),
+            "quick_start_title": tr("Быстрый старт", "Жылдам бастау", "Quick start"),
+            "quick_start_text": tr("Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.", "«Станциялар» бөліміне өтіп, объект қосып, тарих жүктеуге өтіңіз.", "Open the “Stations” section, add an item, and proceed to history upload."),
+            "quick_start_button": tr("Добавить станцию", "Станция қосу", "Add station"),
+            "steps_eyebrow": tr("Шаги", "Қадамдар", "Steps"),
+            "steps_title": tr("Основной порядок действий", "Негізгі жұмыс тәртібі", "Main workflow"),
+            "tips_eyebrow": tr("Подсказки", "Кеңестер", "Tips"),
+            "tips_title": tr("Что важно не пропустить", "Маңызды нәрселер", "What not to miss"),
+            "guide_note_text": tr("Если нужна помощь, перейдите в раздел «Контакты» и свяжитесь с нами удобным способом.", "Көмек қажет болса, «Байланыс» бөліміне өтіп, бізбен ыңғайлы тәсілмен хабарласыңыз.", "If you need help, open “Contacts” and reach out in a convenient way."),
         },
     )
 
