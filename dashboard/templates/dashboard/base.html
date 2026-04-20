@@ -1,6 +1,6 @@
 {% load static %}
 <!doctype html>
-<html lang="ru">
+<html lang="{{ request.LANGUAGE_CODE|default:'ru' }}">
 {% load static %}
 <head>
   <meta charset="utf-8">
@@ -49,6 +49,11 @@
 .navbar .nav-link.active{
   color:#fff;
   font-weight:600;
+}
+
+/* Скрываем старый дубль ссылки на инструкцию в списке станций (если остался в старом шаблоне). */
+.station-guide-link {
+  display: none !important;
 }
 
 @media (max-width: 991.98px) {
@@ -153,6 +158,71 @@
 
     tickScheduler();
     setInterval(tickScheduler, 60000);
+  })();
+</script>
+<script>
+  (function () {
+    function normalizeLang(code) {
+      var lang = (code || 'ru').toLowerCase();
+      return lang === 'kz' ? 'kk' : lang;
+    }
+
+    function detectLang() {
+      var params = new URLSearchParams(window.location.search);
+      return normalizeLang(
+        params.get('lang') ||
+        params.get('language') ||
+        (document.cookie.match(/(?:^|;\s*)(?:django_language|language|lang)=([^;]+)/) || [])[1] ||
+        'ru'
+      );
+    }
+
+    var navTranslations = {
+      ru: {stations: 'Станции', guide: 'Инструкция', about: 'О компании', contacts: 'Контакты'},
+      kk: {stations: 'Станциялар', guide: 'Нұсқаулық', about: 'Компания туралы', contacts: 'Байланыс'},
+      en: {stations: 'Stations', guide: 'Guide', about: 'About', contacts: 'Contacts'}
+    };
+
+    function applyNavLabels(langCode) {
+      var labels = navTranslations[langCode] || navTranslations.ru;
+      document.querySelectorAll('.navbar .nav-link').forEach(function (link) {
+        var href = link.getAttribute('href') || '';
+        if (href.indexOf('/dashboard/') !== -1 && href.indexOf('onboarding-guide') === -1 && href.indexOf('about') === -1) {
+          link.textContent = labels.stations;
+        } else if (href.indexOf('onboarding-guide') !== -1) {
+          link.textContent = labels.guide;
+        } else if (href.indexOf('about') !== -1 && href.indexOf('#contacts') === -1) {
+          link.textContent = labels.about;
+        } else if (href.indexOf('#contacts') !== -1) {
+          link.textContent = labels.contacts;
+        }
+      });
+    }
+
+    function bindLangButtons() {
+      var langButtons = Array.from(document.querySelectorAll('.navbar a, .navbar button')).filter(function (el) {
+        var t = (el.textContent || '').trim().toUpperCase();
+        return t === 'RU' || t === 'KZ' || t === 'EN';
+      });
+
+      langButtons.forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+          var raw = (btn.textContent || '').trim().toLowerCase();
+          if (!raw) return;
+          var normalized = normalizeLang(raw);
+          event.preventDefault();
+          document.cookie = 'django_language=' + raw + ';path=/;max-age=31536000';
+          document.cookie = 'language=' + raw + ';path=/;max-age=31536000';
+          document.cookie = 'lang=' + raw + ';path=/;max-age=31536000';
+          var url = new URL(window.location.href);
+          url.searchParams.set('lang', normalized);
+          window.location.href = url.toString();
+        });
+      });
+    }
+
+    applyNavLabels(detectLang());
+    bindLangButtons();
   })();
 </script>
 {% block extra_scripts %}{% endblock %}
