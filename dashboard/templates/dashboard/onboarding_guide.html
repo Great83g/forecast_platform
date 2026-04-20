@@ -7,17 +7,17 @@
     <div class="card-body p-4 p-lg-5">
       <div class="row g-4 align-items-center">
         <div class="col-lg-8">
-          <div class="guide-eyebrow mb-2">Инструкция</div>
-          <h1 class="guide-title mb-3">Как пользоваться платформой</h1>
-          <p class="guide-lead mb-0">
+          <div class="guide-eyebrow mb-2" data-i18n="guide_eyebrow">Инструкция</div>
+          <h1 class="guide-title mb-3" data-i18n="guide_title">Как пользоваться платформой</h1>
+          <p class="guide-lead mb-0" data-i18n="guide_lead">
             Здесь собраны основные шаги для нового пользователя: от создания станции до запуска прогноза и проверки результата.
           </p>
         </div>
         <div class="col-lg-4">
           <div class="guide-hero-card">
-            <div class="guide-hero-card__title">Быстрый старт</div>
-            <div class="guide-hero-card__text">Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.</div>
-            <a class="btn btn-light btn-sm mt-3" href="{% url 'dashboard:station-create' %}">Добавить станцию</a>
+            <div class="guide-hero-card__title" data-i18n="guide_quick_start">Быстрый старт</div>
+            <div class="guide-hero-card__text" data-i18n="guide_quick_start_text">Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.</div>
+            <a class="btn btn-light btn-sm mt-3" href="{% url 'dashboard:station-create' %}" data-i18n="page_add_station">Добавить станцию</a>
           </div>
         </div>
       </div>
@@ -28,8 +28,8 @@
     <div class="col-lg-7">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
-          <div class="guide-eyebrow mb-2">Шаги</div>
-          <h2 class="guide-section-title mb-4">Основной порядок работы</h2>
+          <div class="guide-eyebrow mb-2" data-i18n="guide_steps">Шаги</div>
+          <h2 class="guide-section-title mb-4" data-i18n="guide_main_flow">Основной порядок работы</h2>
           <div class="guide-step-list">
             {% for step in guide_steps %}
               <details class="guide-step-item"{% if forloop.first %} open{% endif %}>
@@ -74,8 +74,8 @@
     <div class="col-lg-5">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
-          <div class="guide-eyebrow mb-2">Подсказки</div>
-          <h2 class="guide-section-title mb-4">Что важно не пропустить</h2>
+          <div class="guide-eyebrow mb-2" data-i18n="guide_tips">Подсказки</div>
+          <h2 class="guide-section-title mb-4" data-i18n="guide_important">Что важно не пропустить</h2>
           <div class="guide-tip-list">
             {% for item in support_steps %}
               <article class="guide-tip-item">
@@ -84,7 +84,7 @@
               </article>
             {% endfor %}
           </div>
-          <div class="guide-note mt-4">
+          <div class="guide-note mt-4" data-i18n="guide_need_help">
             Если нужна помощь, перейдите в раздел «Контакты» и свяжитесь с нами удобным способом.
           </div>
         </div>

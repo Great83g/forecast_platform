@@ -28,7 +28,7 @@ VENV_PATH="${VENV_PATH:-venv/bin/activate}"
 GUNICORN_PID_FILE_DEFAULT="${GUNICORN_PID_FILE_DEFAULT:-/run/gunicorn.pid}"
 GUNICORN_PORT_DEFAULT="${GUNICORN_PORT_DEFAULT:-8000}"
 STASH_LOCAL_CHANGES="${STASH_LOCAL_CHANGES:-0}"
-AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-manual-before-update}"
+AUTO_STASH_MESSAGE="${AUTO_STASH_MESSAGE:-codex-auto-stash-before-portal-update}"
 
 cd "$PROJECT_DIR"
 
@@ -50,9 +50,6 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
   fi
 fi
-
-echo "[portal-update] git status --short"
-git status --short
 
 echo "[portal-update] git pull --rebase"
 git pull --rebase
