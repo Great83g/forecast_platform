@@ -438,15 +438,21 @@ document.addEventListener('DOMContentLoaded', function () {
     return t === 'RU' || t === 'KZ' || t === 'EN';
   });
 
-  var selectedLang = (
+  function normalizeLang(code) {
+    var normalized = (code || 'ru').toLowerCase();
+    return normalized === 'kz' ? 'kk' : normalized;
+  }
+
+  var selectedLang = normalizeLang(
     new URLSearchParams(window.location.search).get('lang') ||
     (document.cookie.match(/(?:^|;\s*)(?:django_language|language|lang)=([^;]+)/) || [])[1] ||
     'ru'
-  ).toLowerCase();
+  );
 
   var navTranslations = {
     ru: {stations: 'Станции', about: 'О компании', contacts: 'Контакты', guide: 'Инструкция'},
     kk: {stations: 'Станциялар', about: 'Компания туралы', contacts: 'Байланыс', guide: 'Нұсқаулық'},
+    kz: {stations: 'Станциялар', about: 'Компания туралы', contacts: 'Байланыс', guide: 'Нұсқаулық'},
     en: {stations: 'Stations', about: 'About', contacts: 'Contacts', guide: 'Guide'}
   };
 
@@ -474,12 +480,13 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!langCode) {
         return;
       }
+      var normalizedLang = normalizeLang(langCode);
       event.preventDefault();
       document.cookie = 'django_language=' + langCode + ';path=/;max-age=31536000';
       document.cookie = 'language=' + langCode + ';path=/;max-age=31536000';
       document.cookie = 'lang=' + langCode + ';path=/;max-age=31536000';
       var url = new URL(window.location.href);
-      url.searchParams.set('lang', langCode);
+      url.searchParams.set('lang', normalizedLang);
       window.location.href = url.toString();
     });
   });

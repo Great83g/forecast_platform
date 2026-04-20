@@ -373,6 +373,8 @@ def onboarding_guide(request):
         or getattr(request, "LANGUAGE_CODE", "")
         or "ru"
     )[:2].lower()
+    if lang == "kz":
+        lang = "kk"
 
     def tr(ru: str, kk: str | None = None, en: str | None = None) -> str:
         if lang == "kk" and kk:
