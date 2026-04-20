@@ -1,90 +1,461 @@
-# Быстрое применение обновления на сервере
+# Быстро применить код на сайте
 
-Базовая последовательность (ручной режим):
+## Жёсткая синхронизация с `origin/main`
 
-```bash
-cd ~/forecast_platform
-git pull --rebase
-source venv/bin/activate
-python3 manage.py migrate
-GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
-# если pid-файла нет:
-# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
-```
-
-## Самый простой вариант (как вы просили)
+Если нужно **в точности** повторить последовательность:
 
 ```bash
 cd ~/forecast_platform
-git pull --rebase
+git fetch --all --prune
+git checkout main
+git reset --hard origin/main
+git clean -fd
 source venv/bin/activate
 python3 manage.py migrate
-GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+python3 manage.py cleanup_model_cache
+python3 manage.py collectstatic --noinput
+sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
 # если pid-файла нет:
-# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+# sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```
 
-То же самое одной командой:
+используй одну команду:
+
+```bash
+cd ~/forecast_platform
+bash deploy/force_sync_and_restart.sh
+```
+
+Скрипт делает именно destructive sync с `origin/main`: забирает свежие refs, делает `checkout main`, `reset --hard origin/main`, `git clean -fd`, затем запускает `migrate`, `cleanup_model_cache`, `collectstatic` и рестарт через `restart_portal.sh`. Это важно, потому что обычный `git clean -fd` не удаляет ignored-файлы из `models_cache`.
+
+## Рекомендуемый вариант — одной командой
 
 ```bash
 cd ~/forecast_platform
 bash deploy/apply_portal_update.sh
 ```
 
-## Автоматизированный вариант
-
-Можно использовать готовый скрипт:
-
-```bash
-bash deploy/apply_updates.sh
-```
-
-По умолчанию скрипт:
-1. Делает `git pull --rebase`.
-2. Активирует `venv/bin/activate`.
-3. Выполняет `python3 manage.py migrate`.
-4. Перезапускает сервис через `deploy/restart_portal.sh`:
-   - через `GUNICORN_PID_FILE=/run/gunicorn.pid`, если файл существует;
-   - иначе через `GUNICORN_PORT=8000`.
-
-
-## Частые ошибки (как на скриншоте) и быстрое исправление
-
-Если видите ошибки:
-- `cd: /path/to/forecast_platform: No such file or directory`
-- `fatal: not a git repository`
-
-значит вы выполнили команды **не в каталоге проекта** или скопировали шаблонный путь.
-
-Используйте только рабочий путь:
+Если на сервере бывают локальные правки/временные файлы и их нужно автоматически убрать в stash перед обновлением:
 
 ```bash
 cd ~/forecast_platform
-pwd
-ls -la .git
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
 ```
 
-Ожидаемо:
-- `pwd` показывает `/home/<user>/forecast_platform`
-- `ls -la .git` не падает с ошибкой
-
-После этого запускайте обновление:
+Если virtualenv лежит не в `venv/`:
 
 ```bash
-git pull --rebase
-source venv/bin/activate
-python3 manage.py migrate
-GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
-# если pid-файла нет:
-# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+cd ~/forecast_platform
+VENV_PATH=/path/to/venv/bin/activate bash deploy/apply_portal_update.sh
 ```
 
-Проверка, что всё поднялось:
+## Вариант «обновить main без обучения»
+
+Если нужен сценарий «как в ручных командах» **без запуска обучения**, используй:
 
 ```bash
-curl -I http://127.0.0.1:8000/
+cd ~/forecast_platform
+bash deploy/apply_main_update_with_training.sh
+# или коротко (скрипт в корне репозитория):
+bash apply_main_update_with_training.sh
 ```
 
+Если получили `No such file or directory`, сначала подтяните `main`, чтобы скрипт появился:
+
+```bash
+cd ~/forecast_platform
+git fetch --all --prune
+git checkout main
+git pull --ff-only origin main
+```
+
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
+
+
+## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
+
+Это ровно та ситуация, которая у вас на скриншоте: серверный репозиторий **грязный** и Git не даёт сделать `pull --rebase`.
+
+### Самый быстрый безопасный вариант
+
+```bash
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m "before-portal-update"
+bash deploy/apply_portal_update.sh
+```
+
+### Одной командой через обновлённый скрипт
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_portal_update.sh
+```
+
+### Применить конкретный коммит даже при локальных изменениях
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh <COMMIT_SHA>
+```
+
+Например:
+
+```bash
+cd ~/forecast_platform
+STASH_LOCAL_CHANGES=1 bash deploy/apply_commit.sh 15dcaa3
+```
+
+Потом можно посмотреть сохранённые stash-записи:
+
+```bash
+git stash list
+```
+
+> Важно: stash сохраняет ваши локальные серверные правки отдельно и **не мешает** подтянуть рабочую версию портала.
 
 
 ## Если `git pull --rebase` пишет `cannot pull with rebase: You have unstaged changes`
@@ -134,68 +505,74 @@ git stash list
 Если нужно применить **ровно один коммит** (например, который я только что дал), используйте:
 
 ```bash
-cd ~/forecast_platform
-bash deploy/apply_commit.sh <COMMIT_SHA>
+# обычный запуск
+bash deploy/apply_main_update_with_training.sh
 ```
 
-Пример:
+Скрипт не запускает обучение: шаг `# 3` оставлен пустым специально.
+
+### Если нужно просто вставить команды на сервере (без скрипта)
 
 ```bash
 cd ~/forecast_platform
-bash deploy/apply_commit.sh 96bc888
+source venv/bin/activate
+set -euo pipefail
+
+# 1) подтянуть код
+git fetch --all --prune
+git checkout main
+git pull --ff-only origin main
+
+# 2) применить django-шаги
+python3 manage.py migrate
+python3 manage.py cleanup_model_cache
+python3 manage.py collectstatic --noinput
+
+# 3) БЕЗ обучения (ничего не запускаем)
+
+# 4) рестарт сервиса
+if [ -f /run/gunicorn.pid ]; then
+  sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+else
+  sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+fi
 ```
 
-Что делает скрипт автоматически:
-1. `git fetch --all --tags --prune`
-2. `git checkout <COMMIT_SHA|branch|tag>`
-3. `source venv/bin/activate`
-4. `python3 manage.py migrate --plan && python3 manage.py migrate`
-5. рестарт через `deploy/restart_portal.sh`
-6. проверка `curl -I http://127.0.0.1:8000/`
+## Что делает скрипт
 
-Если нужен другой путь к проекту/venv:
-
-```bash
-PROJECT_DIR=/opt/forecast_platform VENV_PATH=/opt/venv/bin/activate \
-bash deploy/apply_commit.sh <COMMIT_SHA>
-```
-
-
-### Если `bash deploy/apply_commit.sh <sha>` пишет `No such file or directory`
-
-Это значит, что на сервере ещё не подтянут коммит, где добавлен этот скрипт.
-Сначала выполните обычное обновление:
-
-```bash
-cd ~/forecast_platform
-git pull --rebase
-```
-
-После этого скрипт появится. Если нужен просто стандартный деплой без checkout конкретного SHA — используйте:
-
-```bash
-bash deploy/apply_portal_update.sh
-```
-
-
-## КОПИПАСТА (ровно как нужно)
+Скрипт сам выполняет ту же последовательность команд:
 
 ```bash
 cd ~/forecast_platform
+git status --short
 git pull --rebase
 source venv/bin/activate
 python3 manage.py migrate
+python3 manage.py cleanup_model_cache
+python3 manage.py collectstatic --noinput
 GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
-# если pid-файла нет:
-# GUNICORN_PORT=8000 bash deploy/restart_portal.sh
+# если pid-файл существует, restart_portal.sh теперь сначала делает прямой HUP gunicorn
+# и не лезет в systemctl, поэтому не должен спрашивать пароль администратора
+# если pid-файла нет, скрипт сам попробует fallback через порт 8000
+# при ручном запуске на сервере можно использовать sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```
 
-Если после `git pull --rebase` всё ещё нет `deploy/restart_portal.sh`, значит вы не в том репозитории. Проверка:
+## Полностью вручную
+
+Если хочешь обновить совсем руками, используй именно этот порядок:
 
 ```bash
-pwd
-ls -la
-ls -la deploy
+cd ~/forecast_platform
+git status --short
+git stash push --include-untracked -m 'manual-before-update'   # только если есть незакоммиченные локальные изменения
+git pull --rebase
+source venv/bin/activate
+python3 manage.py migrate
+python3 manage.py cleanup_model_cache
+python3 manage.py collectstatic --noinput
+sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+# cleanup_model_cache нужен, потому что git clean -fd не удаляет ignored-файлы из models_cache
+# если pid-файл есть, будет прямой reload gunicorn без systemctl/password prompt
+# если pid-файла нет:
+# sudo env GUNICORN_PORT=8000 bash deploy/restart_portal.sh
 ```
-
-Должен существовать файл `deploy/restart_portal.sh`.

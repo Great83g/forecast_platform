@@ -24,6 +24,9 @@ urlpatterns = [
     # dashboard
     path("dashboard/", include(("dashboard.urls", "dashboard"), namespace="dashboard")),
 
+    # wind forecast module
+    path("wind/", include(("wind.urls", "wind"), namespace="wind")),
+
     # API
     path("api/accounts/", include("accounts.urls")),
     path("api/", include("stations.urls")),

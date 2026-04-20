@@ -6,6 +6,7 @@ import importlib.util
 import logging
 import re
 from datetime import timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +24,37 @@ ROUND_POWER = 2
 
 logger = logging.getLogger(__name__)
 EARLY_FALLBACK_WINDOW_MINUTES = 120
+
+
+def _get_station_timezone(station: Station):
+    tz_name = (getattr(station, "timezone", "") or "").strip()
+    if not tz_name:
+        return timezone.get_current_timezone()
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        logger.warning(
+            "Invalid station timezone station_id=%s timezone=%s; fallback to project timezone",
+            getattr(station, "pk", None),
+            tz_name,
+        )
+        return timezone.get_current_timezone()
+
+
+def _get_station_now(station: Station, current_now=None):
+    base_now = current_now or timezone.localtime()
+    return timezone.localtime(base_now, _get_station_timezone(station))
+
+
+def _build_skip_message(now_local, run_time, last_run_date) -> str:
+    reason_parts: list[str] = []
+    if run_time is not None and now_local.time().replace(second=0, microsecond=0) < run_time:
+        reason_parts.append(f"station_now={now_local.strftime('%H:%M')} < run_time={run_time.strftime('%H:%M')}")
+    if last_run_date == now_local.date():
+        reason_parts.append("уже выполнено сегодня")
+    if not reason_parts:
+        reason_parts.append("станция пока не требует проверки")
+    return "Skip: " + "; ".join(reason_parts)
 
 
 def _station_data_shift_hours(station: Station) -> int:
@@ -506,6 +538,11 @@ def _resolve_station_share_folder(station: Station, share_root: Optional[Path] =
     return folder
 
 def upsert_station_history_from_share(station: Station) -> int:
+    if getattr(station, "station_kind", Station.KIND_SOLAR) == Station.KIND_WIND:
+        from wind.services.history_autofill import upsert_station_history_from_share as upsert_wind_history_from_share
+
+        return upsert_wind_history_from_share(station)
+
     folder = _resolve_station_share_folder(station)
     if not folder.exists():
         return 0
@@ -647,46 +684,46 @@ def _record_auto_history_tick(station: Station, checked_at, status: str, rows: i
 
 def run_auto_history_updates() -> int:
     updated_rows = 0
-    now_local = timezone.localtime()
+    current_now = timezone.localtime()
     for station in Station.objects.filter(auto_history_enabled=True):
+        station_now = _get_station_now(station, current_now)
         run_time = getattr(station, "auto_history_run_time", None)
-        if not _is_station_due_for_auto_history(station, now_local):
+        last_run_date = getattr(station, "auto_history_last_run_date", None)
+        if not _is_station_due_for_auto_history(station, station_now):
             logger.info(
-                "Auto-history skip station_id=%s now=%s run_time=%s last_run_date=%s",
+                "Auto-history skip station_id=%s now=%s run_time=%s last_run_date=%s timezone=%s",
                 station.pk,
-                now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
+                station_now.strftime("%Y-%m-%d %H:%M:%S%z"),
                 run_time,
-                getattr(station, "auto_history_last_run_date", None),
+                last_run_date,
+                getattr(station, "timezone", ""),
             )
             _record_auto_history_tick(
                 station,
-                now_local,
+                station_now,
                 status="skipped",
                 rows=0,
-                message=f"Skip: now<{run_time} или уже выполнено сегодня",
+                message=_build_skip_message(station_now, run_time, last_run_date),
             )
             continue
 
         logger.info(
-            "Auto-history due station_id=%s now=%s run_time=%s last_run_date=%s",
+            "Auto-history due station_id=%s now=%s run_time=%s last_run_date=%s timezone=%s",
             station.pk,
-            now_local.strftime("%Y-%m-%d %H:%M:%S%z"),
-            getattr(station, "auto_history_run_time", None),
-            getattr(station, "auto_history_last_run_date", None),
+            station_now.strftime("%Y-%m-%d %H:%M:%S%z"),
+            run_time,
+            last_run_date,
+            getattr(station, "timezone", ""),
         )
 
         rows, success = _safe_upsert_station(station)
         updated_rows += rows
 
-        # Помечаем станцию как проверенную за день только если
-        # обновление действительно прошло успешно и были изменения.
-        # Иначе оставляем возможность повторной проверки в этот же день
-        # (например, если файлы появились позже или был временный сбой).
         if success and rows > 0:
-            _mark_station_auto_history_checked(station, now_local.date())
+            _mark_station_auto_history_checked(station, station_now.date())
             _record_auto_history_tick(
                 station,
-                now_local,
+                station_now,
                 status="updated",
                 rows=rows,
                 message=f"Обновлено строк: {rows}",
@@ -695,7 +732,7 @@ def run_auto_history_updates() -> int:
         elif success:
             _record_auto_history_tick(
                 station,
-                now_local,
+                station_now,
                 status="no_rows",
                 rows=0,
                 message="Автообновление выполнено, новых строк нет.",
@@ -704,7 +741,7 @@ def run_auto_history_updates() -> int:
         else:
             _record_auto_history_tick(
                 station,
-                now_local,
+                station_now,
                 status="failed",
                 rows=0,
                 message="Ошибка автообновления. См. логи сервера.",
