@@ -65,133 +65,31 @@ def _parse_int_query(value, default: int) -> int:
         return default
 
 
-def _forecast_value_to_kw(value: Optional[float], station_capacity_mw: Optional[float]) -> float:
+def _station_co2_metrics(station) -> dict:
+    """Return safe CO₂ metrics for station list/dashboard cards.
+
+    Keeps dashboard stable even when optional CO₂ fields are absent
+    on a specific deployment/database schema.
     """
-    Нормализует исторически смешанные единицы прогноза:
-    - legacy-строки могли храниться в MW;
-    - текущие строки хранятся в kW.
-
-    Эвристика:
-    если абсолютное значение «слишком маленькое» относительно мощности станции,
-    считаем, что это MW, и переводим в kW.
-    """
-    if value is None:
-        return 0.0
-    try:
-        v = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-    if not pd.notna(v):
-        return 0.0
-
-    cap = None
-    try:
-        if station_capacity_mw is not None:
-            cap = float(station_capacity_mw)
-    except (TypeError, ValueError):
-        cap = None
-
-    # Порог, ниже которого вероятнее всего это MW, а не kW.
-    # Пример: для 8.8 MW порог ~17.6; для 1.2 MW порог ~10.
-    mw_threshold = max((cap or 0.0) * 2.0, 10.0)
-    if abs(v) <= mw_threshold:
-        return v * 1000.0
-    return v
-
-
-def _plan_value_with_heuristic_fallback(pred_final: Optional[float], pred_heur: Optional[float]) -> Optional[float]:
-    """
-    Возвращает значение итогового прогноза для графиков/экспорта.
-    Если pred_final отсутствует или нулевой, берём эвристику.
-    """
-    try:
-        final_value = float(pred_final) if pred_final is not None else None
-    except (TypeError, ValueError):
-        final_value = None
-    if final_value is not None and pd.notna(final_value) and final_value > 0:
-        return final_value
-
-    try:
-        heur_value = float(pred_heur) if pred_heur is not None else None
-    except (TypeError, ValueError):
-        heur_value = None
-    if heur_value is not None and pd.notna(heur_value):
-        return heur_value
-    return None
-
-
-def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
-    """
-    Строит map вида {timestamp: plan_kw} с fallback на эвристику.
-    """
-    plan_map = {}
-    for row in rows:
-        plan_value = _plan_value_with_heuristic_fallback(row.get("pred_final"), row.get("pred_heur"))
-        if plan_value is None:
-            continue
-        plan_map[row[timestamp_key]] = plan_value
-    return plan_map
-
-
-def _forecast_export_filters(dt_from: Optional[datetime], dt_to: Optional[datetime], dt_date: Optional[datetime]) -> dict:
-    """
-    Фильтры диапазона выгрузки прогноза:
-    - точечная дата приоритетнее диапазона;
-    - границы диапазона включительные по календарным датам.
-    """
-    if dt_date:
-        return {"timestamp__date": dt_date.date()}
-
-    filters = {}
-    if dt_from:
-        filters["timestamp__date__gte"] = dt_from.date()
-    if dt_to:
-        filters["timestamp__date__lte"] = dt_to.date()
-    return filters
-
-
-def _build_training_status(station: Station) -> dict:
-    paths = _model_paths_for_station(station)
-    resolved_dir, resolved_source = describe_station_model_dir(
-        Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache")),
-        station,
+    keys = (
+        "co2_saved_kg",
+        "co2_saved_tons",
+        "co2_offset_kg",
+        "co2_offset_tons",
+        "co2_factor_kg_per_kwh",
     )
-    models = []
+    metrics = {key: None for key in keys}
 
-    for name, primary_key, legacy_key in [
-        ("NeuralProphet", "np", "legacy_np"),
-        ("XGBoost", "xgb", "legacy_xgb"),
-    ]:
-        model_file = paths[primary_key]
-        if not model_file.exists() and paths[legacy_key].exists():
-            model_file = paths[legacy_key]
+    for key in keys:
+        value = getattr(station, key, None)
+        if value in (None, ""):
+            continue
+        try:
+            metrics[key] = float(value)
+        except (TypeError, ValueError):
+            metrics[key] = None
 
-        is_trained = model_file.exists()
-        trained_at = None
-        if is_trained:
-            trained_at = datetime.fromtimestamp(
-                model_file.stat().st_mtime,
-                tz=timezone.get_current_timezone(),
-            )
-
-        models.append(
-            {
-                "name": name,
-                "is_trained": is_trained,
-                "status_label": "модель обучена" if is_trained else "модель не обучена",
-                "trained_at": trained_at,
-            }
-        )
-
-    return {
-        "models": models,
-        "station_id": station.pk,
-        "resolved_model_dir": str(resolved_dir),
-        "resolved_model_dir_name": resolved_dir.name,
-        "resolved_model_dir_source": resolved_source,
-    }
-
-
+    return metrics
 
 
 def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
