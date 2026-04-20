@@ -5,7 +5,7 @@
   <div class="company-topbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
     <div>
       <div class="section-label mb-2">{{ company_name }}</div>
-      <div class="company-subtitle">Развитие проектов в сфере ВИЭ и инновационных IT-решений</div>
+      <div class="company-subtitle">{{ company_subtitle }}</div>
     </div>
     <div class="company-topbar__actions d-flex flex-wrap gap-2">
       <a href="mailto:{{ contacts.email }}" class="btn btn-outline-primary">Написать на e-mail</a>
@@ -22,8 +22,8 @@
         </div>
         <div class="col-lg-4">
           <div class="company-accent-card ms-lg-auto">
-            <div class="company-accent-card__label">О компании</div>
-            <div class="company-accent-card__value">Казахстанская компания, развивающая инновационные решения в сфере зелёных технологий</div>
+            <div class="company-accent-card__label">{{ company_accent_label }}</div>
+            <div class="company-accent-card__value">{{ company_accent_text }}</div>
             <a href="#contacts" class="btn btn-light btn-sm mt-3">Связаться с нами</a>
           </div>
         </div>
@@ -35,7 +35,7 @@
     <div class="col-xl-8">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
-          <div class="section-label mb-2">Достижения</div>
+          <div class="section-label mb-2">{{ company_points_section_label }}</div>
           <h2 class="section-title mb-4">{{ company_points_title }}</h2>
           <div class="company-feature-list">
             {% for point in company_points %}
@@ -76,7 +76,7 @@
           </div>
 
           <div class="company-note mt-auto">
-            Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
+            {{ company_note }}
           </div>
         </div>
       </div>
