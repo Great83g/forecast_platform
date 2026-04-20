@@ -67,6 +67,11 @@
       color: rgba(229, 237, 255, 0.92);
       text-decoration: none;
       font-size: 0.94rem;
+      transition: color 0.2s ease, opacity 0.2s ease;
+    }
+
+    .hero-menu a:hover {
+      color: #ffffff;
     }
 
     .left-copy {
@@ -215,6 +220,17 @@
         min-height: 42vh;
       }
     }
+
+    @media (max-width: 767.98px) {
+      .hero-topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .hero-menu {
+        flex-wrap: wrap;
+      }
+    }
   </style>
 
   <section class="split-hero">
@@ -226,6 +242,8 @@
         </a>
         <ul class="hero-menu">
           <li><a href="{% url 'dashboard:station-list' %}">Станции</a></li>
+          <li><a href="{% url 'dashboard:about-company' %}">О компании</a></li>
+          <li><a href="{% url 'dashboard:about-company' %}#contacts">Контакты</a></li>
           <li><a href="{% url 'register' %}">Регистрация</a></li>
         </ul>
       </header>
