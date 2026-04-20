@@ -168,6 +168,28 @@ def _build_forecast_plan_map(*args, **kwargs) -> dict:
     return plan_map
 
 
+def _build_training_status(station) -> dict:
+    """Build defensive training status payload for station cards."""
+    raw_status = getattr(station, "training_status", None)
+    status = (str(raw_status).strip().lower() if raw_status is not None else "") or "idle"
+
+    labels = {
+        "idle": "Не обучено",
+        "queued": "В очереди",
+        "running": "Обучение...",
+        "success": "Модель готова",
+        "failed": "Ошибка обучения",
+    }
+
+    updated_at = getattr(station, "training_updated_at", None) or getattr(station, "model_trained_at", None)
+    return {
+        "status": status,
+        "label": labels.get(status, "Не обучено"),
+        "is_running": status in {"queued", "running"},
+        "updated_at": updated_at,
+    }
+
+
 def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
     if value is None:
         return None
