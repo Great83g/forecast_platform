@@ -150,8 +150,16 @@ class OrganizationInvitation(models.Model):
 
 
 class Station(models.Model):
+    KIND_SOLAR = "solar"
+    KIND_WIND = "wind"
+    KIND_CHOICES = [
+        (KIND_SOLAR, "Солнечная"),
+        (KIND_WIND, "Ветровая"),
+    ]
+
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="stations")
     name = models.CharField(max_length=200)
+    station_kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_SOLAR, db_index=True)
 
     # Старое поле оставляем для совместимости с текущим кодом
     capacity_mw = models.FloatField(default=1.0)

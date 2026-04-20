@@ -195,9 +195,9 @@ class ForecastScheduleForm(forms.Form):
         required=False,
         choices=[
             ("legacy", "Обычный (старый)"),
-            ("weekday_calendar", "Календарь: Пн–Чт → +2 дня, Пт → +1/+2/+3"),
+            ("weekday_calendar", "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)"),
         ],
-        widget=forms.Select(attrs={"class": "form-select form-select-sm", "style": "width: 290px;"}),
+        widget=forms.Select(attrs={"class": "form-select form-select-sm", "style": "width: 360px;"}),
         initial="weekday_calendar",
     )
     providers = forms.MultipleChoiceField(
@@ -226,8 +226,17 @@ class ForecastScheduleForm(forms.Form):
         label="Снег фактор",
         required=False,
         min_value=0.0,
-        max_value=1.0,
-        widget=forms.NumberInput(attrs={"class": "form-control form-control-sm", "style": "width: 90px;"}),
+        max_value=1.5,
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control form-control-sm",
+                "style": "width: 90px;",
+                "step": "0.05",
+                "placeholder": "1.10",
+                "max": "1.5",
+                "title": "< 1 уменьшает прогноз, > 1 увеличивает прогноз (до 1.5)",
+            }
+        ),
     )
     manual_snow_dates = forms.CharField(
         label="Даты снега",

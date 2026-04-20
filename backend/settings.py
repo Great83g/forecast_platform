@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "stations",
     "solar",
     "dashboard",
+    "wind",
 ]
 
 # === MIDDLEWARE ===
