@@ -1,29 +1,29 @@
 {% extends "dashboard/base.html" %}
 {% block content %}
 <div class="container py-4">
-  <h2>Обучение моделей: {{ station.name|default:station }}</h2>
-  <p class="text-muted">Нажми кнопку — запустится обучение NeuralProphet и XGBoost для этой станции.</p>
+  <h2><span data-i18n="train_title">Обучение моделей</span>: {{ station.name|default:station }}</h2>
+  <p class="text-muted" data-i18n="train_subtitle">Нажми кнопку — запустится обучение NeuralProphet и XGBoost для этой станции.</p>
 
   <div class="alert alert-secondary py-2 px-3 small">
-    <div><strong>ID станции:</strong> {{ training_status.station_id }}</div>
-    <div><strong>Папка модели:</strong> <code>{{ training_status.resolved_model_dir }}</code></div>
+    <div><strong data-i18n="train_station_id">ID станции:</strong> {{ training_status.station_id }}</div>
+    <div><strong data-i18n="train_model_dir">Папка модели:</strong> <code>{{ training_status.resolved_model_dir }}</code></div>
     <div>
-      <strong>Источник пути:</strong>
+      <strong data-i18n="train_path_source">Источник пути:</strong>
       {% if training_status.resolved_model_dir_source == "canonical" %}
-        канонический каталог по ID станции
+        <span data-i18n="train_path_canonical">канонический каталог по ID станции</span>
       {% elif training_status.resolved_model_dir_source == "legacy_current_slug" %}
-        legacy-каталог по текущему имени станции
+        <span data-i18n="train_path_legacy_current">legacy-каталог по текущему имени станции</span>
       {% elif training_status.resolved_model_dir_source == "legacy_previous_slug" %}
-        legacy-каталог по старому имени станции
+        <span data-i18n="train_path_legacy_previous">legacy-каталог по старому имени станции</span>
       {% else %}
-        канонический каталог по ID станции (пока файлов нет)
+        <span data-i18n="train_path_canonical_empty">канонический каталог по ID станции (пока файлов нет)</span>
       {% endif %}
     </div>
   </div>
 
   <div class="card shadow-sm border-0 mb-4">
     <div class="card-body">
-      <div class="text-muted small mb-3">Статус моделей для этой станции</div>
+      <div class="text-muted small mb-3" data-i18n="train_models_status">Статус моделей для этой станции</div>
       <div class="row g-3">
         {% for model in training_status.models %}
           <div class="col-md-6">
@@ -38,11 +38,11 @@
               </div>
               {% if model.trained_at %}
                 <div class="small text-muted mt-2">
-                  Обновлена: {{ model.trained_at|date:"d.m.Y H:i" }}
+                  <span data-i18n="train_updated">Обновлена:</span> {{ model.trained_at|date:"d.m.Y H:i" }}
                 </div>
               {% else %}
                 <div class="small text-muted mt-2">
-                  Файл модели пока не найден.
+                  <span data-i18n="train_model_file_not_found">Файл модели пока не найден.</span>
                 </div>
               {% endif %}
             </div>
@@ -54,8 +54,8 @@
 
   <form method="post">
     {% csrf_token %}
-    <button class="btn btn-warning" type="submit">Запустить обучение</button>
-    <a class="btn btn-secondary" href="{% url 'dashboard:station-list' %}">Назад</a>
+    <button class="btn btn-warning" type="submit" data-i18n="train_start">Запустить обучение</button>
+    <a class="btn btn-secondary" href="{% url 'dashboard:station-list' %}" data-i18n="detail_back">Назад</a>
   </form>
 </div>
 {% endblock %}

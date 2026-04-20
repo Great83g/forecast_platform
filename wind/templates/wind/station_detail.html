@@ -4,40 +4,40 @@
 
 {% block content %}
 <div class="container mt-4">
-  <h2 class="mb-2">{{ station.name }} — План / Факт</h2>
-  <div class="text-muted mb-3">Тип станции: ветровая</div>
+  <h2 class="mb-2">{{ station.name }} — <span data-i18n="detail_plan_fact">План / Факт</span></h2>
+  <div class="text-muted mb-3"><span data-i18n="wind_station_type">Тип станции</span>: <span data-i18n="wind_station_type_wind">ветровая</span></div>
 
   <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-list' %}">← Назад</a>
-    <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-upload' station.pk %}">История / загрузка</a>
-    <a class="btn btn-warning btn-sm" href="{% url 'wind:station-train' station.pk %}">Обучить модель</a>
-    <a class="btn btn-success btn-sm" href="{% url 'wind:station-forecast-list' station.pk %}">Смотреть прогноз</a>
+    <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-list' %}" data-i18n="detail_back">← Назад</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-upload' station.pk %}" data-i18n="detail_history_upload">История / загрузка</a>
+    <a class="btn btn-warning btn-sm" href="{% url 'wind:station-train' station.pk %}" data-i18n="detail_train_model">Обучить модель</a>
+    <a class="btn btn-success btn-sm" href="{% url 'wind:station-forecast-list' station.pk %}" data-i18n="detail_view_forecast">Смотреть прогноз</a>
   </div>
 
   <div class="card mb-3">
     <div class="card-body">
       <form method="get" class="row g-2 align-items-end">
         <div class="col-sm-3">
-          <label class="form-label form-label-sm">Дата с</label>
+          <label class="form-label form-label-sm" data-i18n="detail_date_from">Дата с</label>
           <input type="date" class="form-control form-control-sm" name="date_from" value="{{ date_from }}">
         </div>
         <div class="col-sm-3">
-          <label class="form-label form-label-sm">Дата по</label>
+          <label class="form-label form-label-sm" data-i18n="detail_date_to">Дата по</label>
           <input type="date" class="form-control form-control-sm" name="date_to" value="{{ date_to }}">
         </div>
         <div class="col-sm-6 d-flex gap-2">
-          <button class="btn btn-primary btn-sm" type="submit">Применить фильтр</button>
-          <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}">Сбросить</a>
+          <button class="btn btn-primary btn-sm" type="submit" data-i18n="detail_apply_filter">Применить фильтр</button>
+          <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}" data-i18n="detail_reset">Сбросить</a>
         </div>
       </form>
-      <div class="small text-muted mt-2">Точек в сравнении: <b>{{ points_count }}</b> (по умолчанию с начала текущего месяца)</div>
+      <div class="small text-muted mt-2"><span data-i18n="detail_points_compare">Точек в сравнении</span>: <b>{{ points_count }}</b> <span data-i18n="detail_points_hint">(по умолчанию с начала текущего месяца)</span></div>
     </div>
   </div>
 
   <div class="card mb-3">
     <div class="card-body">
-      <h6 class="card-title">График план / факт (МВт)</h6>
-      <div class="small text-muted mb-2">Разрез: {% if is_single_day_range %}<b>по часам</b>{% else %}<b>детально</b>{% endif %}</div>
+      <h6 class="card-title" data-i18n="detail_chart_title">График план / факт (МВт)</h6>
+      <div class="small text-muted mb-2"><span data-i18n="detail_slice">Разрез</span>: {% if is_single_day_range %}<b data-i18n="detail_by_hours">по часам</b>{% else %}<b data-i18n="detail_detailed">детально</b>{% endif %}</div>
 
       <div class="row g-2 mb-3">
         <div class="col-12 col-md-3">
@@ -69,10 +69,10 @@
       </div>
 
       <div class="d-flex flex-wrap align-items-center gap-3 mb-2 small">
-        <div class="fw-semibold">Показывать:</div>
+        <div class="fw-semibold" data-i18n="detail_show">Показывать:</div>
         <div class="form-check form-check-inline mb-0">
           <input class="form-check-input" type="checkbox" id="toggleWindSpeed" checked>
-          <label class="form-check-label" for="toggleWindSpeed">Скорость ветра (план/факт)</label>
+          <label class="form-check-label" for="toggleWindSpeed" data-i18n="wind_speed_plan_fact">Скорость ветра (план/факт)</label>
         </div>
       </div>
       <div style="height: 420px;"><canvas id="planFactChart"></canvas></div>
@@ -83,9 +83,9 @@
     <table class="table table-sm table-striped mb-0">
       <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
         <tr>
-          <th>Время</th>
-          <th class="text-end">Факт, МВт</th>
-          <th class="text-end">План, МВт</th>
+          <th data-i18n="detail_time">Время</th>
+          <th class="text-end" data-i18n="detail_fact_mw">Факт, МВт</th>
+          <th class="text-end" data-i18n="detail_plan_mw">План, МВт</th>
         </tr>
       </thead>
       <tbody>
@@ -96,7 +96,7 @@
             <td class="text-end">{% if row.plan_mw is not None %}{{ row.plan_mw|floatformat:3 }}{% else %}—{% endif %}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="3" class="text-center text-muted py-4">Нет данных для сравнения</td></tr>
+          <tr><td colspan="3" class="text-center text-muted py-4" data-i18n="detail_no_compare_data">Нет данных для сравнения</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -104,9 +104,9 @@
 
   <div class="card">
     <div class="card-body">
-      <div><strong>Организация:</strong> {{ station.org.name }}</div>
-      <div><strong>Мощность:</strong> {{ station.capacity_mw|floatformat:2 }} МВт</div>
-      <div><strong>Координаты:</strong> {{ station.latitude }}, {{ station.longitude }}</div>
+      <div><strong data-i18n="wind_org">Организация:</strong> {{ station.org.name }}</div>
+      <div><strong data-i18n="wind_power">Мощность:</strong> {{ station.capacity_mw|floatformat:2 }} МВт</div>
+      <div><strong data-i18n="wind_coords">Координаты:</strong> {{ station.latitude }}, {{ station.longitude }}</div>
     </div>
   </div>
 </div>
@@ -122,6 +122,13 @@
 {{ is_single_day_range|json_script:"pf-single-day" }}
 <script>
   (function () {
+    const lang = localStorage.getItem("preferredLang") || "ru";
+    const c = {
+      ru: {fact: "Факт", plan: "План", windFact: "Ветер факт", windPlan: "Ветер план", mw: "МВт", windSpeed: "Скорость ветра (м/с)"},
+      kz: {fact: "Нақты", plan: "Жоспар", windFact: "Жел нақты", windPlan: "Жел жоспар", mw: "МВт", windSpeed: "Жел жылдамдығы (м/с)"},
+      en: {fact: "Actual", plan: "Plan", windFact: "Wind actual", windPlan: "Wind plan", mw: "MW", windSpeed: "Wind speed (m/s)"}
+    }[lang] || {fact: "Факт", plan: "План", windFact: "Ветер факт", windPlan: "Ветер план", mw: "МВт", windSpeed: "Скорость ветра (м/с)"};
+
     const labels = JSON.parse(document.getElementById("pf-labels").textContent || "[]");
     const factRaw = JSON.parse(document.getElementById("pf-fact").textContent || "[]");
     const planRaw = JSON.parse(document.getElementById("pf-plan").textContent || "[]");
@@ -145,10 +152,10 @@
       data: {
         labels: labelsSynced,
         datasets: [
-          {label: "Факт", data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
-          {label: "План", data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
-          {label: "Ветер факт", data: windFact, borderColor: "#fd7e14", backgroundColor: "rgba(253,126,20,0.10)", borderDash: [6, 4], tension: 0.2, spanGaps: true, yAxisID: "yWind", hidden: false},
-          {label: "Ветер план", data: windPlan, borderColor: "#f59f00", backgroundColor: "rgba(245,159,0,0.10)", borderDash: [2, 4], tension: 0.2, spanGaps: true, yAxisID: "yWind", hidden: false}
+          {label: c.fact, data: fact, borderColor: "#198754", backgroundColor: "rgba(25,135,84,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: c.plan, data: plan, borderColor: "#0d6efd", backgroundColor: "rgba(13,110,253,0.12)", tension: 0.2, spanGaps: true, yAxisID: "yPower"},
+          {label: c.windFact, data: windFact, borderColor: "#fd7e14", backgroundColor: "rgba(253,126,20,0.10)", borderDash: [6, 4], tension: 0.2, spanGaps: true, yAxisID: "yWind", hidden: false},
+          {label: c.windPlan, data: windPlan, borderColor: "#f59f00", backgroundColor: "rgba(245,159,0,0.10)", borderDash: [2, 4], tension: 0.2, spanGaps: true, yAxisID: "yWind", hidden: false}
         ]
       },
       options: {
@@ -160,11 +167,11 @@
           intersect: false
         },
         scales: {
-          yPower: {type: "linear", position: "left", title: {display: true, text: "МВт"}},
+          yPower: {type: "linear", position: "left", title: {display: true, text: c.mw}},
           yWind: {
             type: "linear",
             position: "right",
-            title: {display: true, text: "Скорость ветра (м/с)", color: "#fd7e14"},
+            title: {display: true, text: c.windSpeed, color: "#fd7e14"},
             ticks: {color: "#fd7e14"},
             border: {color: "#fd7e14"},
             grid: {drawOnChartArea: false},

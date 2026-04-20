@@ -1,21 +1,21 @@
 {% extends "dashboard/base.html" %}
 {% block content %}
 
-<h2 class="mb-2">{{ station.name }} — прогноз ветра</h2>
-<div class="mb-2 small text-muted">База прогноза (просмотр): <b>{% if scope == 'test' %}Тестовая{% else %}Основная{% endif %}</b></div>
+<h2 class="mb-2">{{ station.name }} — <span data-i18n="wind_forecast_title">прогноз ветра</span></h2>
+<div class="mb-2 small text-muted"><span data-i18n="wind_forecast_scope_view">База прогноза (просмотр)</span>: <b>{% if scope == 'test' %}<span data-i18n="upload_test_db_short">Тестовая</span>{% else %}<span data-i18n="upload_main_db_short">Основная</span>{% endif %}</b></div>
 <div class="mb-3 d-flex gap-2">
   <a class="btn btn-sm {% if scope == 'main' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'wind:station-forecast-list' station.pk %}?scope=main">Основная</a>
   <a class="btn btn-sm {% if scope == 'test' %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'wind:station-forecast-list' station.pk %}?scope=test">Тестовая</a>
 </div>
 
 <div class="d-flex flex-wrap gap-2 mb-3">
-  <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}">← Назад к станции</a>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-list' %}">К списку станций</a>
+  <a class="btn btn-secondary btn-sm" href="{% url 'wind:station-detail' station.pk %}" data-i18n="upload_back_to_station">← Назад к станции</a>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-list' %}" data-i18n="upload_to_station_list">К списку станций</a>
 </div>
 
 <div class="card mb-3">
   <div class="card-body">
-    <h5 class="card-title">Запустить прогноз (ручной запуск)</h5>
+    <h5 class="card-title" data-i18n="wind_run_forecast_manual">Запустить прогноз (ручной запуск)</h5>
     <form method="get" action="{% url 'wind:station-forecast-run' station.pk %}" class="d-flex flex-wrap gap-2 align-items-end">
       <div>
         <label class="form-label mb-0 small">Дней</label>
@@ -59,7 +59,7 @@
 
 <div class="card mb-3">
   <div class="card-body">
-    <h5 class="card-title">Автопрогноз ветра</h5>
+    <h5 class="card-title" data-i18n="wind_auto_forecast">Автопрогноз ветра</h5>
     <form method="post" action="{% url 'wind:station-forecast-schedule-update' station.pk %}">
       {% csrf_token %}
       <div class="row g-2 align-items-end">
@@ -139,6 +139,74 @@
 {% block extra_scripts %}
 <script>
   (function () {
+    var lang = localStorage.getItem("preferredLang") || "ru";
+    if (lang !== "ru") {
+      var map = {
+        kz: {
+          "Основная": "Негізгі",
+          "Тестовая": "Тест",
+          "Дней": "Күн",
+          "База": "База",
+          "Режим горизонта": "Горизонт режимі",
+          "Email": "Email",
+          "Авто-отправка email": "Email авто-жіберу",
+          "Построить прогноз": "Болжам құру",
+          "База автопрогноза": "Автоболжам базасы",
+          "Основная (фиксировано)": "Негізгі (тұрақты)",
+          "Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.": "Email міндетті емес: автоболжам онсыз да орындалады; email болмаса есеп жіберілмейді.",
+          "Сохранить автопрогноз": "Автоболжамды сақтау",
+          "С даты": "Күні",
+          "По дату": "Күніне дейін",
+          "Фильтр": "Сүзгі",
+          "Скачать Excel": "Excel жүктеу",
+          "Очистить прогноз": "Болжамды тазарту",
+          "Строк прогноза": "Болжам жолдары",
+          "Дата/время": "Күн/уақыт",
+          "Нет прогноза": "Болжам жоқ",
+          "Обычный (старый)": "Қалыпты (ескі)",
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Күнтізбе: Дс–Бс → +2 күн, Жм → +2/+3/+4 (Жс/Дс/Сс)"
+        },
+        en: {
+          "Основная": "Main",
+          "Тестовая": "Test",
+          "Дней": "Days",
+          "База": "Database",
+          "Режим горизонта": "Horizon mode",
+          "Email": "Email",
+          "Авто-отправка email": "Auto-send email",
+          "Построить прогноз": "Run forecast",
+          "База автопрогноза": "Auto-forecast database",
+          "Основная (фиксировано)": "Main (fixed)",
+          "Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.": "Email is optional: auto-forecast runs without it; report sending is skipped if email is empty.",
+          "Сохранить автопрогноз": "Save auto-forecast",
+          "С даты": "Date from",
+          "По дату": "Date to",
+          "Фильтр": "Filter",
+          "Скачать Excel": "Download Excel",
+          "Очистить прогноз": "Clear forecast",
+          "Строк прогноза": "Forecast rows",
+          "Дата/время": "Date/time",
+          "Нет прогноза": "No forecast",
+          "Обычный (старый)": "Normal (legacy)",
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Calendar: Mon–Thu → +2 days, Fri → +2/+3/+4 (Sun/Mon/Tue)"
+        }
+      }[lang];
+
+      if (map) {
+        document.querySelectorAll("h2,h5,label,button,a,th,.text-muted,.btn,.form-label").forEach(function (node) {
+          var text = (node.textContent || "").trim().replace(/:$/, "");
+          if (map[text]) {
+            var hasColon = /:\s*$/.test(node.textContent || "");
+            node.textContent = map[text] + (hasColon ? ":" : "");
+          }
+        });
+        document.querySelectorAll('select[name="horizon_mode"] option').forEach(function (option) {
+          var text = (option.textContent || "").trim();
+          if (map[text]) option.textContent = map[text];
+        });
+      }
+    }
+
     var select = document.getElementById("manual-scope-select");
     if (!select) return;
     select.addEventListener("change", function () {

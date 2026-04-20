@@ -51,6 +51,28 @@
   font-weight:600;
 }
 
+.lang-switcher {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.lang-switcher .lang-btn {
+  border: 1px solid rgba(173, 181, 189, 0.5);
+  background: transparent;
+  color: #f8f9fa;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  border-radius: 4px;
+  padding: 0.23rem 0.45rem;
+}
+
+.lang-switcher .lang-btn.is-active {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
 @media (max-width: 991.98px) {
   .navbar {
     min-height: auto;
@@ -95,40 +117,49 @@
       <span class="brand-text">InTech-Forecast</span>
     </a>
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Переключить навигацию">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Переключить навигацию" data-i18n-aria-label="toggle_nav">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <div class="collapse navbar-collapse" id="mainNavbar">
       <ul class="navbar-nav me-auto">
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}">Станции</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'station-list' %} active{% endif %}" href="{% url 'dashboard:station-list' %}" data-i18n="nav_stations">Станции</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'onboarding-guide' %} active{% endif %}" href="{% url 'dashboard:onboarding-guide' %}">Инструкция</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'onboarding-guide' %} active{% endif %}" href="{% url 'dashboard:onboarding-guide' %}" data-i18n="nav_guide">Инструкция</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}">О компании</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}" data-i18n="nav_about">О компании</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts">Контакты</a>
+          <a class="nav-link{% if request.resolver_match.url_name == 'about-company' %} active{% endif %}" href="{% url 'dashboard:about-company' %}#contacts" data-i18n="nav_contacts">Контакты</a>
         </li>
       </ul>
 
       <div class="d-flex align-items-center gap-2 me-3">
-        <a class="btn btn-sm {% if request.path|slice:":11" == "/dashboard/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'dashboard:station-list' %}" title="Солнечный модуль">☀️ Солнце</a>
-        <a class="btn btn-sm {% if request.path|slice:":6" == "/wind/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'wind:station-list' %}" title="Ветровой модуль">🌬️ Ветер</a>
+        <div class="lang-switcher" aria-label="Language switcher">
+          <button type="button" class="lang-btn" data-lang="ru">RU</button>
+          <button type="button" class="lang-btn" data-lang="kz">KZ</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <a class="btn btn-sm {% if request.path|slice:":11" == "/dashboard/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'dashboard:station-list' %}" title="Солнечный модуль" data-i18n-title="title_solar">
+          ☀️ <span data-i18n="module_solar">Солнце</span>
+        </a>
+        <a class="btn btn-sm {% if request.path|slice:":6" == "/wind/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'wind:station-list' %}" title="Ветровой модуль" data-i18n-title="title_wind">
+          🌬️ <span data-i18n="module_wind">Ветер</span>
+        </a>
       </div>
 
       {% if user.is_authenticated %}
         <span class="navbar-text text-white me-3">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}" class="d-inline">
           {% csrf_token %}
-          <button class="btn btn-outline-light btn-sm" type="submit">Выйти</button>
+          <button class="btn btn-outline-light btn-sm" type="submit" data-i18n="btn_logout">Выйти</button>
         </form>
       {% else %}
-        <a class="btn btn-outline-light btn-sm me-2" href="{% url 'login' %}">Войти</a>
-        <a class="btn btn-primary btn-sm" href="{% url 'register' %}">Регистрация</a>
+        <a class="btn btn-outline-light btn-sm me-2" href="{% url 'login' %}" data-i18n="btn_login">Войти</a>
+        <a class="btn btn-primary btn-sm" href="{% url 'register' %}" data-i18n="btn_register">Регистрация</a>
       {% endif %}
     </div>
   </div>
@@ -143,6 +174,594 @@
 
   {% block content %}{% endblock %}
 </div>
+<script>
+  (function () {
+    const i18n = {
+      ru: {
+        nav_stations: "Станции",
+        nav_guide: "Инструкция",
+        nav_about: "О компании",
+        nav_contacts: "Контакты",
+        toggle_nav: "Переключить навигацию",
+        module_solar: "Солнце",
+        module_wind: "Ветер",
+        title_solar: "Солнечный модуль",
+        title_wind: "Ветровой модуль",
+        btn_logout: "Выйти",
+        btn_login: "Войти",
+        btn_register: "Регистрация",
+        page_station_list_title: "Станции",
+        page_add_station: "Добавить станцию",
+        page_guide_label: "Инструкция",
+        page_guide_text: "Как добавить станцию, загрузить историю и запустить прогноз",
+        page_capacity: "Мощность",
+        page_coords: "Коорд",
+        page_open_earth: "Открыть станцию в Google Earth",
+        page_co2_from_history: "CO₂ из истории",
+        page_co2_total: "Общий",
+        page_co2_yesterday: "За вчера",
+        page_co2_calc_prefix: "Расчет: история ×",
+        page_co2_calc_suffix: "кг CO₂/кВт·ч.",
+        page_co2_empty: "Пока нет истории для расчета CO₂.",
+        page_move_up: "Поднять выше",
+        page_move_down: "Опустить ниже",
+        page_graph_details: "График / Детали",
+        page_edit: "Редактировать",
+        page_upload_history: "Загрузить историю",
+        page_forecast: "Прогноз",
+        page_train_models: "Обучить модели",
+        page_no_stations: "Пока нет станций.",
+        detail_plan_fact: "План / Факт",
+        detail_operator: "Оператор",
+        detail_back: "← Назад",
+        detail_history_upload: "История / загрузка",
+        detail_train_model: "Обучить модель",
+        detail_view_forecast: "Смотреть прогноз",
+        detail_date_from: "Дата с",
+        detail_date_to: "Дата по",
+        detail_apply_filter: "Применить фильтр",
+        detail_reset: "Сбросить",
+        detail_download_excel: "Скачать Excel",
+        detail_points_compare: "Точек в сравнении",
+        detail_points_hint: "(по умолчанию с начала текущего месяца)",
+        detail_chart_title: "График план / факт (МВт)",
+        detail_slice: "Разрез",
+        detail_by_hours: "по часам",
+        detail_detailed: "детально (как раньше)",
+        detail_show: "Показывать:",
+        detail_irr_plan_fact: "Иррадиация (план/факт)",
+        detail_temp_plan_fact: "Температура (план/факт)",
+        detail_forecast: "Прогноз",
+        detail_fact: "Факт",
+        detail_for_day: "за день",
+        detail_for_period: "за период",
+        detail_deviation: "Отклонение (Факт − Прогноз)",
+        detail_day_hours: "(дневные часы)",
+        detail_for_period_brackets: "(за период)",
+        detail_by_points: "по",
+        detail_points_short: "тчк.",
+        detail_model_diagnostics: "Диагностика модели",
+        detail_morning_mape: "Утро 06–09 MAPE",
+        detail_peak_underforecast: "Недобор пиков",
+        detail_system_bias: "Системный bias (энергия)",
+        detail_recommended_shift: "Рекоменд. сдвиг времени",
+        detail_time: "Время",
+        detail_fact_mw: "Факт, МВт",
+        detail_plan_mw: "План, МВт",
+        detail_no_compare_data: "Нет данных для сравнения",
+        edit_station_title: "Редактировать станцию",
+        edit_save: "Сохранить",
+        edit_cancel: "Отмена",
+        edit_auto_history_diag: "Диагностика автоистории:",
+        edit_last_tick: "Последний тик",
+        edit_status: "Статус",
+        edit_rows: "строк",
+        edit_message: "Сообщение",
+        upload_history_title: "История",
+        upload_history_mode: "Режим истории",
+        upload_test_db: "Тестовая база",
+        upload_main_db: "Основная база",
+        upload_back_to_station: "← Назад к станции",
+        upload_to_station_list: "К списку станций",
+        upload_auto_tick: "Тик автоистории:",
+        upload_no_tick_yet: "ещё не было",
+        upload_status: "Статус:",
+        upload_rows: "Строк:",
+        upload_db_label: "База истории",
+        upload_main_db_short: "Основная",
+        upload_test_db_short: "Тестовая",
+        upload_filter: "Фильтр",
+        upload_delete_filtered: "Удалить по фильтру дат",
+        upload_clear_history: "Очистить историю",
+        upload_upload_btn: "Загрузить",
+        upload_expected_columns: "Ожидаемые колонки",
+        upload_total_records: "Всего записей",
+        upload_filtered_records: "Отфильтровано",
+        upload_datetime: "Дата/время",
+        upload_no_data: "Нет данных",
+        forecast_title: "Прогноз",
+        forecast_data_mode: "Режим данных",
+        forecast_schedule_title: "Автопрогноз по расписанию",
+        forecast_time: "Время:",
+        forecast_start_datetime: "Дата/время старта:",
+        forecast_days: "Дней:",
+        forecast_mode: "Режим:",
+        forecast_providers: "Провайдеры:",
+        forecast_save_schedule: "Сохранить расписание",
+        forecast_schedule_note: "Автопрогноз запускается серверным планировщиком (cron/systemd/Celery) и использует эти настройки.",
+        forecast_manual_mode: "Ручной режим",
+        forecast_db: "База:",
+        forecast_snow_factor: "Снег/облака (ручной фактор)",
+        forecast_postfact_dates: "Постфактум даты:",
+        forecast_open_meteo_only: "Open‑Meteo без истории (только эвристика)",
+        forecast_visual_crossing_only: "Visual Crossing без истории (только эвристика)",
+        forecast_manual_auto_send: "Авто-отправка отчёта в ручном режиме",
+        forecast_run: "Сделать прогноз",
+        forecast_date: "Дата:",
+        forecast_show_date: "Показать дату",
+        forecast_download_from: "Скачать с:",
+        forecast_to: "по:",
+        forecast_clear_all: "Очистить прогнозы",
+        forecast_delete_old_before: "Удалить старые до:",
+        forecast_delete_old: "Удалить старые",
+        forecast_delete_from: "Удалить с:",
+        forecast_delete_range: "Удалить диапазон",
+        forecast_total_rows: "Всего прогнозных строк (почасово)",
+        forecast_col_date: "Дата",
+        forecast_col_total: "Итог, МВт",
+        forecast_col_heur: "Эвристика, МВт",
+        forecast_no_data: "Пока нет прогнозов",
+        train_title: "Обучение моделей",
+        train_subtitle: "Нажми кнопку — запустится обучение NeuralProphet и XGBoost для этой станции.",
+        train_station_id: "ID станции:",
+        train_model_dir: "Папка модели:",
+        train_path_source: "Источник пути:",
+        train_path_canonical: "канонический каталог по ID станции",
+        train_path_legacy_current: "legacy-каталог по текущему имени станции",
+        train_path_legacy_previous: "legacy-каталог по старому имени станции",
+        train_path_canonical_empty: "канонический каталог по ID станции (пока файлов нет)",
+        train_models_status: "Статус моделей для этой станции",
+        train_updated: "Обновлена:",
+        train_model_file_not_found: "Файл модели пока не найден.",
+        train_start: "Запустить обучение",
+        guide_eyebrow: "Инструкция",
+        guide_title: "Как пользоваться платформой",
+        guide_lead: "Здесь собраны основные шаги для нового пользователя: от создания станции до запуска прогноза и проверки результата.",
+        guide_quick_start: "Быстрый старт",
+        guide_quick_start_text: "Откройте раздел «Станции», добавьте объект и перейдите к загрузке истории.",
+        guide_steps: "Шаги",
+        guide_main_flow: "Основной порядок работы",
+        guide_tips: "Подсказки",
+        guide_important: "Что важно не пропустить",
+        guide_need_help: "Если нужна помощь, перейдите в раздел «Контакты» и свяжитесь с нами удобным способом.",
+        guide_open_full_image: "Открыть изображение в полном размере",
+        guide_zoomed_screenshot: "Увеличенный скриншот",
+        guide_close_zoomed: "Закрыть увеличенное изображение",
+        wind_stations_title: "Ветростанции",
+        wind_module_note: "Ветровой модуль отдельный от солнечного. Историю можно загрузить позже или работать без истории.",
+        wind_turbines: "Турбин",
+        wind_turbine_power: "Мощность турбины",
+        wind_total: "Итого",
+        wind_coords_not_set: "Координаты не заданы",
+        wind_no_stations: "Пока нет ветростанций.",
+        wind_station_type: "Тип станции",
+        wind_station_type_wind: "ветровая",
+        wind_speed_plan_fact: "Скорость ветра (план/факт)",
+        wind_org: "Организация:",
+        wind_power: "Мощность:",
+        wind_coords: "Координаты:",
+        wind_forecast_title: "прогноз ветра",
+        wind_forecast_scope_view: "База прогноза (просмотр)",
+        wind_run_forecast_manual: "Запустить прогноз (ручной запуск)",
+        wind_auto_forecast: "Автопрогноз ветра",
+        wind_edit_station: "Редактировать ветростанцию",
+        wind_create_station: "Создать ветростанцию",
+        wind_basic_data: "Основные данные",
+        wind_turbine_params: "Параметры турбин",
+        wind_save_changes: "Сохранить изменения",
+        wind_module_placeholder: "Отдельный ветровой модуль для этого шага уже выделен. Здесь будет независимая логика для ветра (отдельные данные, обучение и прогноз)."
+      },
+      kz: {
+        nav_stations: "Станциялар",
+        nav_guide: "Нұсқаулық",
+        nav_about: "Компания туралы",
+        nav_contacts: "Байланыс",
+        toggle_nav: "Навигацияны ауыстыру",
+        module_solar: "Күн",
+        module_wind: "Жел",
+        title_solar: "Күн модулі",
+        title_wind: "Жел модулі",
+        btn_logout: "Шығу",
+        btn_login: "Кіру",
+        btn_register: "Тіркелу",
+        page_station_list_title: "Станциялар",
+        page_add_station: "Станция қосу",
+        page_guide_label: "Нұсқаулық",
+        page_guide_text: "Станция қосу, тарих жүктеу және болжамды іске қосу жолы",
+        page_capacity: "Қуат",
+        page_coords: "Коорд",
+        page_open_earth: "Станцияны Google Earth-та ашу",
+        page_co2_from_history: "Тарихтан CO₂",
+        page_co2_total: "Жалпы",
+        page_co2_yesterday: "Кеше",
+        page_co2_calc_prefix: "Есеп: тарих ×",
+        page_co2_calc_suffix: "кг CO₂/кВт·сағ.",
+        page_co2_empty: "CO₂ есептеу үшін тарих әлі жоқ.",
+        page_move_up: "Жоғары көтеру",
+        page_move_down: "Төмен түсіру",
+        page_graph_details: "График / Деталь",
+        page_edit: "Өңдеу",
+        page_upload_history: "Тарихты жүктеу",
+        page_forecast: "Болжам",
+        page_train_models: "Модельдерді үйрету",
+        page_no_stations: "Станциялар әзірге жоқ.",
+        detail_plan_fact: "Жоспар / Нақты",
+        detail_operator: "Оператор",
+        detail_back: "← Артқа",
+        detail_history_upload: "Тарих / жүктеу",
+        detail_train_model: "Модельді үйрету",
+        detail_view_forecast: "Болжамды қарау",
+        detail_date_from: "Күні",
+        detail_date_to: "Күніне дейін",
+        detail_apply_filter: "Сүзгіні қолдану",
+        detail_reset: "Тазалау",
+        detail_download_excel: "Excel жүктеу",
+        detail_points_compare: "Салыстыру нүктелері",
+        detail_points_hint: "(әдепкіде ағымдағы ай басынан)",
+        detail_chart_title: "Жоспар / Нақты графигі (МВт)",
+        detail_slice: "Көрініс",
+        detail_by_hours: "сағат бойынша",
+        detail_detailed: "егжей-тегжейлі",
+        detail_show: "Көрсету:",
+        detail_irr_plan_fact: "Иррадиация (жоспар/нақты)",
+        detail_temp_plan_fact: "Температура (жоспар/нақты)",
+        detail_forecast: "Болжам",
+        detail_fact: "Нақты",
+        detail_for_day: "бір күнге",
+        detail_for_period: "кезең үшін",
+        detail_deviation: "Ауытқу (Нақты − Жоспар)",
+        detail_day_hours: "(күндізгі сағаттар)",
+        detail_for_period_brackets: "(кезең үшін)",
+        detail_by_points: "бойынша",
+        detail_points_short: "нүк.",
+        detail_model_diagnostics: "Модель диагностикасы",
+        detail_morning_mape: "Таңғы 06–09 MAPE",
+        detail_peak_underforecast: "Шың жетіспеуі",
+        detail_system_bias: "Жүйелік bias (энергия)",
+        detail_recommended_shift: "Ұсынылатын уақыт ығысуы",
+        detail_time: "Уақыт",
+        detail_fact_mw: "Нақты, МВт",
+        detail_plan_mw: "Жоспар, МВт",
+        detail_no_compare_data: "Салыстыру деректері жоқ",
+        edit_station_title: "Станцияны өңдеу",
+        edit_save: "Сақтау",
+        edit_cancel: "Болдырмау",
+        edit_auto_history_diag: "Автотарих диагностикасы:",
+        edit_last_tick: "Соңғы тик",
+        edit_status: "Күй",
+        edit_rows: "жол",
+        edit_message: "Хабарлама",
+        upload_history_title: "Тарих",
+        upload_history_mode: "Тарих режимі",
+        upload_test_db: "Тест базасы",
+        upload_main_db: "Негізгі база",
+        upload_back_to_station: "← Станцияға қайту",
+        upload_to_station_list: "Станциялар тізіміне",
+        upload_auto_tick: "Автотарих тикі:",
+        upload_no_tick_yet: "әлі болған жоқ",
+        upload_status: "Күй:",
+        upload_rows: "Жол:",
+        upload_db_label: "Тарих базасы",
+        upload_main_db_short: "Негізгі",
+        upload_test_db_short: "Тест",
+        upload_filter: "Сүзгі",
+        upload_delete_filtered: "Күн сүзгісі бойынша өшіру",
+        upload_clear_history: "Тарихты тазарту",
+        upload_upload_btn: "Жүктеу",
+        upload_expected_columns: "Күтілетін бағандар",
+        upload_total_records: "Жалпы жазба",
+        upload_filtered_records: "Сүзілгені",
+        upload_datetime: "Күн/уақыт",
+        upload_no_data: "Дерек жоқ",
+        forecast_title: "Болжам",
+        forecast_data_mode: "Дерек режимі",
+        forecast_schedule_title: "Кесте бойынша автоболжам",
+        forecast_time: "Уақыт:",
+        forecast_start_datetime: "Басталу күні/уақыты:",
+        forecast_days: "Күн:",
+        forecast_mode: "Режим:",
+        forecast_providers: "Провайдерлер:",
+        forecast_save_schedule: "Кестені сақтау",
+        forecast_schedule_note: "Автоболжам серверлік жоспарлаушы (cron/systemd/Celery) арқылы іске қосылады.",
+        forecast_manual_mode: "Қолмен режим",
+        forecast_db: "База:",
+        forecast_snow_factor: "Қар/бұлт (қолмен фактор)",
+        forecast_postfact_dates: "Постфактум күндері:",
+        forecast_open_meteo_only: "Open‑Meteo тарихсыз (тек эвристика)",
+        forecast_visual_crossing_only: "Visual Crossing тарихсыз (тек эвристика)",
+        forecast_manual_auto_send: "Қолмен режимде есепті авто жіберу",
+        forecast_run: "Болжам жасау",
+        forecast_date: "Күні:",
+        forecast_show_date: "Күнді көрсету",
+        forecast_download_from: "Жүктеу бастап:",
+        forecast_to: "дейін:",
+        forecast_clear_all: "Болжамдарды тазарту",
+        forecast_delete_old_before: "Ескілерді жою күні:",
+        forecast_delete_old: "Ескілерді жою",
+        forecast_delete_from: "Өшіру бастап:",
+        forecast_delete_range: "Аралықты өшіру",
+        forecast_total_rows: "Болжам жолдарының саны (сағаттық)",
+        forecast_col_date: "Күні",
+        forecast_col_total: "Жиыны, МВт",
+        forecast_col_heur: "Эвристика, МВт",
+        forecast_no_data: "Болжамдар әлі жоқ",
+        train_title: "Модельдерді оқыту",
+        train_subtitle: "Түймені басыңыз — осы станция үшін NeuralProphet және XGBoost оқытылады.",
+        train_station_id: "Станция ID:",
+        train_model_dir: "Модель бумасы:",
+        train_path_source: "Жол көзі:",
+        train_path_canonical: "станция ID бойынша канондық каталог",
+        train_path_legacy_current: "ағымдағы станция атауы бойынша legacy-каталог",
+        train_path_legacy_previous: "ескі станция атауы бойынша legacy-каталог",
+        train_path_canonical_empty: "станция ID бойынша канондық каталог (әзірге файлдар жоқ)",
+        train_models_status: "Осы станция модельдерінің күйі",
+        train_updated: "Жаңартылды:",
+        train_model_file_not_found: "Модель файлы әлі табылған жоқ.",
+        train_start: "Оқытуды бастау",
+        guide_eyebrow: "Нұсқаулық",
+        guide_title: "Платформаны қалай пайдалану керек",
+        guide_lead: "Мұнда жаңа пайдаланушыға арналған негізгі қадамдар жиналған: станция құрудан бастап болжамды іске қосу және нәтижені тексеруге дейін.",
+        guide_quick_start: "Жылдам бастау",
+        guide_quick_start_text: "«Станциялар» бөліміне өтіп, объект қосып, тарих жүктеуге өтіңіз.",
+        guide_steps: "Қадамдар",
+        guide_main_flow: "Негізгі жұмыс тәртібі",
+        guide_tips: "Кеңестер",
+        guide_important: "Маңызды нәрселер",
+        guide_need_help: "Көмек керек болса, «Байланыс» бөліміне өтіп, бізбен ыңғайлы тәсілмен хабарласыңыз.",
+        guide_open_full_image: "Суретті толық өлшемде ашу",
+        guide_zoomed_screenshot: "Үлкейтілген скриншот",
+        guide_close_zoomed: "Үлкейтілген суретті жабу",
+        wind_stations_title: "Жел станциялары",
+        wind_module_note: "Жел модулі күн модулінен бөлек. Тарихты кейін жүктеуге немесе тарихсыз жұмыс істеуге болады.",
+        wind_turbines: "Турбина",
+        wind_turbine_power: "Турбина қуаты",
+        wind_total: "Жиыны",
+        wind_coords_not_set: "Координаттар берілмеген",
+        wind_no_stations: "Жел станциялары әзірге жоқ.",
+        wind_station_type: "Станция түрі",
+        wind_station_type_wind: "жел",
+        wind_speed_plan_fact: "Жел жылдамдығы (жоспар/нақты)",
+        wind_org: "Ұйым:",
+        wind_power: "Қуат:",
+        wind_coords: "Координаттар:",
+        wind_forecast_title: "жел болжамы",
+        wind_forecast_scope_view: "Болжам базасы (көру)",
+        wind_run_forecast_manual: "Болжамды іске қосу (қолмен)",
+        wind_auto_forecast: "Желдің автоболжамы",
+        wind_edit_station: "Жел станциясын өңдеу",
+        wind_create_station: "Жел станциясын құру",
+        wind_basic_data: "Негізгі деректер",
+        wind_turbine_params: "Турбина параметрлері",
+        wind_save_changes: "Өзгерістерді сақтау",
+        wind_module_placeholder: "Бұл қадам үшін бөлек жел модулі әлдеқашан бөлінген. Мұнда жел үшін тәуелсіз логика болады (жеке деректер, оқыту және болжам)."
+      },
+      en: {
+        nav_stations: "Stations",
+        nav_guide: "Guide",
+        nav_about: "About",
+        nav_contacts: "Contacts",
+        toggle_nav: "Toggle navigation",
+        module_solar: "Solar",
+        module_wind: "Wind",
+        title_solar: "Solar module",
+        title_wind: "Wind module",
+        btn_logout: "Logout",
+        btn_login: "Login",
+        btn_register: "Register",
+        page_station_list_title: "Stations",
+        page_add_station: "Add station",
+        page_guide_label: "Guide",
+        page_guide_text: "How to add a station, upload history, and run forecasting",
+        page_capacity: "Capacity",
+        page_coords: "Coords",
+        page_open_earth: "Open station in Google Earth",
+        page_co2_from_history: "CO₂ from history",
+        page_co2_total: "Total",
+        page_co2_yesterday: "Yesterday",
+        page_co2_calc_prefix: "Calculation: history ×",
+        page_co2_calc_suffix: "kg CO₂/kWh.",
+        page_co2_empty: "No history yet for CO₂ calculation.",
+        page_move_up: "Move up",
+        page_move_down: "Move down",
+        page_graph_details: "Chart / Details",
+        page_edit: "Edit",
+        page_upload_history: "Upload history",
+        page_forecast: "Forecast",
+        page_train_models: "Train models",
+        page_no_stations: "No stations yet.",
+        detail_plan_fact: "Plan / Actual",
+        detail_operator: "Operator",
+        detail_back: "← Back",
+        detail_history_upload: "History / upload",
+        detail_train_model: "Train model",
+        detail_view_forecast: "View forecast",
+        detail_date_from: "Date from",
+        detail_date_to: "Date to",
+        detail_apply_filter: "Apply filter",
+        detail_reset: "Reset",
+        detail_download_excel: "Download Excel",
+        detail_points_compare: "Comparison points",
+        detail_points_hint: "(defaults from the beginning of current month)",
+        detail_chart_title: "Plan / Actual chart (MW)",
+        detail_slice: "Granularity",
+        detail_by_hours: "hourly",
+        detail_detailed: "detailed",
+        detail_show: "Show:",
+        detail_irr_plan_fact: "Irradiation (plan/actual)",
+        detail_temp_plan_fact: "Temperature (plan/actual)",
+        detail_forecast: "Forecast",
+        detail_fact: "Actual",
+        detail_for_day: "for day",
+        detail_for_period: "for period",
+        detail_deviation: "Deviation (Actual − Plan)",
+        detail_day_hours: "(daylight hours)",
+        detail_for_period_brackets: "(for period)",
+        detail_by_points: "for",
+        detail_points_short: "pts.",
+        detail_model_diagnostics: "Model diagnostics",
+        detail_morning_mape: "Morning 06–09 MAPE",
+        detail_peak_underforecast: "Peak underforecast",
+        detail_system_bias: "System bias (energy)",
+        detail_recommended_shift: "Recommended time shift",
+        detail_time: "Time",
+        detail_fact_mw: "Actual, MW",
+        detail_plan_mw: "Plan, MW",
+        detail_no_compare_data: "No data for comparison",
+        edit_station_title: "Edit station",
+        edit_save: "Save",
+        edit_cancel: "Cancel",
+        edit_auto_history_diag: "Auto-history diagnostics:",
+        edit_last_tick: "Last tick",
+        edit_status: "Status",
+        edit_rows: "rows",
+        edit_message: "Message",
+        upload_history_title: "History",
+        upload_history_mode: "History mode",
+        upload_test_db: "Test database",
+        upload_main_db: "Main database",
+        upload_back_to_station: "← Back to station",
+        upload_to_station_list: "To station list",
+        upload_auto_tick: "Auto-history tick:",
+        upload_no_tick_yet: "not yet",
+        upload_status: "Status:",
+        upload_rows: "Rows:",
+        upload_db_label: "History database",
+        upload_main_db_short: "Main",
+        upload_test_db_short: "Test",
+        upload_filter: "Filter",
+        upload_delete_filtered: "Delete by date filter",
+        upload_clear_history: "Clear history",
+        upload_upload_btn: "Upload",
+        upload_expected_columns: "Expected columns",
+        upload_total_records: "Total records",
+        upload_filtered_records: "Filtered",
+        upload_datetime: "Date/time",
+        upload_no_data: "No data",
+        forecast_title: "Forecast",
+        forecast_data_mode: "Data mode",
+        forecast_schedule_title: "Scheduled auto-forecast",
+        forecast_time: "Time:",
+        forecast_start_datetime: "Start date/time:",
+        forecast_days: "Days:",
+        forecast_mode: "Mode:",
+        forecast_providers: "Providers:",
+        forecast_save_schedule: "Save schedule",
+        forecast_schedule_note: "Auto-forecast runs by server scheduler (cron/systemd/Celery) and uses these settings.",
+        forecast_manual_mode: "Manual mode",
+        forecast_db: "Database:",
+        forecast_snow_factor: "Snow/clouds (manual factor)",
+        forecast_postfact_dates: "Post-fact dates:",
+        forecast_open_meteo_only: "Open‑Meteo without history (heuristics only)",
+        forecast_visual_crossing_only: "Visual Crossing without history (heuristics only)",
+        forecast_manual_auto_send: "Auto-send report in manual mode",
+        forecast_run: "Run forecast",
+        forecast_date: "Date:",
+        forecast_show_date: "Show date",
+        forecast_download_from: "Download from:",
+        forecast_to: "to:",
+        forecast_clear_all: "Clear forecasts",
+        forecast_delete_old_before: "Delete old before:",
+        forecast_delete_old: "Delete old",
+        forecast_delete_from: "Delete from:",
+        forecast_delete_range: "Delete range",
+        forecast_total_rows: "Total forecast rows (hourly)",
+        forecast_col_date: "Date",
+        forecast_col_total: "Total, MW",
+        forecast_col_heur: "Heuristics, MW",
+        forecast_no_data: "No forecasts yet",
+        train_title: "Model training",
+        train_subtitle: "Click the button to start NeuralProphet and XGBoost training for this station.",
+        train_station_id: "Station ID:",
+        train_model_dir: "Model folder:",
+        train_path_source: "Path source:",
+        train_path_canonical: "canonical directory by station ID",
+        train_path_legacy_current: "legacy directory by current station name",
+        train_path_legacy_previous: "legacy directory by previous station name",
+        train_path_canonical_empty: "canonical directory by station ID (no files yet)",
+        train_models_status: "Model status for this station",
+        train_updated: "Updated:",
+        train_model_file_not_found: "Model file not found yet.",
+        train_start: "Start training",
+        guide_eyebrow: "Guide",
+        guide_title: "How to use the platform",
+        guide_lead: "This page contains the main steps for a new user: from creating a station to running forecast and checking the result.",
+        guide_quick_start: "Quick start",
+        guide_quick_start_text: "Open the “Stations” section, add an item, and proceed to history upload.",
+        guide_steps: "Steps",
+        guide_main_flow: "Main workflow",
+        guide_tips: "Tips",
+        guide_important: "What not to miss",
+        guide_need_help: "If you need help, open the “Contacts” section and reach us in a convenient way.",
+        guide_open_full_image: "Open image in full size",
+        guide_zoomed_screenshot: "Zoomed screenshot",
+        guide_close_zoomed: "Close zoomed image",
+        wind_stations_title: "Wind stations",
+        wind_module_note: "Wind module is separate from solar. You can upload history later or work without history.",
+        wind_turbines: "Turbines",
+        wind_turbine_power: "Turbine power",
+        wind_total: "Total",
+        wind_coords_not_set: "Coordinates are not set",
+        wind_no_stations: "No wind stations yet.",
+        wind_station_type: "Station type",
+        wind_station_type_wind: "wind",
+        wind_speed_plan_fact: "Wind speed (plan/actual)",
+        wind_org: "Organization:",
+        wind_power: "Capacity:",
+        wind_coords: "Coordinates:",
+        wind_forecast_title: "wind forecast",
+        wind_forecast_scope_view: "Forecast database (view)",
+        wind_run_forecast_manual: "Run forecast (manual)",
+        wind_auto_forecast: "Wind auto-forecast",
+        wind_edit_station: "Edit wind station",
+        wind_create_station: "Create wind station",
+        wind_basic_data: "Basic data",
+        wind_turbine_params: "Turbine parameters",
+        wind_save_changes: "Save changes",
+        wind_module_placeholder: "A separate wind module for this step is already allocated. Independent wind logic will be here (separate data, training and forecast)."
+      }
+    };
+
+    const buttons = document.querySelectorAll(".lang-btn");
+    const textNodes = document.querySelectorAll("[data-i18n]");
+    const titleNodes = document.querySelectorAll("[data-i18n-title]");
+    const ariaNodes = document.querySelectorAll("[data-i18n-aria-label]");
+
+    function applyLanguage(langCode) {
+      const dict = i18n[langCode] || i18n.ru;
+      textNodes.forEach((node) => {
+        const key = node.getAttribute("data-i18n");
+        if (dict[key]) node.textContent = dict[key];
+      });
+      titleNodes.forEach((node) => {
+        const key = node.getAttribute("data-i18n-title");
+        if (dict[key]) node.setAttribute("title", dict[key]);
+      });
+      ariaNodes.forEach((node) => {
+        const key = node.getAttribute("data-i18n-aria-label");
+        if (dict[key]) node.setAttribute("aria-label", dict[key]);
+      });
+
+      buttons.forEach((btn) => btn.classList.toggle("is-active", btn.dataset.lang === langCode));
+      document.documentElement.setAttribute("lang", langCode === "kz" ? "kk" : langCode);
+      localStorage.setItem("preferredLang", langCode);
+    }
+
+    const preferredLang = localStorage.getItem("preferredLang");
+    const initialLang = preferredLang && i18n[preferredLang] ? preferredLang : "ru";
+    applyLanguage(initialLang);
+    buttons.forEach((btn) => btn.addEventListener("click", () => applyLanguage(btn.dataset.lang)));
+  })();
+</script>
 <script>
   (function () {
     if (window.__dashboardSchedulerTickInitialized) return;
