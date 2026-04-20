@@ -100,6 +100,25 @@ def _station_co2_metrics(station) -> dict:
     return metrics
 
 
+def _forecast_value_to_kw(value, station_capacity_mw: Optional[float] = None) -> float:
+    """Convert heterogeneous forecast value units to kW safely.
+
+    Historical data can come as MW or kW depending on source/model.
+    Use a light heuristic with station capacity as a boundary.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if station_capacity_mw and station_capacity_mw > 0:
+        upper_mw_like = station_capacity_mw * 1.5
+        if abs(v) <= upper_mw_like:
+            return v * 1000.0
+
+    return v
+
+
 def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
     if value is None:
         return None
