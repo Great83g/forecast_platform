@@ -31,8 +31,8 @@
 
 <div class="station-guide-link mb-3">
   <a class="station-guide-link__anchor" href="{% url 'dashboard:onboarding-guide' %}">
-    <span class="station-guide-link__label">{{ station_guide_label }}</span>
-    <span class="station-guide-link__text">{{ station_guide_text }}</span>
+    <span class="station-guide-link__label" data-station-guide-label>{{ station_guide_label }}</span>
+    <span class="station-guide-link__text" data-station-guide-text>{{ station_guide_text }}</span>
   </a>
 </div>
 
@@ -111,9 +111,11 @@
             Прогноз
           </a>
 
-          <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' st.pk %}" data-i18n="page_train_models">
-            Обучить модели
-          </a>
+          {% if st.is_wind_station %}
+            <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' st.pk %}">
+              Обучить модели
+            </a>
+          {% endif %}
         </div>
 
       </div>
@@ -180,10 +182,6 @@
     text-align: center;
   }
 
-  .station-list-header__actions {
-    width: 100%;
-  }
-
   .station-list-card {
     align-items: stretch !important;
   }
@@ -213,6 +211,41 @@
 
 <script>
   (function () {
+    function normalizeLang(code) {
+      var lang = (code || 'ru').toLowerCase();
+      if (lang.indexOf('-') !== -1) lang = lang.split('-')[0];
+      if (lang.indexOf('_') !== -1) lang = lang.split('_')[0];
+      return lang === 'kz' ? 'kk' : lang;
+    }
+
+    var params = new URLSearchParams(window.location.search);
+    var currentLang = normalizeLang(
+      params.get('lang') ||
+      params.get('language') ||
+      (document.cookie.match(/(?:^|;\s*)(?:django_language|language|lang)=([^;]+)/) || [])[1] ||
+      'ru'
+    );
+
+    var guideTranslations = {
+      ru: {
+        label: 'Инструкция',
+        text: 'Как добавить станцию, загрузить историю и запустить прогноз'
+      },
+      kk: {
+        label: 'Нұсқаулық',
+        text: 'Станцияны қалай қосу, тарихты жүктеу және болжамды іске қосу'
+      },
+      en: {
+        label: 'Guide',
+        text: 'How to add a station, upload history, and run forecast'
+      }
+    };
+    var guideText = guideTranslations[currentLang] || guideTranslations.ru;
+    var guideLabelNode = document.querySelector('[data-station-guide-label]');
+    var guideTextNode = document.querySelector('[data-station-guide-text]');
+    if (guideLabelNode) guideLabelNode.textContent = guideText.label;
+    if (guideTextNode) guideTextNode.textContent = guideText.text;
+
     var nav = document.querySelector('.navbar .navbar-nav');
     if (!nav) return;
     var hasGuide = Array.from(nav.querySelectorAll('a')).some(function (a) {

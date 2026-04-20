@@ -522,6 +522,12 @@ def onboarding_guide(request):
 CO2_KZ_GRID_FACTOR_KG_PER_KWH = 0.53
 
 
+def _station_is_wind(station: Station) -> bool:
+    name = (getattr(station, "name", "") or "").lower()
+    wind_markers = ("вэс", "ветр", "wind", "wes", "wpp")
+    return any(marker in name for marker in wind_markers)
+
+
 def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
     qs = SolarRecord.objects.filter(
         station=station,
@@ -577,6 +583,7 @@ def station_list(request):
     stations = list(_station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id"))
     for station in stations:
         station.co2_metrics = _station_co2_metrics(station)
+        station.is_wind_station = _station_is_wind(station)
 
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
     blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
