@@ -7,8 +7,8 @@
     <div class="card-body p-4 p-lg-5">
       <div class="row g-4 align-items-center">
         <div class="col-lg-8">
-          <div class="guide-eyebrow mb-2">Инструкция</div>
-          <h1 class="guide-title mb-3">Как пользоваться платформой</h1>
+          <div class="guide-eyebrow mb-2">Гид</div>
+          <h1 class="guide-title mb-3">Как работать в платформе</h1>
           <p class="guide-lead mb-0">
             Здесь собраны основные шаги для нового пользователя: от создания станции до запуска прогноза и проверки результата.
           </p>
@@ -29,7 +29,7 @@
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
           <div class="guide-eyebrow mb-2">Шаги</div>
-          <h2 class="guide-section-title mb-4">Основной порядок работы</h2>
+          <h2 class="guide-section-title mb-4">Основной порядок действий</h2>
           <div class="guide-step-list">
             {% for step in guide_steps %}
               <details class="guide-step-item"{% if forloop.first %} open{% endif %}>
@@ -51,7 +51,15 @@
                   <div class="guide-step-gallery">
                     {% for image in step.images %}
                       <figure class="guide-step-gallery__item">
-                        <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                        <button
+                          type="button"
+                          class="guide-step-gallery__trigger"
+                          data-guide-image-src="{% static image %}"
+                          data-guide-image-alt="Скриншот для шага {{ forloop.parentloop.counter }}"
+                          aria-label="Открыть изображение в полном размере"
+                        >
+                          <img src="{% static image %}" alt="Скриншот для шага {{ forloop.parentloop.counter }}" class="guide-step-gallery__image">
+                        </button>
                       </figure>
                     {% endfor %}
                   </div>
@@ -84,6 +92,16 @@
     </div>
   </div>
 </section>
+
+<div class="guide-image-modal" data-guide-image-modal hidden>
+  <div class="guide-image-modal__backdrop" data-guide-image-close></div>
+  <div class="guide-image-modal__dialog" role="dialog" aria-modal="true" aria-label="Увеличенный скриншот">
+    <button type="button" class="guide-image-modal__close" data-guide-image-close aria-label="Закрыть увеличенное изображение">
+      ×
+    </button>
+    <img src="" alt="" class="guide-image-modal__image" data-guide-image-modal-content>
+  </div>
+</div>
 
 <style>
 .guide-page {
@@ -234,11 +252,72 @@
   margin: 0;
 }
 
+.guide-step-gallery__trigger {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  border-radius: 1rem;
+  background: transparent;
+  cursor: zoom-in;
+}
+
 .guide-step-gallery__image {
   width: 100%;
   border-radius: 1rem;
   border: 1px solid rgba(33, 79, 151, 0.12);
   box-shadow: 0 10px 24px rgba(33, 79, 151, 0.08);
+}
+
+.guide-image-modal[hidden] {
+  display: none !important;
+}
+
+.guide-image-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+}
+
+.guide-image-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 19, 37, 0.7);
+}
+
+.guide-image-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 1280px);
+  max-height: 92vh;
+  padding: 0.5rem;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(4, 21, 50, 0.35);
+}
+
+.guide-image-modal__image {
+  width: 100%;
+  max-height: calc(92vh - 1rem);
+  object-fit: contain;
+  border-radius: 0.8rem;
+}
+
+.guide-image-modal__close {
+  position: absolute;
+  top: -0.75rem;
+  right: -0.75rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 50%;
+  background: #0d6efd;
+  color: #fff;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(13, 110, 253, 0.35);
 }
 
 .guide-note {
@@ -263,4 +342,91 @@
   }
 }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const modal = document.querySelector('[data-guide-image-modal]');
+  const modalImage = document.querySelector('[data-guide-image-modal-content]');
+  const triggers = document.querySelectorAll('[data-guide-image-src]');
+  const closeControls = document.querySelectorAll('[data-guide-image-close]');
+
+  if (!modal || !modalImage || !triggers.length) {
+    return;
+  }
+
+  const closeModal = function () {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    modalImage.src = '';
+    modalImage.alt = '';
+  };
+
+  const openModal = function (src, alt) {
+    modalImage.src = src;
+    modalImage.alt = alt;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  };
+
+  triggers.forEach(function (trigger) {
+    trigger.addEventListener('click', function () {
+      openModal(trigger.dataset.guideImageSrc, trigger.dataset.guideImageAlt || 'Увеличенный скриншот');
+    });
+  });
+
+  closeControls.forEach(function (control) {
+    control.addEventListener('click', closeModal);
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !modal.hidden) {
+      closeModal();
+    }
+  });
+
+  // Fallback: если на странице оказались английские подписи, принудительно русифицируем.
+  var fallbackMap = {
+    'Quick start': 'Быстрый старт',
+    'How to use the platform': 'Как работать в платформе',
+    'Main workflow': 'Основной порядок действий',
+    'What not to miss': 'Что важно не пропустить',
+    'GUIDE': 'ГИД',
+    'STEPS': 'ШАГИ',
+    'TIPS': 'ПОДСКАЗКИ',
+    'Add station': 'Добавить станцию'
+  };
+
+  Object.keys(fallbackMap).forEach(function (sourceText) {
+    document.querySelectorAll('*').forEach(function (node) {
+      if (node.children.length) {
+        return;
+      }
+      var text = (node.textContent || '').trim();
+      if (text === sourceText) {
+        node.textContent = fallbackMap[sourceText];
+      }
+    });
+  });
+
+  // Fallback: если в верхнем меню нет пункта "Инструкция", добавляем его.
+  var nav = document.querySelector('.navbar .navbar-nav');
+  if (nav) {
+    var hasGuideLink = Array.from(nav.querySelectorAll('a')).some(function (link) {
+      return (link.getAttribute('href') || '').indexOf('/dashboard/onboarding-guide') !== -1 ||
+        (link.textContent || '').trim() === 'Инструкция';
+    });
+
+    if (!hasGuideLink) {
+      var li = document.createElement('li');
+      li.className = 'nav-item';
+      var link = document.createElement('a');
+      link.className = 'nav-link';
+      link.href = '/dashboard/onboarding-guide/';
+      link.textContent = 'Инструкция';
+      li.appendChild(link);
+      nav.appendChild(li);
+    }
+  }
+});
+</script>
 {% endblock %}
