@@ -177,9 +177,8 @@
     border-radius: 14px;
   }
 
-  .station-list-guide__text {
-    white-space: normal;
-    text-align: center;
+  .station-list-header__actions .btn {
+    width: 100%;
   }
 
   .station-list-card {
@@ -219,12 +218,14 @@
     }
 
     var params = new URLSearchParams(window.location.search);
-    var currentLang = normalizeLang(
-      params.get('lang') ||
-      params.get('language') ||
-      (document.cookie.match(/(?:^|;\s*)(?:django_language|language|lang)=([^;]+)/) || [])[1] ||
-      'ru'
-    );
+    var currentLang = normalizeLang(params.get('lang') || params.get('language') || '');
+    if (!currentLang || currentLang === 'ru') {
+      currentLang = normalizeLang(
+        (document.cookie.match(/(?:^|;\s*)(?:django_language|language|lang)=([^;]+)/) || [])[1] ||
+        document.documentElement.lang ||
+        'ru'
+      );
+    }
 
     var guideTranslations = {
       ru: {
