@@ -184,6 +184,46 @@ def _start_station_training_subprocess(station_id: int) -> tuple[bool, str]:
 # ----------------------------
 # stations
 # ----------------------------
+def about_company(request):
+    company_name = 'ТОО «Центр Зелёных Технологий»'
+    company_description = (
+        'ТОО «Центр Зелёных Технологий» — казахстанская компания, которая развивает '
+        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.'
+    )
+    company_points_title = 'Достижения InTech-Forecast'
+    company_points = [
+        'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
+        'С 2022 года является резидентом Astana Hub.',
+        'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
+        'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
+        'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
+        'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
+        'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
+        'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
+        'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
+    ]
+    contacts = {
+        'country': 'Республика Казахстан',
+        'postal_code': '050051',
+        'city': 'г. Алматы',
+        'business_center': 'БЦ «Коктем-Гранд»',
+        'street': 'пр. Достык 210 (блок А), офис № 83',
+        'email': 'info@tgs-energy.kz',
+        'phone': '8 701 409 08 10',
+    }
+    return render(
+        request,
+        'dashboard/about_company.html',
+        {
+            'company_name': company_name,
+            'company_description': company_description,
+            'company_points_title': company_points_title,
+            'company_points': company_points,
+            'contacts': contacts,
+        },
+    )
+
+
 @login_required
 def station_list(request):
     stations = _station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id")
