@@ -19,7 +19,7 @@
 
 {% if blocked_orgs %}
   <div class="alert alert-warning">
-    <strong>Trial expired / Upgrade:</strong>
+    <strong>Пробный период завершён / требуется продление:</strong>
     для некоторых организаций запись данных заблокирована до продления подписки.
     <ul class="mb-0 mt-2">
       {% for org in blocked_orgs %}
@@ -28,13 +28,6 @@
     </ul>
   </div>
 {% endif %}
-
-<div class="station-guide-link mb-3">
-  <a class="station-guide-link__anchor" href="{% url 'dashboard:onboarding-guide' %}">
-    <span class="station-guide-link__label" data-i18n="page_guide_label">Инструкция</span>
-    <span class="station-guide-link__text" data-i18n="page_guide_text">Как добавить станцию, загрузить историю и запустить прогноз</span>
-  </a>
-</div>
 
 {% if messages %}
   {% for m in messages %}
@@ -124,23 +117,10 @@
 {% endif %}
 
 <style>
-.station-list-guide {
-  display: inline-flex;
-  align-items: center;
-  gap: .75rem;
-  padding: .5rem .9rem;
-  border-radius: 9999px;
-  background: #eef2f7;
-  color: #51627a;
-  text-decoration: none;
-  font-size: 1.1rem;
-  line-height: 1.2;
-}
-
-.station-list-guide:hover {
-  text-decoration: none;
-  color: #415069;
-  background: #e4eaf2;
+.station-list-card__co2 {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .station-list-guide__badge {
@@ -177,12 +157,6 @@
 
   .station-list-header__actions .btn {
     width: 100%;
-  }
-
-  .station-guide-link__anchor {
-    width: 100%;
-    border-radius: 1rem;
-    align-items: flex-start;
   }
 
   .station-list-card {
