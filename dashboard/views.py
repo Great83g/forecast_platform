@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-import numpy as np
 from django.db.models import Q
 from django.db.models import Avg, Sum
 from django.db.models.functions import TruncHour
@@ -44,11 +43,6 @@ from .models import ForecastSchedule
 logger = logging.getLogger(__name__)
 
 
-CO2_KZ_GRID_FACTOR_KG_PER_KWH = float(
-    getattr(settings, "CO2_KZ_GRID_FACTOR_KG_PER_KWH", 0.0) or 0.0
-)
-
-
 # ----------------------------
 # helpers
 # ----------------------------
@@ -70,124 +64,133 @@ def _parse_int_query(value, default: int) -> int:
         return default
 
 
-def _station_co2_metrics(station) -> dict:
-    """Return safe CO₂ metrics for station list/dashboard cards.
-
-    Keeps dashboard stable even when optional CO₂ fields are absent
-    on a specific deployment/database schema.
+def _forecast_value_to_kw(value: Optional[float], station_capacity_mw: Optional[float]) -> float:
     """
-    keys = (
-        "co2_saved_kg",
-        "co2_saved_tons",
-        "co2_offset_kg",
-        "co2_offset_tons",
-        "co2_factor_kg_per_kwh",
-    )
-    metrics = {key: None for key in keys}
+    Нормализует исторически смешанные единицы прогноза:
+    - legacy-строки могли храниться в MW;
+    - текущие строки хранятся в kW.
 
-    for key in keys:
-        value = getattr(station, key, None)
-        if value in (None, ""):
-            continue
-        try:
-            metrics[key] = float(value)
-        except (TypeError, ValueError):
-            metrics[key] = None
-
-    if metrics["co2_factor_kg_per_kwh"] is None:
-        metrics["co2_factor_kg_per_kwh"] = CO2_KZ_GRID_FACTOR_KG_PER_KWH
-
-    return metrics
-
-
-def _forecast_value_to_kw(value, station_capacity_mw: Optional[float] = None) -> float:
-    """Convert heterogeneous forecast value units to kW safely.
-
-    Historical data can come as MW or kW depending on source/model.
-    Use a light heuristic with station capacity as a boundary.
+    Эвристика:
+    если абсолютное значение «слишком маленькое» относительно мощности станции,
+    считаем, что это MW, и переводим в kW.
     """
+    if value is None:
+        return 0.0
     try:
         v = float(value)
     except (TypeError, ValueError):
         return 0.0
+    if not pd.notna(v):
+        return 0.0
 
+    cap = None
     try:
-        capacity_mw = float(station_capacity_mw)
+        if station_capacity_mw is not None:
+            cap = float(station_capacity_mw)
     except (TypeError, ValueError):
-        capacity_mw = 0.0
+        cap = None
 
-    if capacity_mw > 0:
-        upper_mw_like = capacity_mw * 1.5
-        if abs(v) <= upper_mw_like:
-            return v * 1000.0
-
+    # Порог, ниже которого вероятнее всего это MW, а не kW.
+    # Пример: для 8.8 MW порог ~17.6; для 1.2 MW порог ~10.
+    mw_threshold = max((cap or 0.0) * 2.0, 10.0)
+    if abs(v) <= mw_threshold:
+        return v * 1000.0
     return v
 
 
-def _build_forecast_plan_map(*args, **kwargs) -> dict:
-    """Build timestamp->plan(kW) map defensively for forecast rows.
-
-    Supports legacy call sites with varying signatures.
+def _plan_value_with_heuristic_fallback(pred_final: Optional[float], pred_heur: Optional[float]) -> Optional[float]:
     """
-    rows = kwargs.get("forecast_rows")
-    if rows is None and args:
-        rows = args[0]
-    rows = rows or []
+    Возвращает значение итогового прогноза для графиков/экспорта.
+    Если pred_final отсутствует или нулевой, берём эвристику.
+    """
+    try:
+        final_value = float(pred_final) if pred_final is not None else None
+    except (TypeError, ValueError):
+        final_value = None
+    if final_value is not None and pd.notna(final_value) and final_value > 0:
+        return final_value
 
-    station_capacity_mw = kwargs.get("station_capacity_mw")
-    if station_capacity_mw is None and len(args) > 1:
-        station_capacity_mw = args[1]
+    try:
+        heur_value = float(pred_heur) if pred_heur is not None else None
+    except (TypeError, ValueError):
+        heur_value = None
+    if heur_value is not None and pd.notna(heur_value):
+        return heur_value
+    return None
 
-    ts_key = kwargs.get("timestamp_key")
-    value_key = kwargs.get("value_key", "pred_final")
 
-    rows = list(rows)
-    if ts_key is None and rows:
-        sample = rows[0]
-        if isinstance(sample, dict):
-            if "bucket" in sample:
-                ts_key = "bucket"
-            elif "timestamp" in sample:
-                ts_key = "timestamp"
-    ts_key = ts_key or "timestamp"
-
+def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
+    """
+    Строит map вида {timestamp: plan_kw} с fallback на эвристику.
+    """
     plan_map = {}
     for row in rows:
-        if isinstance(row, dict):
-            ts = row.get(ts_key)
-            value = row.get(value_key)
-        else:
-            ts = getattr(row, ts_key, None)
-            value = getattr(row, value_key, None)
-
-        if ts is None or value is None:
+        plan_value = _plan_value_with_heuristic_fallback(row.get("pred_final"), row.get("pred_heur"))
+        if plan_value is None:
             continue
-
-        plan_map[ts] = _forecast_value_to_kw(value, station_capacity_mw)
-
+        plan_map[row[timestamp_key]] = plan_value
     return plan_map
 
 
-def _build_training_status(station) -> dict:
-    """Build defensive training status payload for station cards."""
-    raw_status = getattr(station, "training_status", None)
-    status = (str(raw_status).strip().lower() if raw_status is not None else "") or "idle"
+def _forecast_export_filters(dt_from: Optional[datetime], dt_to: Optional[datetime], dt_date: Optional[datetime]) -> dict:
+    """
+    Фильтры диапазона выгрузки прогноза:
+    - точечная дата приоритетнее диапазона;
+    - границы диапазона включительные по календарным датам.
+    """
+    if dt_date:
+        return {"timestamp__date": dt_date.date()}
 
-    labels = {
-        "idle": "Не обучено",
-        "queued": "В очереди",
-        "running": "Обучение...",
-        "success": "Модель готова",
-        "failed": "Ошибка обучения",
-    }
+    filters = {}
+    if dt_from:
+        filters["timestamp__date__gte"] = dt_from.date()
+    if dt_to:
+        filters["timestamp__date__lte"] = dt_to.date()
+    return filters
 
-    updated_at = getattr(station, "training_updated_at", None) or getattr(station, "model_trained_at", None)
+
+def _build_training_status(station: Station) -> dict:
+    paths = _model_paths_for_station(station)
+    resolved_dir, resolved_source = describe_station_model_dir(
+        Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache")),
+        station,
+    )
+    models = []
+
+    for name, primary_key, legacy_key in [
+        ("NeuralProphet", "np", "legacy_np"),
+        ("XGBoost", "xgb", "legacy_xgb"),
+    ]:
+        model_file = paths[primary_key]
+        if not model_file.exists() and paths[legacy_key].exists():
+            model_file = paths[legacy_key]
+
+        is_trained = model_file.exists()
+        trained_at = None
+        if is_trained:
+            trained_at = datetime.fromtimestamp(
+                model_file.stat().st_mtime,
+                tz=timezone.get_current_timezone(),
+            )
+
+        models.append(
+            {
+                "name": name,
+                "is_trained": is_trained,
+                "status_label": "модель обучена" if is_trained else "модель не обучена",
+                "trained_at": trained_at,
+            }
+        )
+
     return {
-        "status": status,
-        "label": labels.get(status, "Не обучено"),
-        "is_running": status in {"queued", "running"},
-        "updated_at": updated_at,
+        "models": models,
+        "station_id": station.pk,
+        "resolved_model_dir": str(resolved_dir),
+        "resolved_model_dir_name": resolved_dir.name,
+        "resolved_model_dir_source": resolved_source,
     }
+
+
 
 
 def _aware_datetime(value: Optional[datetime], *, end_of_day: bool = False) -> Optional[datetime]:
@@ -321,55 +324,24 @@ def _start_station_training_subprocess(station_id: int) -> tuple[bool, str]:
     return True, str(log_path)
 
 # ----------------------------
-# about page content
-# ----------------------------
-ABOUT_COMPANY_CONTENT = {
-    # Редактируйте только этот словарь, если нужно обновить контент страницы «О компании».
-    "company_name": 'ТОО «Центр Зелёных Технологий»',
-    "company_description": (
-        'ТОО «Центр Зелёных Технологий» — казахстанская компания, которая развивает '
-        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.'
-    ),
-    "company_subtitle": 'Развитие проектов в сфере ВИЭ и инновационных IT-решений',
-    "company_accent_label": 'О компании',
-    "company_accent_text": 'Казахстанская компания, развивающая инновационные решения в сфере зелёных технологий',
-    "company_points_section_label": 'Достижения',
-    "company_points_title": 'Достижения InTech-Forecast',
-    "company_points": [
-        'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
-        'С 2022 года является резидентом Astana Hub.',
-        'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
-        'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
-        'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
-        'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
-        'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
-        'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
-        'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
-    ],
-    "company_note": 'Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.',
-}
-
-
-# ----------------------------
 # stations
 # ----------------------------
 def about_company(request):
-    company_name = 'ТОО «Центр Зелёных Технологий»'
     company_description = (
-        'ТОО «Центр Зелёных Технологий» — казахстанская компания, которая развивает '
-        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.'
+        'ТОО «ТехноГруппСервис» (далее — ТГС) является инжиниринговой группой компаний, '
+        'которая занимается реализацией проектов в области возобновляемых источников энергии, '
+        'используя адаптивные инновационные решения и максимизируя отечественное содержание.'
     )
-    company_points_title = 'Достижения InTech-Forecast'
     company_points = [
-        'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
-        'С 2022 года является резидентом Astana Hub.',
-        'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
-        'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
-        'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
-        'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
-        'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
-        'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
-        'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
+        'Большой опыт работы сотрудников в составе лидеров отрасли АО «KEGOC», АО «Энергоинформ», АО «Самрук-Энерго», TOO «Samruk-Green Energy».',
+        'Предоставление решений в короткие сроки за счёт использования собственных ресурсов и опыта зарубежных компаний.',
+        'Обеспечение качества и выполнение гарантийных обязательств поставщиками оборудования и услуг.',
+        'Обеспечение лучшего соотношения цена/качество.',
+        'Участие в строительстве СЭС 10 МВт Кенгир Жезказган, ВЭС Ерейментау 45 МВт, СЭС 2 МВт Капчагай, СЭС 50 МВт Балхаш, СЭС 1,2 МВт Жез-Солар и др.',
+        'Осуществление измерения ветроэнергопотенциала в Павлодарской, Актюбинской, Карагандинской, Акмолинской и Мангистауской областях.',
+        'Разработка собственной патентованной IT-программы для энергопрогнозирования выработки от источников ВИЭ.',
+        'Победитель Президентского конкурса «АЛТЫН САПА» в 2021 году.',
+        'Члены Казахстанской электроэнергетической ассоциации и ВИЭ.',
     ]
     contacts = {
         'country': 'Республика Казахстан',
@@ -384,52 +356,147 @@ def about_company(request):
         request,
         'dashboard/about_company.html',
         {
-            'company_name': company_name,
             'company_description': company_description,
-            'company_points_title': company_points_title,
             'company_points': company_points,
             'contacts': contacts,
         },
     )
 
 
-@login_required
 def onboarding_guide(request):
-    guide_sections = [
+    guide_dir = Path(settings.BASE_DIR) / "dashboard" / "static" / "dashboard" / "img" / "guide"
+
+    def _step_images(step_number: int, fallback: list[str]) -> list[str]:
+        if not guide_dir.exists():
+            return fallback
+
+        candidates = []
+        for path in guide_dir.glob(f"step-{step_number}-screen-*.*"):
+            if path.suffix.lower() not in {".svg", ".png", ".jpg", ".jpeg", ".webp"}:
+                continue
+            match = re.search(rf"step-{step_number}-screen-(\d+)", path.stem)
+            order = int(match.group(1)) if match else 9999
+            candidates.append((order, path.name))
+
+        if not candidates:
+            return fallback
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return [f"dashboard/img/guide/{name}" for _, name in candidates[:5]]
+
+    guide_steps = [
         {
-            "title": "1. Добавьте станцию",
-            "items": [
-                "Откройте раздел «Станции» и нажмите «Добавить станцию».",
-                "Заполните название, мощность и координаты станции.",
-                "Сохраните карточку и проверьте, что станция появилась в списке.",
+            "title": "Добавьте первую станцию",
+            "summary": "Откройте раздел «Станции» и нажмите кнопку «Добавить станцию».",
+            "details": [
+                "Заполните название станции, мощность, координаты и организацию.",
+                "После сохранения проверьте, что станция появилась в общем списке.",
             ],
+            "images": _step_images(1, [
+                "dashboard/img/guide/step-1-screen-1.svg",
+                "dashboard/img/guide/step-1-screen-2.svg",
+            ]),
         },
         {
-            "title": "2. Загрузите исторические данные",
-            "items": [
-                "В карточке станции нажмите «Загрузить историю».",
-                "Импортируйте архивные данные генерации и проверьте период загрузки.",
-                "Если история неполная, догрузите недостающие даты отдельным файлом.",
+            "title": "Заполните параметры станции",
+            "summary": "Проверьте мощность, координаты, организацию и остальные обязательные поля.",
+            "details": [
+                "Сверьте технические параметры перед сохранением карточки станции.",
+                "Если есть несколько станций, используйте понятные названия для каждой из них.",
             ],
+            "images": _step_images(2, [
+                "dashboard/img/guide/step-2-screen-1.svg",
+                "dashboard/img/guide/step-2-screen-2.svg",
+            ]),
         },
         {
-            "title": "3. Запустите прогноз",
-            "items": [
-                "Нажмите «Прогноз» в карточке станции.",
-                "Выберите период и сценарий расчёта.",
-                "Запустите расчёт и дождитесь готовности результатов.",
+            "title": "Загрузите исторические данные",
+            "summary": "Перейдите в карточку станции и откройте раздел загрузки истории.",
+            "details": [
+                "Подготовьте файл с историей генерации в нужном формате.",
+                "После импорта убедитесь, что данные появились без ошибок.",
+                "Если истории пока нет, этот шаг можно пропустить и использовать режим прогноза без истории.",
             ],
+            "images": _step_images(3, [
+                "dashboard/img/guide/step-3-screen-1.svg",
+                "dashboard/img/guide/step-3-screen-2.svg",
+            ]),
         },
         {
-            "title": "4. Проверьте результат и экспорт",
-            "items": [
-                "Откройте «График / Детали» для сверки факта и плана.",
-                "Проверьте отклонения и корректность выходных значений.",
-                "При необходимости используйте экспорт отчёта.",
+            "title": "Обучите модель и запустите прогноз",
+            "summary": "После загрузки истории перейдите в прогноз станции, запустите обучение и затем расчёт прогноза.",
+            "details": [
+                "После импорта истории обязательно запустите обучение модели для станции.",
+                "Дождитесь завершения обучения и проверьте статус доступных моделей.",
+                "Затем выполните расчёт прогноза и проверьте итоговые значения.",
+                "Если истории нет, запустите режим прогноза без истории (только эвристика).",
             ],
+            "images": _step_images(4, [
+                "dashboard/img/guide/step-4-screen-1.svg",
+                "dashboard/img/guide/step-4-screen-2.svg",
+            ]),
+        },
+        {
+            "title": "Проверьте отчёт и доступы",
+            "summary": "Посмотрите итоговый результат и при необходимости пригласите коллег в организацию.",
+            "details": [
+                "Проверьте почасовой прогноз, отчёт и экспортируемые данные.",
+                "Выдайте доступ коллегам, если они тоже будут работать со станцией.",
+            ],
+            "images": _step_images(5, [
+                "dashboard/img/guide/step-5-screen-1.svg",
+                "dashboard/img/guide/step-5-screen-2.svg",
+            ]),
         },
     ]
-    return render(request, "dashboard/onboarding_guide.html", {"guide_sections": guide_sections})
+    support_steps = [
+        "Создайте станцию с корректными параметрами мощности и координат.",
+        "Загрузите историю генерации (если есть) через раздел «Загрузить историю».",
+        "После загрузки истории обучите модели, затем запустите прогноз.",
+        "Если истории нет, используйте прогноз без истории (эвристический режим).",
+    ]
+    return render(
+        request,
+        "dashboard/onboarding_guide.html",
+        {
+            "guide_steps": guide_steps,
+            "support_steps": support_steps,
+        },
+    )
+
+
+CO2_KZ_GRID_FACTOR_KG_PER_KWH = 0.53
+
+
+def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
+    qs = SolarRecord.objects.filter(
+        station=station,
+        history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+        power_kw__isnull=False,
+    )
+
+    total_generation_kwh = float(qs.aggregate(total=Sum("power_kw")).get("total") or 0.0)
+
+    station_tz_name = getattr(station, "timezone", "") or str(timezone.get_current_timezone())
+    try:
+        station_tz = ZoneInfo(station_tz_name)
+    except Exception:
+        station_tz = timezone.get_current_timezone()
+
+    now_station_tz = timezone.localtime(timezone.now(), station_tz)
+    yesterday_start = now_station_tz.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    today_start = yesterday_start + timedelta(days=1)
+
+    yesterday_generation_kwh = float(
+        qs.filter(timestamp__gte=yesterday_start, timestamp__lt=today_start).aggregate(total=Sum("power_kw")).get("total") or 0.0
+    )
+
+    return {
+        "factor_kg_per_kwh": CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        "total_kg": total_generation_kwh * CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        "yesterday_kg": yesterday_generation_kwh * CO2_KZ_GRID_FACTOR_KG_PER_KWH,
+        "has_history": total_generation_kwh > 0,
+    }
 
 
 @login_required
@@ -694,12 +761,6 @@ def station_detail(request, pk: int):
     mape_percent = None
     mape_values = []
     mape_points_count = 0
-    morning_mape_percent = None
-    peak_underforecast_points = 0
-    peak_points_count = 0
-    energy_bias_percent = None
-    suggested_shift_hours = 0
-    suggested_shift_points = 0
     all_timestamps = sorted(
         set(history_map.keys())
         | set(forecast_map.keys())
@@ -761,60 +822,6 @@ def station_detail(request, pk: int):
     else:
         mape_percent = None
 
-    if fact_energy_kwh > 0:
-        energy_bias_percent = ((plan_energy_kwh - fact_energy_kwh) / fact_energy_kwh) * 100.0
-
-    morning_mape_values = []
-    peak_values = []
-    for ts in all_timestamps:
-        fact_kw = history_map.get(ts)
-        plan_kw = forecast_map.get(ts)
-        if fact_kw is None or plan_kw is None or fact_kw <= 0:
-            continue
-        ts_local = timezone.localtime(ts) if timezone.is_aware(ts) else ts
-        hour_local = ts_local.hour
-        if 6 <= hour_local <= 9 and fact_kw >= min_fact_for_mape_kw:
-            morning_mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
-        peak_values.append(fact_kw)
-
-    if morning_mape_values:
-        morning_mape_percent = sum(morning_mape_values) / len(morning_mape_values)
-
-    peak_threshold = float(np.nanpercentile(np.asarray(peak_values, dtype=float), 75)) if peak_values else None
-    if peak_threshold and peak_threshold > 0:
-        for ts in all_timestamps:
-            fact_kw = history_map.get(ts)
-            plan_kw = forecast_map.get(ts)
-            if fact_kw is None or plan_kw is None:
-                continue
-            if fact_kw < peak_threshold:
-                continue
-            peak_points_count += 1
-            if plan_kw < fact_kw * 0.85:
-                peak_underforecast_points += 1
-
-    # Диагностика возможного временного сдвига: ищем лучший лаг в пределах ±2ч.
-    comparison_index = sorted(set(history_map.keys()) & set(forecast_map.keys()))
-    if len(comparison_index) >= 8:
-        shift_scores = {}
-        for shift_hours in (-2, -1, 0, 1, 2):
-            shifted_matches = []
-            for ts in comparison_index:
-                shifted_ts = ts + timedelta(hours=shift_hours)
-                fact_kw = history_map.get(ts)
-                plan_kw_shifted = forecast_map.get(shifted_ts)
-                if fact_kw is None or plan_kw_shifted is None:
-                    continue
-                shifted_matches.append((fact_kw, plan_kw_shifted))
-            if len(shifted_matches) < 6:
-                continue
-            err = np.mean([abs((fact - plan) / fact) * 100.0 for fact, plan in shifted_matches if fact > 0])
-            if np.isfinite(err):
-                shift_scores[shift_hours] = (float(err), len(shifted_matches))
-        if shift_scores:
-            suggested_shift_hours = min(shift_scores.items(), key=lambda kv: kv[1][0])[0]
-            suggested_shift_points = shift_scores[suggested_shift_hours][1]
-
     context = {
         "station": st,
         "date_from": date_from,
@@ -835,12 +842,6 @@ def station_detail(request, pk: int):
         "deviation_percent": round(((fact_energy_kwh - plan_energy_kwh) / plan_energy_kwh * 100.0), 1) if plan_energy_kwh else None,
         "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
         "mape_points_count": mape_points_count,
-        "morning_mape_percent": round(morning_mape_percent, 1) if morning_mape_percent is not None else None,
-        "peak_underforecast_share_percent": round((peak_underforecast_points / peak_points_count) * 100.0, 1) if peak_points_count else None,
-        "peak_points_count": peak_points_count,
-        "energy_bias_percent": round(energy_bias_percent, 1) if energy_bias_percent is not None else None,
-        "suggested_shift_hours": suggested_shift_hours,
-        "suggested_shift_points": suggested_shift_points,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)
