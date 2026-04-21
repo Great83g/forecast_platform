@@ -5,7 +5,7 @@ from django.contrib.staticfiles.urls import staticfiles_urlpatterns
 from django.urls import path, include
 from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
-from accounts.web_views import RegisterPageView
+from accounts.web_views import RegisterPageView, LoginPageView
 from backend.branding_views import brand_logo
 
 urlpatterns = [
@@ -15,7 +15,7 @@ urlpatterns = [
     path("accounts/", include("django.contrib.auth.urls")),
 
     # главный логин/логаут под твой LOGIN_URL
-    path("login/", auth_views.LoginView.as_view(template_name="accounts/login.html"), name="login"),
+    path("login/", LoginPageView.as_view(), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("register/", RegisterPageView.as_view(), name="register"),
 
