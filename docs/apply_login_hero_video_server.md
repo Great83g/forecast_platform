@@ -12,20 +12,33 @@
 
 ## 1) Залейте файлы на сервер
 
-Самый простой способ (рекомендуется) — готовым скриптом:
+Самый простой способ (рекомендуется) — готовым скриптом.
+Важно: сначала перейдите в **реальный путь вашего репозитория на сервере** (не обязательно `/workspace/...`):
 
 ```bash
-bash deploy/apply_login_hero_media.sh /path/to/your/login-hero.mp4 /path/to/your/login-background.png
+cd /path/to/forecast_platform
+```
+
+Если после `cd` файла `deploy/apply_login_hero_media.sh` нет, значит не подтянуты свежие изменения:
+
+```bash
+git pull --rebase
+```
+
+Теперь запуск:
+
+```bash
+bash deploy/apply_login_hero_media.sh ~/Downloads/login-hero.mp4 ~/Downloads/login-background.png
 ```
 
 Он сам скопирует файлы в `media/` под правильными именами и перезапустит портал.
 
 Если хотите сделать вручную — шаги ниже.
 
-В каталоге проекта:
+В каталоге проекта (ручной способ):
 
 ```bash
-cd /workspace/forecast_platform
+cd /path/to/forecast_platform
 cp /path/to/your/login-hero.mp4 media/login-hero.mp4
 cp /path/to/your/login-background.png media/login-background.png
 ```

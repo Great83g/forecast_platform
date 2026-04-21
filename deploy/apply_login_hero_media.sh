@@ -19,6 +19,13 @@ if [[ -z "$VIDEO_SRC" || -z "$POSTER_SRC" ]]; then
   exit 1
 fi
 
+if [[ "$VIDEO_SRC" == *"/полный/путь/"* || "$POSTER_SRC" == *"/полный/путь/"* ]]; then
+  echo "[hero-media] ERROR: you passed a placeholder path '/полный/путь/...'."
+  echo "[hero-media] Replace it with real server paths, for example:"
+  echo "  bash deploy/apply_login_hero_media.sh ~/Downloads/login-hero.mp4 ~/Downloads/login-background.png"
+  exit 1
+fi
+
 if [[ ! -f "$VIDEO_SRC" ]]; then
   echo "[hero-media] ERROR: video not found: $VIDEO_SRC"
   exit 1
