@@ -33,6 +33,12 @@ bash deploy/apply_login_hero_media.sh ~/Downloads/login-hero.mp4 ~/Downloads/log
 
 Он сам скопирует файлы в `media/` под правильными именами и перезапустит портал.
 
+Если нужно только применить свежий шаблон/убрать подпись (без замены видео), используйте:
+
+```bash
+bash deploy/apply_login_hero_media.sh --restart-only
+```
+
 Если хотите сделать вручную — шаги ниже.
 
 В каталоге проекта (ручной способ):

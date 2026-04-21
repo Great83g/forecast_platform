@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Usage:
 #   bash deploy/apply_login_hero_media.sh /tmp/login-hero.mp4 /tmp/login-background.png
+#   bash deploy/apply_login_hero_media.sh --restart-only
 # Optional env:
 #   PROJECT_DIR=/workspace/forecast_platform
 #   RESTART=1 (default) | RESTART=0
@@ -14,8 +15,16 @@ RESTART="${RESTART:-1}"
 VIDEO_SRC="${1:-}"
 POSTER_SRC="${2:-}"
 
+if [[ "$VIDEO_SRC" == "--restart-only" ]]; then
+  echo "[hero-media] Restart-only mode: applying template/code updates without copying media files"
+  bash "$PROJECT_DIR/deploy/restart_portal.sh"
+  echo "[hero-media] Done. Check: https://intech-forecast.com/login/"
+  exit 0
+fi
+
 if [[ -z "$VIDEO_SRC" || -z "$POSTER_SRC" ]]; then
   echo "Usage: bash deploy/apply_login_hero_media.sh <video.mp4> <poster.png>"
+  echo "   or: bash deploy/apply_login_hero_media.sh --restart-only"
   exit 1
 fi
 
@@ -28,11 +37,13 @@ fi
 
 if [[ ! -f "$VIDEO_SRC" ]]; then
   echo "[hero-media] ERROR: video not found: $VIDEO_SRC"
+  echo "[hero-media] Tip: run 'find ~ -maxdepth 3 -type f -name \"*.mp4\" | head' to locate the file"
   exit 1
 fi
 
 if [[ ! -f "$POSTER_SRC" ]]; then
   echo "[hero-media] ERROR: poster not found: $POSTER_SRC"
+  echo "[hero-media] Tip: run 'find ~ -maxdepth 3 -type f \\( -name \"*.png\" -o -name \"*.jpg\" -o -name \"*.jpeg\" \\) | head' to locate the file"
   exit 1
 fi
 
