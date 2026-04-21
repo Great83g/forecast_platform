@@ -214,18 +214,6 @@
       z-index: 1;
     }
 
-    .video-caption {
-      position: absolute;
-      left: 1.2rem;
-      bottom: 1.2rem;
-      z-index: 2;
-      color: rgba(240, 246, 255, 0.9);
-      font-size: 0.98rem;
-      background: rgba(3, 8, 20, 0.45);
-      padding: 0.45rem 0.7rem;
-      border: 1px solid rgba(177, 202, 255, 0.24);
-    }
-
     @keyframes pulse-bg {
       0%, 100% { filter: saturate(1) brightness(1); }
       50% { filter: saturate(1.15) brightness(1.12); }
@@ -344,7 +332,6 @@
       <video id="loginHeroVideo" autoplay muted loop playsinline poster="{{ login_hero_poster_url }}">
         <source src="{{ login_hero_video_url }}" type="video/mp4">
       </video>
-      <div class="video-caption" data-i18n="video_caption">Видео-анимация прогноза (как у Solcast)</div>
     </div>
   </section>
 
@@ -369,7 +356,6 @@
           label_username: "Имя пользователя",
           label_password: "Пароль",
           btn_login: "Войти",
-          video_caption: "Видео-анимация прогноза (как у Solcast)",
           video_aria: "Видео анимация прогноза"
         },
         kz: {
@@ -390,7 +376,6 @@
           label_username: "Пайдаланушы аты",
           label_password: "Құпиясөз",
           btn_login: "Кіру",
-          video_caption: "Болжамның бейне-анимациясы (Solcast стилінде)",
           video_aria: "Болжам бейне анимациясы"
         },
         en: {
@@ -411,7 +396,6 @@
           label_username: "Username",
           label_password: "Password",
           btn_login: "Sign in",
-          video_caption: "Forecast video animation (Solcast-like)",
           video_aria: "Forecast video animation"
         }
       };
