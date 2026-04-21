@@ -167,3 +167,10 @@ REST_FRAMEWORK = {
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/login/"
+
+# === Login page hero media ===
+# Can be overridden on server without template edits:
+# LOGIN_HERO_VIDEO_URL=/media/login-hero.mp4
+# LOGIN_HERO_POSTER_URL=/media/login-background.png
+LOGIN_HERO_VIDEO_URL = os.getenv("LOGIN_HERO_VIDEO_URL", "/media/login-hero.mp4")
+LOGIN_HERO_POSTER_URL = os.getenv("LOGIN_HERO_POSTER_URL", "/media/login-background.png")
