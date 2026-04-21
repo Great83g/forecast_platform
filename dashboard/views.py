@@ -328,20 +328,19 @@ def _start_station_training_subprocess(station_id: int) -> tuple[bool, str]:
 # ----------------------------
 def about_company(request):
     company_description = (
-        'ТОО «ТехноГруппСервис» (далее — ТГС) является инжиниринговой группой компаний, '
-        'которая занимается реализацией проектов в области возобновляемых источников энергии, '
-        'используя адаптивные инновационные решения и максимизируя отечественное содержание.'
+        'ТОО «Центр Зелёных Технологий» — казахстанская компания, которая развивает '
+        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.'
     )
     company_points = [
-        'Большой опыт работы сотрудников в составе лидеров отрасли АО «KEGOC», АО «Энергоинформ», АО «Самрук-Энерго», TOO «Samruk-Green Energy».',
-        'Предоставление решений в короткие сроки за счёт использования собственных ресурсов и опыта зарубежных компаний.',
-        'Обеспечение качества и выполнение гарантийных обязательств поставщиками оборудования и услуг.',
-        'Обеспечение лучшего соотношения цена/качество.',
-        'Участие в строительстве СЭС 10 МВт Кенгир Жезказган, ВЭС Ерейментау 45 МВт, СЭС 2 МВт Капчагай, СЭС 50 МВт Балхаш, СЭС 1,2 МВт Жез-Солар и др.',
-        'Осуществление измерения ветроэнергопотенциала в Павлодарской, Актюбинской, Карагандинской, Акмолинской и Мангистауской областях.',
-        'Разработка собственной патентованной IT-программы для энергопрогнозирования выработки от источников ВИЭ.',
-        'Победитель Президентского конкурса «АЛТЫН САПА» в 2021 году.',
-        'Члены Казахстанской электроэнергетической ассоциации и ВИЭ.',
+        'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
+        'С 2022 года является резидентом Astana Hub.',
+        'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
+        'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
+        'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
+        'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
+        'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
+        'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
+        'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
     ]
     contacts = {
         'country': 'Республика Казахстан',
@@ -522,12 +521,6 @@ def onboarding_guide(request):
 CO2_KZ_GRID_FACTOR_KG_PER_KWH = 0.53
 
 
-def _station_is_wind(station: Station) -> bool:
-    name = (getattr(station, "name", "") or "").lower()
-    wind_markers = ("вэс", "ветр", "wind", "wes", "wpp")
-    return any(marker in name for marker in wind_markers)
-
-
 def _station_co2_metrics(station: Station) -> dict[str, float | bool]:
     qs = SolarRecord.objects.filter(
         station=station,
@@ -580,10 +573,13 @@ def station_list(request):
             return en
         return ru
 
-    stations = list(_station_queryset_for_user(request.user).select_related("org").order_by("sort_order", "id"))
+    stations = list(
+        _station_queryset_for_user(request.user, station_kind=Station.KIND_SOLAR)
+        .select_related("org")
+        .order_by("sort_order", "id")
+    )
     for station in stations:
         station.co2_metrics = _station_co2_metrics(station)
-        station.is_wind_station = _station_is_wind(station)
 
     org_memberships = OrganizationMember.objects.filter(user=request.user).select_related("organization")
     blocked_orgs = [m.organization for m in org_memberships if hasattr(m.organization, "can_write") and not m.organization.can_write()]
