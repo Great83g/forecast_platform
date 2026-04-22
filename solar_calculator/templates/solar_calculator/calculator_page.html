@@ -3,7 +3,9 @@
 {% block content %}
 <div class="card shadow-sm">
   <div class="card-body">
-    <h3 class="card-title mb-3">Solar Super Calculator</h3>
+    <h3 class="card-title mb-2">Solar Super Calculator</h3>
+    <p class="text-muted small mb-3">Упрощенный интерфейс сохранен: выберите режим, заполните профильные поля, получите JSON.</p>
+
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label">Режим</label>
@@ -18,48 +20,133 @@
         </select>
       </div>
       <div class="col-md-4">
-        <label class="form-label">Тариф (тг/кВт·ч)</label>
-        <input id="tariff" type="number" step="0.1" class="form-control" value="35">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Specific Yield (кВт·ч/кВт/год)</label>
+        <label class="form-label">Specific Yield</label>
         <input id="specific_yield" type="number" class="form-control" value="1450">
       </div>
-      <div class="col-md-6">
-        <label class="form-label">Значение режима</label>
-        <input id="primary_value" type="number" class="form-control" value="900"/>
-        <div class="form-text">monthly_kwh / budget / roof_area / target_mw / land_hectares</div>
+      <div class="col-md-4">
+        <label class="form-label">Тариф (тг/кВт·ч)</label>
+        <input id="tariff" type="number" class="form-control" value="35">
       </div>
-      <div class="col-md-6 d-flex align-items-end">
-        <button class="btn btn-primary w-100" id="runCalc">Рассчитать</button>
+
+      <div class="col-md-4">
+        <label class="form-label">monthly_kwh</label>
+        <input id="monthly_kwh" type="number" class="form-control" value="350">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">budget_kzt</label>
+        <input id="budget_kzt" type="number" class="form-control" value="3000000">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">roof_area_m2</label>
+        <input id="roof_area_m2" type="number" class="form-control" value="40">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">roof_type</label>
+        <select id="roof_type" class="form-select">
+          <option value="simple">simple</option>
+          <option value="flat">flat</option>
+          <option value="complex">complex</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">target_mw_ac</label>
+        <input id="target_mw_ac" type="number" class="form-control" value="10" step="0.1">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">land_hectares</label>
+        <input id="land_hectares" type="number" class="form-control" value="10" step="0.1">
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">appliances (JSON)</label>
+        <textarea id="appliances" class="form-control" rows="5">[
+  {"name":"air_conditioner","power_kw":1.2,"hours_per_day":6,"quantity":2},
+  {"name":"fridge","power_kw":0.15,"hours_per_day":24,"quantity":1}
+]</textarea>
+      </div>
+
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" id="runCalc">Рассчитать</button>
+        <button class="btn btn-outline-secondary" id="clearResult">Очистить</button>
       </div>
     </div>
 
     <hr class="my-4" />
-    <h5>Результат</h5>
+    <h5>JSON ответ</h5>
     <pre id="result" class="bg-light p-3 rounded small">Нажмите «Рассчитать»</pre>
   </div>
 </div>
 
 <script>
+  function asNum(id) {
+    const raw = document.getElementById(id).value;
+    if (raw === '' || raw === null || raw === undefined) return null;
+    const v = parseFloat(raw);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  function commonInputs() {
+    return {
+      specific_yield: asNum('specific_yield'),
+      tariff_kzt_per_kwh: asNum('tariff'),
+    };
+  }
+
+  function buildInputsByMode(mode) {
+    const common = commonInputs();
+    if (mode === 'consumption') {
+      return {
+        ...common,
+        monthly_kwh: asNum('monthly_kwh'),
+        roof_area_m2: asNum('roof_area_m2'),
+      };
+    }
+    if (mode === 'budget') {
+      return {
+        ...common,
+        budget_kzt: asNum('budget_kzt'),
+      };
+    }
+    if (mode === 'roof_area' || mode === 'max_roof') {
+      return {
+        ...common,
+        roof_area_m2: asNum('roof_area_m2'),
+        roof_type: document.getElementById('roof_type').value,
+      };
+    }
+    if (mode === 'utility_power') {
+      return {
+        specific_yield: asNum('specific_yield'),
+        target_mw_ac: asNum('target_mw_ac'),
+      };
+    }
+    if (mode === 'utility_land') {
+      return {
+        specific_yield: asNum('specific_yield'),
+        land_hectares: asNum('land_hectares'),
+      };
+    }
+
+    let parsed = [];
+    try {
+      parsed = JSON.parse(document.getElementById('appliances').value || '[]');
+    } catch (e) {
+      parsed = [];
+    }
+    return {
+      ...common,
+      roof_area_m2: asNum('roof_area_m2'),
+      appliances: parsed,
+    };
+  }
+
   document.getElementById('runCalc').addEventListener('click', async () => {
     const mode = document.getElementById('mode').value;
-    const value = parseFloat(document.getElementById('primary_value').value || '0');
-    const tariff = parseFloat(document.getElementById('tariff').value || '0');
-    const specificYield = parseFloat(document.getElementById('specific_yield').value || '1450');
-
-    const inputs = { tariff: tariff, specific_yield: specificYield };
-    if (mode === 'consumption') inputs.monthly_kwh = value;
-    if (mode === 'budget') inputs.budget = value;
-    if (mode === 'roof_area' || mode === 'max_roof') inputs.roof_area = value;
-    if (mode === 'utility_power') inputs.target_mw = value;
-    if (mode === 'utility_land') inputs.land_hectares = value;
-    if (mode === 'appliances') {
-      inputs.appliances = [
-        { name: 'Pump', power_kw: 1.5, hours_per_day: 6, quantity: 1, simultaneity_factor: 0.8 },
-        { name: 'Lights', power_kw: 0.2, hours_per_day: 8, quantity: 10, simultaneity_factor: 0.7 },
-      ];
-    }
+    const payload = {
+      mode,
+      inputs: buildInputsByMode(mode),
+    };
 
     const response = await fetch('{% url "solar_calculator:calculate" %}', {
       method: 'POST',
@@ -67,10 +154,15 @@
         'Content-Type': 'application/json',
         'X-CSRFToken': '{{ csrf_token }}',
       },
-      body: JSON.stringify({ mode: mode, inputs: inputs }),
+      body: JSON.stringify(payload),
     });
+
     const data = await response.json();
     document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+  });
+
+  document.getElementById('clearResult').addEventListener('click', () => {
+    document.getElementById('result').textContent = 'Нажмите «Рассчитать»';
   });
 </script>
 {% endblock %}
