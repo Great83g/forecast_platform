@@ -11,6 +11,7 @@
       .field-disabled .form-control,
       .field-disabled .form-select,
       .field-disabled textarea { background-color: #e9ecef !important; }
+      .readonly-like { background-color: #e9ecef !important; }
     </style>
 
     <div class="row g-3">
@@ -27,8 +28,13 @@
         </select>
       </div>
       <div class="col-md-4" data-field-wrap="specific_yield">
-        <label class="form-label">Specific Yield</label>
-        <input id="specific_yield" type="number" class="form-control" value="1450">
+        <label class="form-label" title="Сколько энергии вырабатывает 1 кВт солнечной станции в год">Выработка (кВт·ч/кВт/год)</label>
+        <div class="input-group">
+          <input id="specific_yield" type="number" class="form-control readonly-like" value="1450" min="800" max="2000" readonly>
+          <button class="btn btn-outline-secondary" type="button" id="toggleYieldEdit">✏ Изменить</button>
+        </div>
+        <div class="form-text">Среднее значение для Казахстана (~1450)</div>
+        <div id="specificYieldError" class="text-danger small mt-1 d-none">Допустимый диапазон: 800–2000.</div>
       </div>
       <div class="col-md-4" data-field-wrap="tariff_kzt_per_kwh">
         <label class="form-label">Тариф (тг/кВт·ч)</label>
@@ -124,9 +130,13 @@
     },
   };
 
+  const specificYieldInput = document.getElementById('specific_yield');
+  const specificYieldError = document.getElementById('specificYieldError');
+  const toggleYieldEditButton = document.getElementById('toggleYieldEdit');
+
   const FIELD_TO_ELEMENT = {
     monthly_kwh: document.getElementById('monthly_kwh'),
-    specific_yield: document.getElementById('specific_yield'),
+    specific_yield: specificYieldInput,
     tariff_kzt_per_kwh: document.getElementById('tariff'),
     budget_kzt: document.getElementById('budget_kzt'),
     roof_area_m2: document.getElementById('roof_area_m2'),
@@ -143,12 +153,56 @@
     return Number.isFinite(v) ? v : null;
   }
 
+  function validateSpecificYield(showError = true) {
+    const value = asNumByElement(specificYieldInput);
+    const valid = value !== null && value >= 800 && value <= 2000;
+    if (showError) {
+      specificYieldError.classList.toggle('d-none', valid);
+    }
+    return valid;
+  }
+
+  function setSpecificYieldReadonly(isReadonly) {
+    specificYieldInput.readOnly = isReadonly;
+    specificYieldInput.classList.toggle('readonly-like', isReadonly);
+    toggleYieldEditButton.textContent = isReadonly ? '✏ Изменить' : '✔ Сохранить';
+  }
+
+  toggleYieldEditButton.addEventListener('click', () => {
+    if (specificYieldInput.readOnly) {
+      setSpecificYieldReadonly(false);
+      specificYieldInput.focus();
+      specificYieldInput.select();
+      return;
+    }
+
+    if (!validateSpecificYield(true)) {
+      return;
+    }
+
+    setSpecificYieldReadonly(true);
+  });
+
+  specificYieldInput.addEventListener('input', () => {
+    if (!specificYieldInput.readOnly) {
+      validateSpecificYield(true);
+    }
+  });
+
   function setFieldEnabled(fieldName, enabled) {
     const el = FIELD_TO_ELEMENT[fieldName];
     if (!el) return;
     el.disabled = !enabled;
     const wrap = document.querySelector(`[data-field-wrap="${fieldName}"]`);
     if (wrap) wrap.classList.toggle('field-disabled', !enabled);
+
+    if (fieldName === 'specific_yield') {
+      toggleYieldEditButton.disabled = !enabled;
+      if (!enabled) {
+        setSpecificYieldReadonly(true);
+        specificYieldError.classList.add('d-none');
+      }
+    }
   }
 
   function fieldHasValue(fieldName) {
@@ -212,6 +266,13 @@
   document.getElementById('roof_area_m2').addEventListener('input', updateFieldState);
 
   document.getElementById('runCalc').addEventListener('click', async () => {
+    if (!specificYieldInput.readOnly && !validateSpecificYield(true)) {
+      return;
+    }
+    if (!validateSpecificYield(true)) {
+      return;
+    }
+
     const mode = document.getElementById('mode').value;
     const payload = {
       mode,
@@ -235,6 +296,7 @@
     document.getElementById('result').textContent = 'Нажмите «Рассчитать»';
   });
 
+  setSpecificYieldReadonly(true);
   updateFieldState();
 </script>
 {% endblock %}
