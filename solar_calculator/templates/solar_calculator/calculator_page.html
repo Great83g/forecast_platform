@@ -215,10 +215,11 @@
 
   function applyOptionalRoofState(mode) {
     const isOptionalRoofMode = OPTIONAL_ROOF_MODES.has(mode);
+    const isRoofAreaMode = mode === 'roof_area';
     roofAreaToggle.classList.toggle('d-none', !isOptionalRoofMode);
 
-    if (!isOptionalRoofMode) {
-      optionalRoofEnabled = true;
+    // В режиме "По площади крыши" крыша всегда активна.
+    if (isRoofAreaMode) {
       setFieldEnabled('roof_area_m2', true);
       setFieldEnabled('roof_type', true);
       if (!FIELD_TO_ELEMENT.roof_area_m2.value && cachedRoofAreaValue) {
@@ -227,6 +228,11 @@
       if (cachedRoofTypeValue) {
         FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue;
       }
+      return;
+    }
+
+    // В station modes и прочих режимах поля крыши не форсируем.
+    if (!isOptionalRoofMode) {
       return;
     }
 
