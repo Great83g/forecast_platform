@@ -129,6 +129,9 @@
         <a class="btn btn-sm {% if request.path|slice:":6" == "/wind/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'wind:station-list' %}" title="Ветровой модуль" data-i18n-title="title_wind">
           🌬️ <span data-i18n="module_wind">Ветер</span>
         </a>
+        <a class="btn btn-sm {% if request.path|slice:":18" == "/solar-calculator/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'solar_calculator:page' %}" title="Solar Calculator">
+          🧮 <span>Калькулятор</span>
+        </a>
       </div>
 
       {% if user.is_authenticated %}
