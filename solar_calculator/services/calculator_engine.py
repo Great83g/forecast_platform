@@ -192,6 +192,43 @@ def _label_project_size(ac_mw: float) -> str:
     return "utility_scale"
 
 
+def _station_price_range(ac_mw: float) -> tuple[float, float]:
+    project_label = _label_project_size(ac_mw)
+    if project_label in {"small", "medium"}:
+        return 400_000.0, 550_000.0
+    return 300_000.0, 450_000.0
+
+
+def _build_station_economics(*, response: dict[str, Any], ac_mw: float, annual_generation_kwh: float, tariff_value: float | None) -> dict[str, Any]:
+    price_min_kw, price_max_kw = _station_price_range(ac_mw)
+    ac_kw = ac_mw * 1000
+    estimated_cost_min = ac_kw * price_min_kw
+    estimated_cost_max = ac_kw * price_max_kw
+    estimated_cost_mid = (estimated_cost_min + estimated_cost_max) / 2
+
+    result = {
+        "price_per_kw_kzt": {
+            "min": _round2(price_min_kw),
+            "max": _round2(price_max_kw),
+            "mid": _round2((price_min_kw + price_max_kw) / 2),
+        },
+        "estimated_cost_min_kzt": _round2(estimated_cost_min),
+        "estimated_cost_max_kzt": _round2(estimated_cost_max),
+    }
+
+    if tariff_value is not None and tariff_value > 0:
+        yearly_savings = annual_generation_kwh * tariff_value
+        payback_years = estimated_cost_mid / yearly_savings if yearly_savings > 0 else None
+        result["yearly_savings_kzt"] = _round2(yearly_savings)
+        result["payback_years"] = _round2(payback_years)
+    else:
+        response["warnings"].append("Экономика не рассчитана: укажите tariff_kzt_per_kwh для station mode.")
+        result["yearly_savings_kzt"] = None
+        result["payback_years"] = None
+
+    return result
+
+
 def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
     if mode not in CALC_MODES:
         return {
@@ -350,6 +387,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
 
     if mode == "utility_power":
         target_mw_ac = _to_float(inputs.get("target_mw_ac"))
+        tariff_station = _to_float(inputs.get("tariff_kzt_per_kwh"))
         _validate_positive(target_mw_ac, "target_mw_ac", response["errors"])
         if response["errors"]:
             return response
@@ -357,20 +395,43 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         ac_mw = target_mw_ac
         dc_mw = ac_mw * DC_AC_RATIO
         panels = int(math.ceil(dc_mw * 1_000_000 / PANEL_POWER_W))
-        response["result"] = {
+        annual_generation_gwh = ac_mw * specific_yield / 1000
+        annual_generation_kwh = annual_generation_gwh * 1_000_000
+        land_required_ha = ac_mw * LAND_PER_MW_HA
+        economics = _build_station_economics(
+            response=response,
+            ac_mw=ac_mw,
+            annual_generation_kwh=annual_generation_kwh,
+            tariff_value=tariff_station,
+        )
+
+        summary = (
+            f"Станция {_round2(ac_mw)} МВт AC: участок ~{_round2(land_required_ha)} га, "
+            f"генерация ~{_round2(annual_generation_gwh)} ГВт·ч/год, "
+            f"стоимость ~{economics['estimated_cost_min_kzt']}-{economics['estimated_cost_max_kzt']} тг."
+        )
+
+        result = {
             "ac_mw": _round2(ac_mw),
             "dc_mw": _round2(dc_mw),
             "panels": panels,
-            "land_required_ha": _round2(ac_mw * LAND_PER_MW_HA),
-            "annual_generation_gwh": _round2(ac_mw * specific_yield / 1000),
+            "land_required_ha": _round2(land_required_ha),
+            "annual_generation_gwh": _round2(annual_generation_gwh),
+            "annual_generation_kwh": _round2(annual_generation_kwh),
             "inverter_count": int(math.ceil(ac_mw / INVERTER_UNIT_MW)),
-            "summary": f"Для мощности {_round2(ac_mw)} МВт AC потребуется около {panels} панелей.",
-            "calculation_basis": "Расчёт utility-проекта по целевой AC мощности.",
+            "summary": summary,
+            "calculation_basis": "Расчёт station-проекта по целевой AC мощности.",
+            **economics,
         }
+        if ac_mw < 1:
+            result["ac_kw"] = _round2(ac_mw * 1000)
+            result["dc_kw"] = _round2(dc_mw * 1000)
+        response["result"] = result
         return response
 
     if mode == "utility_land":
         land_hectares = _to_float(inputs.get("land_hectares"))
+        tariff_station = _to_float(inputs.get("tariff_kzt_per_kwh"))
         _validate_positive(land_hectares, "land_hectares", response["errors"])
         if land_hectares and land_hectares > 100:
             response["warnings"].append("Рассчитывается очень крупная промышленная СЭС.")
@@ -380,17 +441,36 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         ac_mw = land_hectares / LAND_PER_MW_HA
         dc_mw = ac_mw * DC_AC_RATIO
         panels = int(math.ceil(dc_mw * 1_000_000 / PANEL_POWER_W))
-        response["result"] = {
+        annual_generation_gwh = ac_mw * specific_yield / 1000
+        annual_generation_kwh = annual_generation_gwh * 1_000_000
+        economics = _build_station_economics(
+            response=response,
+            ac_mw=ac_mw,
+            annual_generation_kwh=annual_generation_kwh,
+            tariff_value=tariff_station,
+        )
+
+        result = {
             "ac_mw": _round2(ac_mw),
             "dc_mw": _round2(dc_mw),
             "panels": panels,
             "land_hectares": _round2(land_hectares),
-            "annual_generation_gwh": _round2(ac_mw * specific_yield / 1000),
+            "annual_generation_gwh": _round2(annual_generation_gwh),
+            "annual_generation_kwh": _round2(annual_generation_kwh),
             "inverter_count": int(math.ceil(ac_mw / INVERTER_UNIT_MW)),
             "project_size_label": _label_project_size(ac_mw),
-            "summary": f"На участке {_round2(land_hectares)} га можно построить станцию примерно на {_round2(ac_mw)} МВт.",
-            "calculation_basis": "Расчёт utility-проекта по площади земельного участка.",
+            "summary": (
+                f"На участке {_round2(land_hectares)} га можно построить станцию примерно на {_round2(ac_mw)} МВт, "
+                f"с генерацией ~{_round2(annual_generation_gwh)} ГВт·ч/год и стоимостью "
+                f"~{economics['estimated_cost_min_kzt']}-{economics['estimated_cost_max_kzt']} тг."
+            ),
+            "calculation_basis": "Расчёт station-проекта по площади земельного участка.",
+            **economics,
         }
+        if ac_mw < 1:
+            result["ac_kw"] = _round2(ac_mw * 1000)
+            result["dc_kw"] = _round2(dc_mw * 1000)
+        response["result"] = result
         return response
 
     # appliances
