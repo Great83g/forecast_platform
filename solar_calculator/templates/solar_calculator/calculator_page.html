@@ -22,9 +22,8 @@
           <option value="appliances">По приборам</option>
           <option value="budget">По бюджету</option>
           <option value="roof_area">По площади крыши</option>
-          <option value="max_roof">Максимум на крышу</option>
-          <option value="utility_power">Utility по мощности</option>
-          <option value="utility_land">Utility по земле</option>
+                    <option value="utility_power" title="Расчет солнечной станции по заданной мощности (в мегаваттах)">Станция (по мощности)</option>
+          <option value="utility_land" title="Расчет мощности станции по доступной площади участка (в гектарах)">Станция (по площади участка)</option>
         </select>
       </div>
       <div class="col-md-4" data-field-wrap="specific_yield">
@@ -111,11 +110,6 @@
     roof_area: {
       active: ['roof_area_m2', 'roof_type', 'specific_yield', 'tariff_kzt_per_kwh'],
       optional: ['monthly_kwh'],
-      optionalDepends: {},
-    },
-    max_roof: {
-      active: ['roof_area_m2', 'roof_type', 'specific_yield', 'tariff_kzt_per_kwh'],
-      optional: [],
       optionalDepends: {},
     },
     utility_power: {

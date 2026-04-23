@@ -246,6 +246,9 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
     if mode == "roof_area":
         roof_area_m2 = _to_float(inputs.get("roof_area_m2"))
         roof_type = str(inputs.get("roof_type") or "simple")
+        monthly_kwh = _to_float(inputs.get("monthly_kwh"))
+        annual_kwh_need = monthly_kwh * 12 if monthly_kwh and monthly_kwh > 0 else None
+
         _validate_positive(roof_area_m2, "roof_area_m2", response["errors"])
         if roof_area_m2 is not None and roof_area_m2 < 3:
             response["errors"].append("Для режима roof_area минимальная площадь крыши 3 м².")
@@ -258,20 +261,28 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         usable_area = roof_area_m2 * ROOF_COEFFICIENTS[roof_type]
         panel_count = int(math.floor(usable_area / PANEL_AREA_WITH_GAP_M2))
         panel_count = max(panel_count, 0)
+        summary = f"На крыше {_round2(roof_area_m2)} м² можно разместить систему примерно на {_round2(panel_count * PANEL_POWER_W / 1000)} кВт."
+        if annual_kwh_need:
+            summary += f" При потреблении {_round2(monthly_kwh)} кВт·ч/мес рассчитаны покрытие и экономика."
+
         result = _residential_from_panel_count(
             panel_count=panel_count,
             specific_yield=specific_yield,
             tariff=tariff,
             cost_per_kw=cost_per_kw,
-            annual_kwh_need=None,
+            annual_kwh_need=annual_kwh_need,
             roof_area_m2=roof_area_m2,
             basis="По площади крыши и коэффициенту типа кровли.",
-            summary=f"На крыше {_round2(roof_area_m2)} м² можно разместить систему примерно на {_round2(panel_count * PANEL_POWER_W / 1000)} кВт.",
+            summary=summary,
         )
         result["usable_area_m2"] = _round2(usable_area)
         result["free_area_m2"] = _round2(max(0.0, roof_area_m2 - (panel_count * PANEL_AREA_WITH_GAP_M2)))
         result["roof_fit"] = "fits"
         result["roof_fit_message"] = "Расчёт построен от доступной площади крыши."
+        if annual_kwh_need:
+            result["annual_kwh_need"] = _round2(annual_kwh_need)
+            if (result.get("annual_generation_kwh") or 0) > annual_kwh_need:
+                response["warnings"].append("Генерация станции превышает годовое потребление объекта.")
         response["result"] = result
         return response
 
