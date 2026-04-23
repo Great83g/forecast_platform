@@ -51,6 +51,7 @@
       <div class="col-md-4" data-field-wrap="roof_area_m2">
         <label class="form-label">roof_area_m2</label>
         <input id="roof_area_m2" type="number" class="form-control" value="40">
+        <button type="button" id="toggleRoofArea" class="btn btn-link btn-sm px-0 mt-1">Указать площадь крыши</button>
       </div>
 
       <div class="col-md-4" data-field-wrap="roof_type">
@@ -127,6 +128,9 @@
   const specificYieldInput = document.getElementById('specific_yield');
   const specificYieldError = document.getElementById('specificYieldError');
   const toggleYieldEditButton = document.getElementById('toggleYieldEdit');
+  const roofAreaToggle = document.getElementById('toggleRoofArea');
+  const OPTIONAL_ROOF_MODES = new Set(['consumption', 'appliances', 'budget']);
+  let optionalRoofEnabled = false;
 
   const FIELD_TO_ELEMENT = {
     monthly_kwh: document.getElementById('monthly_kwh'),
@@ -139,6 +143,9 @@
     land_hectares: document.getElementById('land_hectares'),
     appliances: document.getElementById('appliances'),
   };
+
+  let cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || '';
+  let cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || 'simple';
 
   function asNumByElement(el) {
     const raw = el.value;
@@ -205,6 +212,41 @@
     return String(el.value || '').trim() !== '';
   }
 
+
+  function applyOptionalRoofState(mode) {
+    const isOptionalRoofMode = OPTIONAL_ROOF_MODES.has(mode);
+    roofAreaToggle.classList.toggle('d-none', !isOptionalRoofMode);
+
+    if (!isOptionalRoofMode) {
+      optionalRoofEnabled = true;
+      setFieldEnabled('roof_area_m2', true);
+      setFieldEnabled('roof_type', true);
+      if (!FIELD_TO_ELEMENT.roof_area_m2.value && cachedRoofAreaValue) {
+        FIELD_TO_ELEMENT.roof_area_m2.value = cachedRoofAreaValue;
+      }
+      if (cachedRoofTypeValue) {
+        FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue;
+      }
+      return;
+    }
+
+    if (!optionalRoofEnabled) {
+      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || cachedRoofAreaValue;
+      cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || cachedRoofTypeValue;
+      FIELD_TO_ELEMENT.roof_area_m2.value = '';
+      setFieldEnabled('roof_area_m2', false);
+      setFieldEnabled('roof_type', false);
+      roofAreaToggle.textContent = 'Указать площадь крыши';
+      return;
+    }
+
+    FIELD_TO_ELEMENT.roof_area_m2.value = cachedRoofAreaValue || '';
+    FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue || 'simple';
+    setFieldEnabled('roof_area_m2', true);
+    setFieldEnabled('roof_type', fieldHasValue('roof_area_m2'));
+    roofAreaToggle.textContent = 'Скрыть площадь крыши';
+  }
+
   function updateFieldState() {
     const mode = document.getElementById('mode').value;
     const config = MODE_FIELDS[mode] || { active: [], optional: [], optionalDepends: {} };
@@ -218,6 +260,8 @@
     Object.entries(config.optionalDepends || {}).forEach(([target, dep]) => {
       setFieldEnabled(target, fieldHasValue(dep));
     });
+
+    applyOptionalRoofState(mode);
   }
 
   function collectInputs(mode) {
@@ -256,8 +300,27 @@
     return inputs;
   }
 
-  document.getElementById('mode').addEventListener('change', updateFieldState);
-  document.getElementById('roof_area_m2').addEventListener('input', updateFieldState);
+  document.getElementById('mode').addEventListener('change', () => {
+    const mode = document.getElementById('mode').value;
+    if (OPTIONAL_ROOF_MODES.has(mode)) {
+      optionalRoofEnabled = false;
+    }
+    updateFieldState();
+  });
+  document.getElementById('roof_area_m2').addEventListener('input', () => {
+    if (optionalRoofEnabled) {
+      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value;
+      updateFieldState();
+    }
+  });
+  roofAreaToggle.addEventListener('click', () => {
+    optionalRoofEnabled = !optionalRoofEnabled;
+    if (!optionalRoofEnabled) {
+      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || cachedRoofAreaValue;
+      cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || cachedRoofTypeValue;
+    }
+    updateFieldState();
+  });
 
   document.getElementById('runCalc').addEventListener('click', async () => {
     if (!specificYieldInput.readOnly && !validateSpecificYield(true)) {
