@@ -31,6 +31,9 @@ urlpatterns = [
     path("api/accounts/", include("accounts.urls")),
     path("api/", include("stations.urls")),
 
+    # solar calculator module
+    path("solar-calculator/", include(("solar_calculator.urls", "solar_calculator"), namespace="solar_calculator")),
+
     # корень -> дашборд
     path("", RedirectView.as_view(pattern_name="dashboard:station-list", permanent=False)),
 ]
