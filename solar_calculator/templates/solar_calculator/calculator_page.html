@@ -41,21 +41,21 @@
       </div>
 
       <div class="col-md-4" data-field-wrap="monthly_kwh">
-        <label class="form-label">monthly_kwh</label>
+        <label class="form-label">Потребление в месяц (кВт·ч)</label>
         <input id="monthly_kwh" type="number" class="form-control" value="350">
       </div>
       <div class="col-md-4" data-field-wrap="budget_kzt">
-        <label class="form-label">budget_kzt</label>
+        <label class="form-label">Бюджет (тг)</label>
         <input id="budget_kzt" type="number" class="form-control" value="3000000">
       </div>
       <div class="col-md-4" data-field-wrap="roof_area_m2">
-        <label class="form-label">roof_area_m2</label>
+        <label class="form-label">Площадь крыши (м²)</label>
         <input id="roof_area_m2" type="number" class="form-control" value="40">
         <button type="button" id="toggleRoofArea" class="btn btn-link btn-sm px-0 mt-1">Указать площадь крыши</button>
       </div>
 
       <div class="col-md-4" data-field-wrap="roof_type">
-        <label class="form-label">roof_type</label>
+        <label class="form-label">Тип крыши</label>
         <select id="roof_type" class="form-select">
           <option value="simple">simple</option>
           <option value="flat">flat</option>
@@ -63,16 +63,16 @@
         </select>
       </div>
       <div class="col-md-4" data-field-wrap="target_mw_ac">
-        <label class="form-label">target_mw_ac</label>
+        <label class="form-label">Мощность станции AC (МВт)</label>
         <input id="target_mw_ac" type="number" class="form-control" value="10" step="0.1">
       </div>
       <div class="col-md-4" data-field-wrap="land_hectares">
-        <label class="form-label">land_hectares</label>
+        <label class="form-label">Площадь участка (га)</label>
         <input id="land_hectares" type="number" class="form-control" value="10" step="0.1">
       </div>
 
       <div class="col-12" data-field-wrap="appliances">
-        <label class="form-label">appliances (JSON)</label>
+        <label class="form-label">Приборы (JSON)</label>
         <textarea id="appliances" class="form-control" rows="5">[
   {"name":"air_conditioner","power_kw":1.2,"hours_per_day":6,"quantity":2},
   {"name":"fridge","power_kw":0.15,"hours_per_day":24,"quantity":1}

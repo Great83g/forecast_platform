@@ -13,7 +13,8 @@ PANEL_WEIGHT_KG = 32
 
 DEFAULT_SPECIFIC_YIELD = 1450.0
 DEFAULT_TARIFF_KZT_PER_KWH = 35.0
-DEFAULT_COST_PER_KW = 550_000.0
+PANEL_PRICE_PER_W_KZT = 100.0
+DEFAULT_COST_PER_KW = PANEL_PRICE_PER_W_KZT * 1000
 
 DC_AC_RATIO = 1.2
 LAND_PER_MW_HA = 1.5
@@ -193,10 +194,10 @@ def _label_project_size(ac_mw: float) -> str:
 
 
 def _station_price_range(ac_mw: float) -> tuple[float, float]:
-    project_label = _label_project_size(ac_mw)
-    if project_label in {"small", "medium"}:
-        return 400_000.0, 550_000.0
-    return 300_000.0, 450_000.0
+    _ = ac_mw
+    # Базируемся на текущей цене панели: 100 тг/Вт (58 000 тг за 580 Вт).
+    station_price_per_kw = PANEL_PRICE_PER_W_KZT * 1000
+    return station_price_per_kw, station_price_per_kw
 
 
 def _build_station_economics(*, response: dict[str, Any], ac_mw: float, annual_generation_kwh: float, tariff_value: float | None) -> dict[str, Any]:
