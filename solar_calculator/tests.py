@@ -1,0 +1,55 @@
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
+from django.urls import reverse
+
+from .services.calculator_engine import calculate
+
+
+class CalculatorEngineTests(TestCase):
+    def test_unified_response_shape(self):
+        payload = calculate("consumption", {"monthly_kwh": 350})
+        self.assertEqual(payload["mode"], "consumption")
+        self.assertIn("result_type", payload)
+        self.assertIn("meta", payload)
+        self.assertIn("inputs_echo", payload)
+        self.assertIn("result", payload)
+        self.assertIn("variants", payload)
+        self.assertIn("warnings", payload)
+        self.assertIn("errors", payload)
+
+    def test_consumption_roof_fit(self):
+        payload = calculate("consumption", {"monthly_kwh": 350, "roof_area_m2": 10})
+        self.assertIn(payload["result"]["roof_fit"], {"fits", "partial", "not_fit"})
+
+    def test_appliances_real_mode(self):
+        payload = calculate(
+            "appliances",
+            {
+                "appliances": [
+                    {"name": "ac", "power_kw": 1.2, "hours_per_day": 6, "quantity": 2},
+                    {"name": "fridge", "power_kw": 0.15, "hours_per_day": 24, "quantity": 1},
+                ]
+            },
+        )
+        self.assertEqual(payload["errors"], [])
+        self.assertGreater(payload["result"]["daily_kwh"], 0)
+        self.assertGreater(payload["result"]["peak_kw"], 0)
+
+
+class CalculatorApiTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="calc_user", password="secret123")
+
+    def test_calculate_api(self):
+        self.client.login(username="calc_user", password="secret123")
+        response = self.client.post(
+            reverse("solar_calculator:calculate"),
+            data={"mode": "budget", "inputs": {"budget_kzt": 5_000_000}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("result", data)
+        self.assertEqual(data["errors"], [])
