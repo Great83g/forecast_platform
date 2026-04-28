@@ -34,6 +34,7 @@ CALC_MODES = [
     "max_roof",
     "utility_power",
     "utility_land",
+    "grid_export",
 ]
 
 RESIDENTIAL_VARIANT_MODES = {"consumption", "appliances", "budget"}
@@ -319,7 +320,12 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "errors": [f"Unsupported mode: {mode}"],
         }
 
-    response = _response(mode, result_type="utility" if mode.startswith("utility") else "residential", inputs_echo=inputs)
+    result_type = "residential"
+    if mode.startswith("utility"):
+        result_type = "utility"
+    if mode == "grid_export":
+        result_type = "commercial"
+    response = _response(mode, result_type=result_type, inputs_echo=inputs)
 
     specific_yield = _to_float(inputs.get("specific_yield"), DEFAULT_SPECIFIC_YIELD) or DEFAULT_SPECIFIC_YIELD
     tariff = _to_float(inputs.get("tariff_kzt_per_kwh"), DEFAULT_TARIFF_KZT_PER_KWH) or DEFAULT_TARIFF_KZT_PER_KWH
@@ -577,6 +583,109 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             result["ac_kw"] = _round2(ac_mw * 1000)
             result["dc_kw"] = _round2(dc_mw * 1000)
         response["result"] = result
+        return response
+
+    if mode == "grid_export":
+        target_kw = _to_float(inputs.get("target_kw"))
+        target_mw_ac = _to_float(inputs.get("target_mw_ac"))
+        export_tariff = _to_float(inputs.get("export_tariff_kzt_per_kwh"), 25.0) or 25.0
+        own_percent = _to_float(inputs.get("own_consumption_percent"), 0.0) or 0.0
+        land_area_ha = _to_float(inputs.get("land_area_ha"))
+
+        if target_kw is None and target_mw_ac is None:
+            response["errors"].append("Укажите target_kw или target_mw_ac.")
+            return response
+        if target_kw is None:
+            target_kw = target_mw_ac * 1000
+        _validate_positive(target_kw, "target_kw", response["errors"])
+        if own_percent < 0 or own_percent > 100:
+            response["errors"].append("own_consumption_percent должен быть в диапазоне 0..100.")
+        if response["errors"]:
+            return response
+
+        panel_count = int(math.ceil(target_kw * 1000 / PANEL_POWER_W))
+        system_kw = panel_count * PANEL_POWER_W / 1000
+        annual_generation_kwh = system_kw * specific_yield
+        monthly_generation_kwh = annual_generation_kwh / 12
+
+        own_consumption_kwh = annual_generation_kwh * own_percent / 100
+        export_kwh = max(annual_generation_kwh - own_consumption_kwh, 0)
+        export_revenue_kzt = export_kwh * export_tariff
+        own_savings_kzt = own_consumption_kwh * tariff
+        total_benefit_kzt = export_revenue_kzt + own_savings_kzt
+
+        panels_cost_kzt = panel_count * PANEL_PRICE_KZT
+        inverter_cost_kzt = system_kw * INVERTER_COST_PER_KW_KZT
+        mounting_cost_kzt = system_kw * MOUNTING_COST_PER_KW_KZT
+        cables_protection_cost_kzt = system_kw * CABLES_PROTECTION_COST_PER_KW_KZT
+        grid_connection_cost_kzt = system_kw * 40_000
+        project_docs_cost_kzt = system_kw * 20_000
+        total_cost_kzt = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + grid_connection_cost_kzt + project_docs_cost_kzt
+
+        payback_years = (total_cost_kzt / total_benefit_kzt) if total_benefit_kzt > 0 else None
+
+        area_required_m2 = panel_count * PANEL_AREA_WITH_GAP_M2
+        land_required_ha = (area_required_m2 / 10_000) * 2.5
+
+        land_fit = None
+        land_fit_message = None
+        if land_area_ha is not None:
+            land_fit = land_required_ha <= land_area_ha
+            land_fit_message = "Станция помещается на указанном участке." if land_fit else "Площади участка недостаточно для выбранной мощности."
+
+        response["result"] = {
+            "system_kw": _round2(system_kw),
+            "panel_count": panel_count,
+            "annual_generation_kwh": _round2(annual_generation_kwh),
+            "monthly_generation_kwh": _round2(monthly_generation_kwh),
+            "own_consumption_kwh": _round2(own_consumption_kwh),
+            "export_kwh": _round2(export_kwh),
+            "export_revenue_kzt": _round2(export_revenue_kzt),
+            "own_savings_kzt": _round2(own_savings_kzt),
+            "total_benefit_kzt": _round2(total_benefit_kzt),
+            "estimated_cost_kzt": _round2(total_cost_kzt),
+            "payback_years": _round2(payback_years) if payback_years is not None else None,
+            "area_required_m2": _round2(area_required_m2),
+            "land_required_ha": _round2(land_required_ha),
+            "land_fit": land_fit,
+            "land_fit_message": land_fit_message,
+            "summary": f"Станция {_round2(system_kw)} кВт может продавать в сеть около {_round2(export_kwh)} кВт·ч/год.",
+        }
+        response["cost_breakdown"] = {
+            "panels_cost_kzt": _round2(panels_cost_kzt),
+            "inverter_cost_kzt": _round2(inverter_cost_kzt),
+            "mounting_cost_kzt": _round2(mounting_cost_kzt),
+            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
+            "grid_connection_cost_kzt": _round2(grid_connection_cost_kzt),
+            "project_docs_cost_kzt": _round2(project_docs_cost_kzt),
+            "total_cost_kzt": _round2(total_cost_kzt),
+        }
+        response["energy_model"] = {
+            "annual_generation_kwh": _round2(annual_generation_kwh),
+            "own_consumption_percent": _round2(own_percent),
+            "own_consumption_kwh": _round2(own_consumption_kwh),
+            "export_kwh": _round2(export_kwh),
+        }
+        response["variants"] = [{
+            "name": "grid_export",
+            "display": {
+                "title": "Продажа в сеть",
+                "subtitle": "Доход от реализации электроэнергии",
+                "badge": "Сеть",
+                "description": "Расчёт дохода от продажи выработки по заданному тарифу.",
+            },
+            **response["result"],
+        }]
+        response["recommended_variant"] = "grid_export"
+        response["warnings"].append("Расчёт ориентировочный. Фактическая возможность продажи электроэнергии зависит от договора, техусловий, сетевой организации и законодательства.")
+        response["warnings"].append("Тариф продажи нужно уточнять отдельно для вашего типа объекта и региона.")
+        if export_tariff <= 0:
+            response["warnings"].append("Тариф продажи не указан.")
+        response["smart_advice"] = {
+            "recommended_variant": "grid_export",
+            "reason": "Режим ориентирован на потенциальную выручку от продажи в сеть.",
+            "client_message": "Это расчёт потенциальной выручки, а не гарантированного заработка.",
+        }
         return response
 
     # appliances
