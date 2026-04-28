@@ -1,0 +1,433 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="card shadow-sm">
+  <div class="card-body">
+    <h3 class="card-title mb-2">Solar Super Calculator</h3>
+    <p class="text-muted small mb-3">Упрощенный интерфейс сохранен: выберите режим, заполните профильные поля, получите JSON.</p>
+
+    <style>
+      .field-disabled { opacity: 0.45; }
+      .field-disabled .form-control,
+      .field-disabled .form-select,
+      .field-disabled textarea { background-color: #e9ecef !important; }
+      .readonly-like { background-color: #e9ecef !important; }
+    </style>
+
+    <div class="row g-3">
+      <div class="col-md-4" data-field-wrap="mode">
+        <label class="form-label">Режим</label>
+        <select id="mode" class="form-select">
+          <option value="consumption">По потреблению</option>
+          <option value="appliances">По приборам</option>
+          <option value="budget">По бюджету</option>
+          <option value="roof_area">По площади крыши</option>
+          <option value="utility_power" title="Расчет солнечной станции по заданной мощности (в мегаваттах)">Станция (по мощности)</option>
+          <option value="utility_land" title="Расчет мощности станции по доступной площади участка (в гектарах)">Станция (по площади участка)</option>
+          <option value="grid_export" title="Расчет станции с продажей электроэнергии в сеть">Продажа в сеть</option>
+        </select>
+      </div>
+      <div class="col-md-4" data-field-wrap="specific_yield">
+        <label class="form-label" title="Сколько энергии вырабатывает 1 кВт солнечной станции в год">Выработка (кВт·ч/кВт/год)</label>
+        <div class="input-group">
+          <input id="specific_yield" type="number" class="form-control readonly-like" value="1450" min="800" max="2000" readonly>
+          <button class="btn btn-outline-secondary" type="button" id="toggleYieldEdit">✏ Изменить</button>
+        </div>
+        <div class="form-text">Среднее значение для Казахстана (~1450)</div>
+        <div id="specificYieldError" class="text-danger small mt-1 d-none">Допустимый диапазон: 800–2000.</div>
+      </div>
+      <div class="col-md-4" data-field-wrap="tariff_kzt_per_kwh">
+        <label class="form-label">Тариф (тг/кВт·ч)</label>
+        <input id="tariff" type="number" class="form-control" value="35">
+      </div>
+
+      <div class="col-md-4" data-field-wrap="monthly_kwh">
+        <label class="form-label">Потребление в месяц (кВт·ч)</label>
+        <input id="monthly_kwh" type="number" class="form-control" value="350">
+      </div>
+      <div class="col-md-4" data-field-wrap="budget_kzt">
+        <label class="form-label">Бюджет (тг)</label>
+        <input id="budget_kzt" type="number" class="form-control" value="3000000">
+      </div>
+      <div class="col-md-4" data-field-wrap="roof_area_m2">
+        <label class="form-label">Площадь крыши (м²)</label>
+        <input id="roof_area_m2" type="number" class="form-control" value="40">
+        <button type="button" id="toggleRoofArea" class="btn btn-link btn-sm px-0 mt-1">Указать площадь крыши</button>
+      </div>
+
+      <div class="col-md-4" data-field-wrap="roof_type">
+        <label class="form-label">Тип крыши</label>
+        <select id="roof_type" class="form-select">
+          <option value="simple">Простая</option>
+          <option value="flat">Плоская</option>
+          <option value="complex">Сложная</option>
+        </select>
+      </div>
+      <div class="col-md-4" data-field-wrap="target_mw_ac">
+        <label class="form-label">Мощность станции AC (МВт)</label>
+        <input id="target_mw_ac" type="number" class="form-control" value="10" step="0.1">
+      </div>
+      <div class="col-md-4" data-field-wrap="land_hectares">
+        <label class="form-label">Площадь участка (га)</label>
+        <input id="land_hectares" type="number" class="form-control" value="10" step="0.1">
+      </div>
+      <div class="col-md-4" data-field-wrap="target_kw">
+        <label class="form-label">Мощность станции (кВт)</label>
+        <input id="target_kw" type="number" class="form-control" value="500" step="1">
+      </div>
+      <div class="col-md-4" data-field-wrap="own_consumption_percent">
+        <label class="form-label">Собственное потребление (%)</label>
+        <input id="own_consumption_percent" type="number" class="form-control" value="0" min="0" max="100" step="1">
+      </div>
+      <div class="col-md-4" data-field-wrap="export_tariff_kzt_per_kwh">
+        <label class="form-label">Тариф продажи (тг/кВт·ч)</label>
+        <input id="export_tariff_kzt_per_kwh" type="number" class="form-control" value="25" step="0.1">
+      </div>
+      <div class="col-md-4" data-field-wrap="land_area_ha">
+        <label class="form-label">Участок под станцию (га)</label>
+        <input id="land_area_ha" type="number" class="form-control" value="5" step="0.1">
+      </div>
+
+      <div class="col-12" data-field-wrap="appliances">
+        <label class="form-label">Приборы (JSON)</label>
+        <textarea id="appliances" class="form-control" rows="5">[
+  {"name":"air_conditioner","power_kw":1.2,"hours_per_day":6,"quantity":2},
+  {"name":"fridge","power_kw":0.15,"hours_per_day":24,"quantity":1}
+]</textarea>
+      </div>
+
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" id="runCalc">Рассчитать</button>
+        <button class="btn btn-outline-secondary" id="clearResult">Очистить</button>
+      </div>
+    </div>
+
+    <hr class="my-4" />
+    <h5>Варианты</h5>
+    <div id="variantCards" class="row g-3 mb-4"></div>
+    <h5>JSON ответ</h5>
+    <pre id="result" class="bg-light p-3 rounded small">Нажмите «Рассчитать»</pre>
+  </div>
+</div>
+
+<script>
+  const MODE_FIELDS = {
+    consumption: {
+      active: ['monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
+      optional: ['roof_area_m2'],
+      optionalDepends: { roof_type: 'roof_area_m2' },
+    },
+    appliances: {
+      active: ['appliances', 'specific_yield', 'tariff_kzt_per_kwh'],
+      optional: ['roof_area_m2'],
+      optionalDepends: { roof_type: 'roof_area_m2' },
+    },
+    budget: {
+      active: ['budget_kzt', 'specific_yield', 'tariff_kzt_per_kwh'],
+      optional: ['roof_area_m2'],
+      optionalDepends: { roof_type: 'roof_area_m2' },
+    },
+    roof_area: {
+      active: ['roof_area_m2', 'roof_type', 'specific_yield', 'tariff_kzt_per_kwh'],
+      optional: ['monthly_kwh'],
+      optionalDepends: {},
+    },
+    utility_power: {
+      active: ['target_mw_ac', 'specific_yield'],
+      optional: [],
+      optionalDepends: {},
+    },
+    utility_land: {
+      active: ['land_hectares', 'specific_yield'],
+      optional: [],
+      optionalDepends: {},
+    },
+    grid_export: {
+      active: ['target_kw', 'specific_yield', 'tariff_kzt_per_kwh', 'export_tariff_kzt_per_kwh', 'own_consumption_percent'],
+      optional: ['land_area_ha'],
+      optionalDepends: {},
+    },
+  };
+
+  const specificYieldInput = document.getElementById('specific_yield');
+  const specificYieldError = document.getElementById('specificYieldError');
+  const toggleYieldEditButton = document.getElementById('toggleYieldEdit');
+  const roofAreaToggle = document.getElementById('toggleRoofArea');
+  const OPTIONAL_ROOF_MODES = new Set(['consumption', 'appliances', 'budget']);
+  let optionalRoofEnabled = false;
+
+  const FIELD_TO_ELEMENT = {
+    monthly_kwh: document.getElementById('monthly_kwh'),
+    specific_yield: specificYieldInput,
+    tariff_kzt_per_kwh: document.getElementById('tariff'),
+    budget_kzt: document.getElementById('budget_kzt'),
+    roof_area_m2: document.getElementById('roof_area_m2'),
+    roof_type: document.getElementById('roof_type'),
+    target_mw_ac: document.getElementById('target_mw_ac'),
+    land_hectares: document.getElementById('land_hectares'),
+    target_kw: document.getElementById('target_kw'),
+    own_consumption_percent: document.getElementById('own_consumption_percent'),
+    export_tariff_kzt_per_kwh: document.getElementById('export_tariff_kzt_per_kwh'),
+    land_area_ha: document.getElementById('land_area_ha'),
+    appliances: document.getElementById('appliances'),
+  };
+
+  let cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || '';
+  let cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || 'simple';
+
+  function asNumByElement(el) {
+    const raw = el.value;
+    if (raw === '' || raw === null || raw === undefined) return null;
+    const v = parseFloat(raw);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  function validateSpecificYield(showError = true) {
+    const value = asNumByElement(specificYieldInput);
+    const valid = value !== null && value >= 800 && value <= 2000;
+    if (showError) {
+      specificYieldError.classList.toggle('d-none', valid);
+    }
+    return valid;
+  }
+
+  function setSpecificYieldReadonly(isReadonly) {
+    specificYieldInput.readOnly = isReadonly;
+    specificYieldInput.classList.toggle('readonly-like', isReadonly);
+    toggleYieldEditButton.textContent = isReadonly ? '✏ Изменить' : '✔ Сохранить';
+  }
+
+  toggleYieldEditButton.addEventListener('click', () => {
+    if (specificYieldInput.readOnly) {
+      setSpecificYieldReadonly(false);
+      specificYieldInput.focus();
+      specificYieldInput.select();
+      return;
+    }
+
+    if (!validateSpecificYield(true)) {
+      return;
+    }
+
+    setSpecificYieldReadonly(true);
+  });
+
+  specificYieldInput.addEventListener('input', () => {
+    if (!specificYieldInput.readOnly) {
+      validateSpecificYield(true);
+    }
+  });
+
+  function setFieldEnabled(fieldName, enabled) {
+    const el = FIELD_TO_ELEMENT[fieldName];
+    if (!el) return;
+    el.disabled = !enabled;
+    const wrap = document.querySelector(`[data-field-wrap="${fieldName}"]`);
+    if (wrap) wrap.classList.toggle('field-disabled', !enabled);
+
+    if (fieldName === 'specific_yield') {
+      toggleYieldEditButton.disabled = !enabled;
+      if (!enabled) {
+        setSpecificYieldReadonly(true);
+        specificYieldError.classList.add('d-none');
+      }
+    }
+  }
+
+  function fieldHasValue(fieldName) {
+    const el = FIELD_TO_ELEMENT[fieldName];
+    if (!el) return false;
+    return String(el.value || '').trim() !== '';
+  }
+
+
+  function applyOptionalRoofState(mode) {
+    const isOptionalRoofMode = OPTIONAL_ROOF_MODES.has(mode);
+    const isRoofAreaMode = mode === 'roof_area';
+    roofAreaToggle.classList.toggle('d-none', !isOptionalRoofMode);
+
+    // В режиме "По площади крыши" крыша всегда активна.
+    if (isRoofAreaMode) {
+      setFieldEnabled('roof_area_m2', true);
+      setFieldEnabled('roof_type', true);
+      if (!FIELD_TO_ELEMENT.roof_area_m2.value && cachedRoofAreaValue) {
+        FIELD_TO_ELEMENT.roof_area_m2.value = cachedRoofAreaValue;
+      }
+      if (cachedRoofTypeValue) {
+        FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue;
+      }
+      return;
+    }
+
+    // В station modes и прочих режимах поля крыши не форсируем.
+    if (!isOptionalRoofMode) {
+      return;
+    }
+
+    if (!optionalRoofEnabled) {
+      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || cachedRoofAreaValue;
+      cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || cachedRoofTypeValue;
+      FIELD_TO_ELEMENT.roof_area_m2.value = '';
+      setFieldEnabled('roof_area_m2', false);
+      setFieldEnabled('roof_type', false);
+      roofAreaToggle.textContent = 'Указать площадь крыши';
+      return;
+    }
+
+    FIELD_TO_ELEMENT.roof_area_m2.value = cachedRoofAreaValue || '';
+    FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue || 'simple';
+    setFieldEnabled('roof_area_m2', true);
+    setFieldEnabled('roof_type', fieldHasValue('roof_area_m2'));
+    roofAreaToggle.textContent = 'Скрыть площадь крыши';
+  }
+
+  function updateFieldState() {
+    const mode = document.getElementById('mode').value;
+    const config = MODE_FIELDS[mode] || { active: [], optional: [], optionalDepends: {} };
+
+    const allFields = Object.keys(FIELD_TO_ELEMENT);
+    allFields.forEach((f) => setFieldEnabled(f, false));
+
+    config.active.forEach((f) => setFieldEnabled(f, true));
+    config.optional.forEach((f) => setFieldEnabled(f, true));
+
+    Object.entries(config.optionalDepends || {}).forEach(([target, dep]) => {
+      setFieldEnabled(target, fieldHasValue(dep));
+    });
+
+    applyOptionalRoofState(mode);
+  }
+
+  function collectInputs(mode) {
+    const config = MODE_FIELDS[mode] || { active: [], optional: [], optionalDepends: {} };
+    const inputs = {};
+
+    const candidateFields = new Set([...config.active, ...config.optional]);
+    Object.entries(config.optionalDepends || {}).forEach(([target, dep]) => {
+      if (fieldHasValue(dep)) candidateFields.add(target);
+    });
+
+    candidateFields.forEach((field) => {
+      const el = FIELD_TO_ELEMENT[field];
+      if (!el || el.disabled) return;
+
+      if (field === 'appliances') {
+        try {
+          inputs.appliances = JSON.parse(el.value || '[]');
+        } catch (e) {
+          inputs.appliances = [];
+        }
+        return;
+      }
+
+      if (field === 'roof_type') {
+        inputs.roof_type = el.value;
+        return;
+      }
+
+      const value = asNumByElement(el);
+      if (value !== null) {
+        inputs[field] = value;
+      }
+    });
+
+    return inputs;
+  }
+
+  document.getElementById('mode').addEventListener('change', () => {
+    const mode = document.getElementById('mode').value;
+    if (OPTIONAL_ROOF_MODES.has(mode)) {
+      optionalRoofEnabled = false;
+    }
+    updateFieldState();
+  });
+  document.getElementById('roof_area_m2').addEventListener('input', () => {
+    if (optionalRoofEnabled) {
+      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value;
+      updateFieldState();
+    }
+  });
+  roofAreaToggle.addEventListener('click', () => {
+    optionalRoofEnabled = !optionalRoofEnabled;
+    if (!optionalRoofEnabled) {
+      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || cachedRoofAreaValue;
+      cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || cachedRoofTypeValue;
+    }
+    updateFieldState();
+  });
+
+
+  function renderVariantCards(data) {
+    const container = document.getElementById('variantCards');
+    container.innerHTML = '';
+    const variants = Array.isArray(data?.variants) ? data.variants : [];
+    variants.forEach((v) => {
+      const isRecommended = data?.recommended_variant === v.name;
+      const card = document.createElement('div');
+      card.className = 'col-md-4';
+      card.innerHTML = `
+        <div class="card h-100 ${isRecommended ? 'border-primary' : ''}">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">${v.display?.title || v.name}</h6>
+              ${isRecommended ? '<span class="badge bg-primary">Рекомендуем</span>' : ''}
+            </div>
+            <div class="text-muted small mb-2">${v.display?.subtitle || ''}</div>
+            <ul class="small mb-2 ps-3">
+              <li>Панелей: ${v.panel_count ?? '-'}</li>
+              <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
+              <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
+              <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
+              <li>Генерация: ${v.generation_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
+              <li>Экономия счета: ${v.bill_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
+              <li>Выручка от экспорта: ${v.export_revenue_kzt ?? '-'} тг</li>
+              <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
+              <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
+              <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
+              <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>
+            </ul>
+            <div class="small">${v.note || ''}</div>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+
+  document.getElementById('runCalc').addEventListener('click', async () => {
+    if (!specificYieldInput.readOnly && !validateSpecificYield(true)) {
+      return;
+    }
+    if (!validateSpecificYield(true)) {
+      return;
+    }
+
+    const mode = document.getElementById('mode').value;
+    const payload = {
+      mode,
+      inputs: collectInputs(mode),
+    };
+
+    const response = await fetch('{% url "solar_calculator:calculate" %}', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token }}',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+    renderVariantCards(data);
+    document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+  });
+
+  document.getElementById('clearResult').addEventListener('click', () => {
+    document.getElementById('result').textContent = 'Нажмите «Рассчитать»';
+    document.getElementById('variantCards').innerHTML = '';
+  });
+
+  setSpecificYieldReadonly(true);
+  updateFieldState();
+</script>
+{% endblock %}
