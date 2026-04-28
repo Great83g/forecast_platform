@@ -1,451 +1,425 @@
 {% extends "dashboard/base.html" %}
 
 {% block content %}
-<div class="card shadow-sm">
-  <div class="card-body">
-    <h3 class="card-title mb-2">Solar Super Calculator</h3>
-    <p class="text-muted small mb-3">Упрощенный интерфейс сохранен: выберите режим, заполните профильные поля, получите JSON.</p>
+<div class="solar-page container-fluid px-0">
+  <div class="solar-shell card border-0">
+    <div class="card-body p-4 p-md-5">
+      <h2 class="solar-title mb-2">Рассчитайте солнечную систему за 1 минуту</h2>
+      <p class="solar-subtitle mb-4">Укажите потребление, площадь крыши или мощность станции — калькулятор подберёт панели, стоимость и окупаемость.</p>
 
-    <style>
-      .field-disabled { opacity: 0.45; }
-      .field-disabled .form-control,
-      .field-disabled .form-select,
-      .field-disabled textarea { background-color: #e9ecef !important; }
-      .readonly-like { background-color: #e9ecef !important; }
-    </style>
+      <style>
+        .solar-page { background: #fff; }
+        .solar-shell { border-radius: 18px; box-shadow: 0 12px 36px rgba(17, 24, 39, .08); }
+        .solar-title { font-weight: 700; letter-spacing: -.02em; }
+        .solar-subtitle { color: #64748b; max-width: 820px; }
+        .mode-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+        .mode-tab { border: 1px solid #dbe3ef; border-radius: 999px; background: #fff; padding: 10px 14px; font-size: 14px; }
+        .mode-tab.active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+        .field-card { border: 1px solid #e8eef7; border-radius: 14px; padding: 14px; background: #fff; }
+        .calc-btn { border-radius: 12px; padding: 12px 22px; font-weight: 600; }
+        .recommend-box { border: 1.5px solid #86b7fe; background: #f3f8ff; border-radius: 16px; padding: 18px; display: none; }
+        .recommend-title { font-weight: 700; font-size: 20px; }
+        .recommend-price { font-weight: 800; font-size: 30px; line-height: 1.1; }
+        .result-section { display: none; animation: fadeIn .35s ease; }
+        .solar-card { border: 1px solid #e7edf7; border-radius: 16px; box-shadow: 0 6px 22px rgba(15, 23, 42, .06); height: 100%; }
+        .solar-card.recommended { border-color: #0d6efd; background: #f8fbff; }
+        .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        .metric { background: #f8fafc; border-radius: 10px; padding: 8px 10px; }
+        .metric-label { color: #64748b; font-size: 12px; margin-bottom: 2px; }
+        .metric-value { font-weight: 700; }
+        .tiny-note { color: #64748b; font-size: 13px; }
+        .json-wrap { display: none; }
+        .json-wrap.open { display: block; }
+        .hidden-field { display: none !important; }
+        .quote-modal { position: fixed; inset: 0; background: rgba(2, 8, 23, .45); display: none; align-items: center; justify-content: center; z-index: 1050; }
+        .quote-modal.open { display: flex; }
+        .quote-dialog { width: min(640px, 92vw); background: #fff; border-radius: 16px; padding: 20px; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @media (max-width: 991px) {
+          .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 767px) {
+          .metric-grid { grid-template-columns: 1fr; }
+          .mode-tab, .calc-btn { width: 100%; }
+        }
+      </style>
 
-    <div class="row g-3">
-      <div class="col-md-4" data-field-wrap="mode">
-        <label class="form-label">Режим</label>
-        <select id="mode" class="form-select">
-          <option value="consumption">По потреблению</option>
-          <option value="appliances">По приборам</option>
-          <option value="budget">По бюджету</option>
-          <option value="roof_area">По площади крыши</option>
-          <option value="utility_power" title="Расчет солнечной станции по заданной мощности (в мегаваттах)">Станция (по мощности)</option>
-          <option value="utility_land" title="Расчет мощности станции по доступной площади участка (в гектарах)">Станция (по площади участка)</option>
-          <option value="grid_export" title="Расчет станции с продажей электроэнергии в сеть">Продажа в сеть</option>
-        </select>
+      <input type="hidden" id="mode" value="consumption">
+      <div class="mode-tabs" id="modeTabs">
+        <button class="mode-tab active" data-mode="consumption" type="button">По потреблению</button>
+        <button class="mode-tab" data-mode="roof_area" type="button">По площади крыши</button>
+        <button class="mode-tab" data-mode="utility_power" type="button">Станция по мощности</button>
+        <button class="mode-tab" data-mode="utility_land" type="button">Станция по участку</button>
+        <button class="mode-tab" data-mode="grid_export" type="button">Продажа в сеть</button>
       </div>
-      <div class="col-md-4" data-field-wrap="specific_yield">
-        <label class="form-label" title="Сколько энергии вырабатывает 1 кВт солнечной станции в год">Выработка (кВт·ч/кВт/год)</label>
-        <div class="input-group">
-          <input id="specific_yield" type="number" class="form-control readonly-like" value="1450" min="800" max="2000" readonly>
-          <button class="btn btn-outline-secondary" type="button" id="toggleYieldEdit">✏ Изменить</button>
+
+      <div class="row g-3" id="calcFormGrid">
+        <div class="col-md-4" data-field-wrap="monthly_kwh">
+          <div class="field-card">
+            <label class="form-label">Потребление в месяц (кВт·ч)</label>
+            <input id="monthly_kwh" type="number" class="form-control" value="350">
+          </div>
         </div>
-        <div class="form-text">Среднее значение для Казахстана (~1450)</div>
-        <div id="specificYieldError" class="text-danger small mt-1 d-none">Допустимый диапазон: 800–2000.</div>
-      </div>
-      <div class="col-md-4" data-field-wrap="tariff_kzt_per_kwh">
-        <label class="form-label">Тариф (тг/кВт·ч)</label>
-        <input id="tariff" type="number" class="form-control" value="35">
+        <div class="col-md-4" data-field-wrap="roof_area_m2">
+          <div class="field-card">
+            <label class="form-label">Площадь крыши (м²)</label>
+            <input id="roof_area_m2" type="number" class="form-control" value="40">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="roof_type">
+          <div class="field-card">
+            <label class="form-label">Тип крыши</label>
+            <select id="roof_type" class="form-select">
+              <option value="simple">Простая</option>
+              <option value="flat">Плоская</option>
+              <option value="complex">Сложная</option>
+            </select>
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="specific_yield">
+          <div class="field-card">
+            <label class="form-label">Выработка (кВт·ч/кВт/год)</label>
+            <input id="specific_yield" type="number" class="form-control" value="1450" min="800" max="2000">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="tariff_kzt_per_kwh">
+          <div class="field-card">
+            <label class="form-label">Тариф (₸/кВт·ч)</label>
+            <input id="tariff" type="number" class="form-control" value="35">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="target_mw_ac">
+          <div class="field-card">
+            <label class="form-label">Мощность станции AC (МВт)</label>
+            <input id="target_mw_ac" type="number" class="form-control" value="10" step="0.1">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="land_hectares">
+          <div class="field-card">
+            <label class="form-label">Площадь участка (га)</label>
+            <input id="land_hectares" type="number" class="form-control" value="2" step="0.1">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="target_kw">
+          <div class="field-card">
+            <label class="form-label">Мощность станции (кВт)</label>
+            <input id="target_kw" type="number" class="form-control" value="500" step="1">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="export_tariff_kzt_per_kwh">
+          <div class="field-card">
+            <label class="form-label">Тариф продажи (₸/кВт·ч)</label>
+            <input id="export_tariff_kzt_per_kwh" type="number" class="form-control" value="25" step="0.1">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="own_consumption_percent">
+          <div class="field-card">
+            <label class="form-label">Собственное потребление (%)</label>
+            <input id="own_consumption_percent" type="number" class="form-control" value="0" min="0" max="100" step="1">
+          </div>
+        </div>
+        <div class="col-md-4" data-field-wrap="land_area_ha">
+          <div class="field-card">
+            <label class="form-label">Участок под станцию (га)</label>
+            <input id="land_area_ha" type="number" class="form-control" value="5" step="0.1">
+          </div>
+        </div>
       </div>
 
-      <div class="col-md-4" data-field-wrap="monthly_kwh">
-        <label class="form-label">Потребление в месяц (кВт·ч)</label>
-        <input id="monthly_kwh" type="number" class="form-control" value="350">
-      </div>
-      <div class="col-md-4" data-field-wrap="budget_kzt">
-        <label class="form-label">Бюджет (тг)</label>
-        <input id="budget_kzt" type="number" class="form-control" value="3000000">
-      </div>
-      <div class="col-md-4" data-field-wrap="roof_area_m2">
-        <label class="form-label">Площадь крыши (м²)</label>
-        <input id="roof_area_m2" type="number" class="form-control" value="40">
-        <button type="button" id="toggleRoofArea" class="btn btn-link btn-sm px-0 mt-1">Указать площадь крыши</button>
+      <div class="d-flex flex-wrap gap-2 mt-4">
+        <button class="btn btn-primary calc-btn" id="runCalc">Рассчитать</button>
+        <button class="btn btn-outline-secondary calc-btn" id="clearResult">Очистить</button>
       </div>
 
-      <div class="col-md-4" data-field-wrap="roof_type">
-        <label class="form-label">Тип крыши</label>
-        <select id="roof_type" class="form-select">
-          <option value="simple">Простая</option>
-          <option value="flat">Плоская</option>
-          <option value="complex">Сложная</option>
-        </select>
-      </div>
-      <div class="col-md-4" data-field-wrap="target_mw_ac">
-        <label class="form-label">Мощность станции AC (МВт)</label>
-        <input id="target_mw_ac" type="number" class="form-control" value="10" step="0.1">
-      </div>
-      <div class="col-md-4" data-field-wrap="land_hectares">
-        <label class="form-label">Площадь участка (га)</label>
-        <input id="land_hectares" type="number" class="form-control" value="10" step="0.1">
-      </div>
-      <div class="col-md-4" data-field-wrap="target_kw">
-        <label class="form-label">Мощность станции (кВт)</label>
-        <input id="target_kw" type="number" class="form-control" value="500" step="1">
-      </div>
-      <div class="col-md-4" data-field-wrap="own_consumption_percent">
-        <label class="form-label">Собственное потребление (%)</label>
-        <input id="own_consumption_percent" type="number" class="form-control" value="0" min="0" max="100" step="1">
-      </div>
-      <div class="col-md-4" data-field-wrap="export_tariff_kzt_per_kwh">
-        <label class="form-label">Тариф продажи (тг/кВт·ч)</label>
-        <input id="export_tariff_kzt_per_kwh" type="number" class="form-control" value="25" step="0.1">
-      </div>
-      <div class="col-md-4" data-field-wrap="land_area_ha">
-        <label class="form-label">Участок под станцию (га)</label>
-        <input id="land_area_ha" type="number" class="form-control" value="5" step="0.1">
-      </div>
+      <div id="resultSection" class="result-section mt-4">
+        <div id="recommendBox" class="recommend-box mb-3"></div>
+        <div id="variantCards" class="row g-3"></div>
 
-      <div class="col-12" data-field-wrap="appliances">
-        <label class="form-label">Приборы (JSON)</label>
-        <textarea id="appliances" class="form-control" rows="5">[
-  {"name":"air_conditioner","power_kw":1.2,"hours_per_day":6,"quantity":2},
-  {"name":"fridge","power_kw":0.15,"hours_per_day":24,"quantity":1}
-]</textarea>
-      </div>
+        <div class="mt-3 tiny-note">
+          Расчёт предварительный. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.
+        </div>
+        <div id="modeHints" class="mt-2 tiny-note"></div>
 
-      <div class="col-12 d-flex gap-2">
-        <button class="btn btn-primary" id="runCalc">Рассчитать</button>
-        <button class="btn btn-outline-secondary" id="clearResult">Очистить</button>
+        <div class="mt-4">
+          <button id="toggleJson" class="btn btn-sm btn-outline-secondary" type="button">Показать технический JSON</button>
+          <div id="jsonWrap" class="json-wrap mt-2">
+            <pre id="result" class="bg-light p-3 rounded small mb-0">Нажмите «Рассчитать»</pre>
+          </div>
+        </div>
       </div>
     </div>
+  </div>
+</div>
 
-    <hr class="my-4" />
-    <h5>Варианты</h5>
-    <div id="variantCards" class="row g-3 mb-4"></div>
-    <h5>JSON ответ</h5>
-    <pre id="result" class="bg-light p-3 rounded small">Нажмите «Рассчитать»</pre>
+<div id="quoteModal" class="quote-modal" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="quote-dialog">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Получить КП</h5>
+      <button type="button" class="btn-close" id="closeQuoteModal"></button>
+    </div>
+    <p class="text-muted small mb-3">Оставьте контакт — мы подготовим коммерческое предложение.</p>
+
+    <form id="quoteForm" class="row g-2">
+      <input type="hidden" id="q_selected_variant" name="selected_variant">
+      <input type="hidden" id="q_calculation_json" name="calculation_json">
+      <input type="hidden" id="q_estimated_cost_kzt" name="estimated_cost_kzt">
+      <input type="hidden" id="q_capacity" name="capacity">
+      <input type="hidden" id="q_mode" name="mode">
+
+      <div class="col-md-6">
+        <label class="form-label">Имя</label>
+        <input type="text" id="q_name" class="form-control" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Телефон</label>
+        <input type="text" id="q_phone" class="form-control" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Email</label>
+        <input type="email" id="q_email" class="form-control" required>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Комментарий</label>
+        <textarea id="q_comment" class="form-control" rows="3"></textarea>
+      </div>
+      <div class="col-12 d-grid mt-2">
+        <button class="btn btn-primary" type="submit">Отправить заявку</button>
+      </div>
+    </form>
+    <div id="quoteThanks" class="alert alert-success mt-3 d-none">Спасибо! Мы подготовим коммерческое предложение и свяжемся с вами.</div>
   </div>
 </div>
 
 <script>
   const MODE_FIELDS = {
-    consumption: {
-      active: ['monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
-      optional: ['roof_area_m2'],
-      optionalDepends: { roof_type: 'roof_area_m2' },
-    },
-    appliances: {
-      active: ['appliances', 'specific_yield', 'tariff_kzt_per_kwh'],
-      optional: ['roof_area_m2'],
-      optionalDepends: { roof_type: 'roof_area_m2' },
-    },
-    budget: {
-      active: ['budget_kzt', 'specific_yield', 'tariff_kzt_per_kwh'],
-      optional: ['roof_area_m2'],
-      optionalDepends: { roof_type: 'roof_area_m2' },
-    },
-    roof_area: {
-      active: ['roof_area_m2', 'roof_type', 'specific_yield', 'tariff_kzt_per_kwh'],
-      optional: ['monthly_kwh'],
-      optionalDepends: {},
-    },
-    utility_power: {
-      active: ['target_mw_ac', 'specific_yield'],
-      optional: [],
-      optionalDepends: {},
-    },
-    utility_land: {
-      active: ['land_hectares', 'specific_yield'],
-      optional: [],
-      optionalDepends: {},
-    },
-    grid_export: {
-      active: ['target_kw', 'specific_yield', 'tariff_kzt_per_kwh', 'export_tariff_kzt_per_kwh', 'own_consumption_percent'],
-      optional: ['land_area_ha'],
-      optionalDepends: {},
-    },
+    consumption: ['monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
+    roof_area: ['roof_area_m2', 'roof_type', 'monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
+    utility_power: ['target_mw_ac', 'specific_yield'],
+    utility_land: ['land_hectares', 'specific_yield'],
+    grid_export: ['target_kw', 'specific_yield', 'export_tariff_kzt_per_kwh', 'own_consumption_percent', 'land_area_ha'],
   };
-
-  const specificYieldInput = document.getElementById('specific_yield');
-  const specificYieldError = document.getElementById('specificYieldError');
-  const toggleYieldEditButton = document.getElementById('toggleYieldEdit');
-  const roofAreaToggle = document.getElementById('toggleRoofArea');
-  const OPTIONAL_ROOF_MODES = new Set(['consumption', 'appliances', 'budget']);
-  let optionalRoofEnabled = false;
 
   const FIELD_TO_ELEMENT = {
     monthly_kwh: document.getElementById('monthly_kwh'),
-    specific_yield: specificYieldInput,
-    tariff_kzt_per_kwh: document.getElementById('tariff'),
-    budget_kzt: document.getElementById('budget_kzt'),
     roof_area_m2: document.getElementById('roof_area_m2'),
     roof_type: document.getElementById('roof_type'),
+    specific_yield: document.getElementById('specific_yield'),
+    tariff_kzt_per_kwh: document.getElementById('tariff'),
     target_mw_ac: document.getElementById('target_mw_ac'),
     land_hectares: document.getElementById('land_hectares'),
     target_kw: document.getElementById('target_kw'),
-    own_consumption_percent: document.getElementById('own_consumption_percent'),
     export_tariff_kzt_per_kwh: document.getElementById('export_tariff_kzt_per_kwh'),
+    own_consumption_percent: document.getElementById('own_consumption_percent'),
     land_area_ha: document.getElementById('land_area_ha'),
-    appliances: document.getElementById('appliances'),
   };
 
-  let cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || '';
-  let cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || 'simple';
-
   function asNumByElement(el) {
+    if (!el) return null;
     const raw = el.value;
     if (raw === '' || raw === null || raw === undefined) return null;
-    const v = parseFloat(raw);
-    return Number.isFinite(v) ? v : null;
+    const value = parseFloat(raw);
+    return Number.isFinite(value) ? value : null;
   }
 
-  function validateSpecificYield(showError = true) {
-    const value = asNumByElement(specificYieldInput);
-    const valid = value !== null && value >= 800 && value <= 2000;
-    if (showError) {
-      specificYieldError.classList.toggle('d-none', valid);
-    }
-    return valid;
+  function formatInt(value) {
+    if (value === null || value === undefined || value === '') return null;
+    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Number(value));
   }
 
-  function setSpecificYieldReadonly(isReadonly) {
-    specificYieldInput.readOnly = isReadonly;
-    specificYieldInput.classList.toggle('readonly-like', isReadonly);
-    toggleYieldEditButton.textContent = isReadonly ? '✏ Изменить' : '✔ Сохранить';
+  function formatNum(value, digits = 2) {
+    if (value === null || value === undefined || value === '') return null;
+    return new Intl.NumberFormat('ru-RU', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: digits,
+    }).format(Number(value));
   }
 
-  toggleYieldEditButton.addEventListener('click', () => {
-    if (specificYieldInput.readOnly) {
-      setSpecificYieldReadonly(false);
-      specificYieldInput.focus();
-      specificYieldInput.select();
-      return;
-    }
-
-    if (!validateSpecificYield(true)) {
-      return;
-    }
-
-    setSpecificYieldReadonly(true);
-  });
-
-  specificYieldInput.addEventListener('input', () => {
-    if (!specificYieldInput.readOnly) {
-      validateSpecificYield(true);
-    }
-  });
-
-  function setFieldEnabled(fieldName, enabled) {
-    const el = FIELD_TO_ELEMENT[fieldName];
-    if (!el) return;
-    el.disabled = !enabled;
-    const wrap = document.querySelector(`[data-field-wrap="${fieldName}"]`);
-    if (wrap) wrap.classList.toggle('field-disabled', !enabled);
-
-    if (fieldName === 'specific_yield') {
-      toggleYieldEditButton.disabled = !enabled;
-      if (!enabled) {
-        setSpecificYieldReadonly(true);
-        specificYieldError.classList.add('d-none');
-      }
-    }
+  function formatCurrency(value) {
+    if (value === null || value === undefined || value === '') return null;
+    return `${formatInt(value)} ₸`;
   }
 
-  function fieldHasValue(fieldName) {
-    const el = FIELD_TO_ELEMENT[fieldName];
-    if (!el) return false;
-    return String(el.value || '').trim() !== '';
+  function formatPriceRange(minValue, maxValue) {
+    if (minValue === null && maxValue === null) return null;
+    if (minValue !== null && maxValue !== null && Number(minValue) !== Number(maxValue)) {
+      return `от ${formatInt(minValue)} до ${formatInt(maxValue)} ₸`;
+    }
+    return `от ${formatInt(minValue ?? maxValue)} ₸`;
   }
 
+  function activeMode() {
+    return document.getElementById('mode').value;
+  }
 
-  function applyOptionalRoofState(mode) {
-    const isOptionalRoofMode = OPTIONAL_ROOF_MODES.has(mode);
-    const isRoofAreaMode = mode === 'roof_area';
-    roofAreaToggle.classList.toggle('d-none', !isOptionalRoofMode);
-
-    // В режиме "По площади крыши" крыша всегда активна.
-    if (isRoofAreaMode) {
-      setFieldEnabled('roof_area_m2', true);
-      setFieldEnabled('roof_type', true);
-      if (!FIELD_TO_ELEMENT.roof_area_m2.value && cachedRoofAreaValue) {
-        FIELD_TO_ELEMENT.roof_area_m2.value = cachedRoofAreaValue;
-      }
-      if (cachedRoofTypeValue) {
-        FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue;
-      }
-      return;
-    }
-
-    // В station modes и прочих режимах поля крыши не форсируем.
-    if (!isOptionalRoofMode) {
-      return;
-    }
-
-    if (!optionalRoofEnabled) {
-      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || cachedRoofAreaValue;
-      cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || cachedRoofTypeValue;
-      FIELD_TO_ELEMENT.roof_area_m2.value = '';
-      setFieldEnabled('roof_area_m2', false);
-      setFieldEnabled('roof_type', false);
-      roofAreaToggle.textContent = 'Указать площадь крыши';
-      return;
-    }
-
-    FIELD_TO_ELEMENT.roof_area_m2.value = cachedRoofAreaValue || '';
-    FIELD_TO_ELEMENT.roof_type.value = cachedRoofTypeValue || 'simple';
-    setFieldEnabled('roof_area_m2', true);
-    setFieldEnabled('roof_type', fieldHasValue('roof_area_m2'));
-    roofAreaToggle.textContent = 'Скрыть площадь крыши';
+  function switchMode(mode) {
+    document.getElementById('mode').value = mode;
+    document.querySelectorAll('.mode-tab').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    updateFieldState();
   }
 
   function updateFieldState() {
-    const mode = document.getElementById('mode').value;
-    const config = MODE_FIELDS[mode] || { active: [], optional: [], optionalDepends: {} };
-
-    const allFields = Object.keys(FIELD_TO_ELEMENT);
-    allFields.forEach((f) => setFieldEnabled(f, false));
-
-    config.active.forEach((f) => setFieldEnabled(f, true));
-    config.optional.forEach((f) => setFieldEnabled(f, true));
-
-    Object.entries(config.optionalDepends || {}).forEach(([target, dep]) => {
-      setFieldEnabled(target, fieldHasValue(dep));
+    const mode = activeMode();
+    const active = new Set(MODE_FIELDS[mode] || []);
+    Object.entries(FIELD_TO_ELEMENT).forEach(([field, el]) => {
+      const wrap = document.querySelector(`[data-field-wrap="${field}"]`);
+      const isVisible = active.has(field);
+      if (wrap) wrap.classList.toggle('hidden-field', !isVisible);
+      if (el) el.disabled = !isVisible;
     });
-
-    applyOptionalRoofState(mode);
   }
 
   function collectInputs(mode) {
-    const config = MODE_FIELDS[mode] || { active: [], optional: [], optionalDepends: {} };
     const inputs = {};
-
-    const candidateFields = new Set([...config.active, ...config.optional]);
-    Object.entries(config.optionalDepends || {}).forEach(([target, dep]) => {
-      if (fieldHasValue(dep)) candidateFields.add(target);
-    });
-
-    candidateFields.forEach((field) => {
+    (MODE_FIELDS[mode] || []).forEach((field) => {
       const el = FIELD_TO_ELEMENT[field];
       if (!el || el.disabled) return;
-
-      if (field === 'appliances') {
-        try {
-          inputs.appliances = JSON.parse(el.value || '[]');
-        } catch (e) {
-          inputs.appliances = [];
-        }
-        return;
-      }
-
       if (field === 'roof_type') {
         inputs.roof_type = el.value;
-        return;
-      }
-
-      const value = asNumByElement(el);
-      if (value !== null) {
-        inputs[field] = value;
+      } else {
+        const value = asNumByElement(el);
+        if (value !== null) inputs[field] = value;
       }
     });
-
+    if (mode === 'grid_export') {
+      const tariff = asNumByElement(FIELD_TO_ELEMENT.tariff_kzt_per_kwh);
+      if (tariff !== null) inputs.tariff_kzt_per_kwh = tariff;
+    }
     return inputs;
   }
 
-  document.getElementById('mode').addEventListener('change', () => {
-    const mode = document.getElementById('mode').value;
-    if (OPTIONAL_ROOF_MODES.has(mode)) {
-      optionalRoofEnabled = false;
-    }
-    updateFieldState();
-  });
-  document.getElementById('roof_area_m2').addEventListener('input', () => {
-    if (optionalRoofEnabled) {
-      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value;
-      updateFieldState();
-    }
-  });
-  roofAreaToggle.addEventListener('click', () => {
-    optionalRoofEnabled = !optionalRoofEnabled;
-    if (!optionalRoofEnabled) {
-      cachedRoofAreaValue = FIELD_TO_ELEMENT.roof_area_m2.value || cachedRoofAreaValue;
-      cachedRoofTypeValue = FIELD_TO_ELEMENT.roof_type.value || cachedRoofTypeValue;
-    }
-    updateFieldState();
-  });
+  function buildRecommendation(variant, mode) {
+    if (!variant) return '';
+    const title = variant.display?.title || variant.name || 'Оптимальный';
+    let price = formatCurrency(variant.estimated_cost_kzt);
 
+    if (!price && (variant.estimated_cost_min_kzt !== undefined || variant.estimated_cost_max_kzt !== undefined)) {
+      price = formatPriceRange(variant.estimated_cost_min_kzt ?? null, variant.estimated_cost_max_kzt ?? null);
+    }
 
-  function renderVariantCards(data) {
-    const container = document.getElementById('variantCards');
-    container.innerHTML = '';
-    const variants = Array.isArray(data?.variants) ? data.variants : [];
-    variants.forEach((v) => {
-      const isRecommended = data?.recommended_variant === v.name;
-      let metrics = `
-        <li>Панелей: ${v.panel_count ?? '-'}</li>
-        <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
-        <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
-        <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
-        <li>Генерация: ${v.generation_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
-        <li>Экономия счета: ${v.bill_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
-        <li>Выручка от экспорта: ${v.export_revenue_kzt ?? '-'} тг</li>
-        <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
-        <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
-        <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
-        <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>
+    if (mode === 'utility_power' || mode === 'utility_land') {
+      return `
+        <div class="recommend-title">Рекомендуем: ${title}</div>
+        <div class="recommend-price mt-2">${price || '—'}</div>
+        <div class="mt-2 small">AC: ${formatNum(variant.ac_mw) || '-'} МВт · DC: ${formatNum(variant.dc_mw) || '-'} МВт · Генерация: ${formatNum(variant.annual_generation_gwh) || '-'} ГВт·ч/год</div>
       `;
+    }
 
-      if (v.name === 'utility_power') {
-        metrics = `
-          <li>AC мощность: ${v.ac_mw ?? '-'} МВт</li>
-          <li>DC мощность: ${v.dc_mw ?? '-'} МВт</li>
-          <li>Панелей: ${v.panels ?? '-'}</li>
-          <li>Площадь участка: ${v.land_required_ha ?? '-'} га</li>
-          <li>Генерация/год: ${v.annual_generation_gwh ?? '-'} ГВт·ч</li>
-          <li>Инверторов: ${v.inverter_count ?? '-'}</li>
-          <li>Стоимость min: ${v.estimated_cost_min_kzt ?? '-'} тг</li>
-          <li>Стоимость max: ${v.estimated_cost_max_kzt ?? '-'} тг</li>
-          <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
-        `;
-      } else if (v.name === 'utility_land') {
-        metrics = `
-          <li>Площадь участка: ${v.land_hectares ?? '-'} га</li>
-          <li>AC мощность: ${v.ac_mw ?? '-'} МВт</li>
-          <li>DC мощность: ${v.dc_mw ?? '-'} МВт</li>
-          <li>Панелей: ${v.panels ?? '-'}</li>
-          <li>Инверторов: ${v.inverter_count ?? '-'}</li>
-          <li>Генерация: ${v.annual_generation_gwh ?? '-'} ГВт·ч/год</li>
-          <li>Стоимость: ${v.estimated_cost_max_kzt ?? v.estimated_cost_min_kzt ?? '-'} ₸</li>
-          <li>Окупаемость: ${v.payback_years ?? 'не рассчитана'}</li>
-        `;
-      } else if (v.name === 'grid_export') {
-        metrics = `
-          <li>Панелей: ${v.panel_count ?? '-'}</li>
-          <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
-          <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
-          <li>Потенциальная выручка: ${v.export_revenue_kzt ?? '-'} тг</li>
-          <li>Экспорт в сеть: ${v.export_kwh ?? '-'} кВт·ч/год</li>
-          <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
-          <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
-        `;
-      }
+    return `
+      <div class="recommend-title">Рекомендуем: ${title}</div>
+      <div class="recommend-price mt-2">${price || '—'}</div>
+      <div class="mt-2 small">${formatInt(variant.panel_count) || '-'} панелей · ${formatNum(variant.system_kw) || '-'} кВт · ${formatNum(variant.area_required_m2) || '-'} м²</div>
+      <div class="mt-1 small">Экономия: ${formatCurrency(variant.yearly_savings_kzt) || '-'} / год · Окупаемость: ${variant.payback_years ?? '-'} лет</div>
+    `;
+  }
 
-      const card = document.createElement('div');
-      card.className = 'col-md-4';
-      card.innerHTML = `
-        <div class="card h-100 ${isRecommended ? 'border-primary' : ''}">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
+  function renderVariantCard(v, data) {
+    const isRecommended = data?.recommended_variant === v.name;
+    const price = formatCurrency(v.estimated_cost_kzt)
+      || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null)
+      || '—';
+
+    let body = '';
+    if (v.name === 'utility_power' || v.name === 'utility_land') {
+      const area = v.land_hectares ?? v.land_required_ha;
+      body = `
+        <div class="tiny-note mb-2">${v.display?.description || ''}</div>
+        <div class="recommend-price">${price}</div>
+        <div class="small mt-2">${formatNum(v.ac_mw) || '-'} МВт AC · ${formatNum(v.dc_mw) || '-'} МВт DC · ${formatInt(v.panels) || '-'} панелей</div>
+        <div class="metric-grid mt-3">
+          <div class="metric"><div class="metric-label">Участок</div><div class="metric-value">${formatNum(area) || '-'} га</div></div>
+          <div class="metric"><div class="metric-label">Инверторы</div><div class="metric-value">${formatInt(v.inverter_count) || '-'}</div></div>
+          <div class="metric"><div class="metric-label">Генерация</div><div class="metric-value">${formatNum(v.annual_generation_gwh) || '-'} ГВт·ч/год</div></div>
+        </div>
+        ${v.payback_years !== null && v.payback_years !== undefined ? `<div class="mt-3 small">Окупаемость: <b>${formatNum(v.payback_years)} лет</b></div>` : ''}
+      `;
+    } else if (v.name === 'grid_export') {
+      body = `
+        <div class="tiny-note mb-2">${v.display?.description || ''}</div>
+        <div class="recommend-price">${price}</div>
+        <div class="small mt-2">${formatInt(v.panel_count) || '-'} панелей · ${formatNum(v.system_kw) || '-'} кВт · ${formatNum(v.area_required_m2) || '-'} м²</div>
+        <div class="metric-grid mt-3">
+          <div class="metric"><div class="metric-label">Потенциальная выручка</div><div class="metric-value">${formatCurrency(v.export_revenue_kzt) || '-'}</div></div>
+          <div class="metric"><div class="metric-label">Продажа в сеть</div><div class="metric-value">${formatInt(v.export_kwh) || '-'} кВт·ч/год</div></div>
+          <div class="metric"><div class="metric-label">Общий эффект/год</div><div class="metric-value">${formatCurrency(v.total_benefit_kzt) || '-'}</div></div>
+        </div>
+        ${v.payback_years !== null && v.payback_years !== undefined ? `<div class="mt-3 small">Окупаемость: <b>${formatNum(v.payback_years)} лет</b></div>` : ''}
+      `;
+    } else {
+      const batteryText = v.need_battery ? `${formatNum(v.battery_kwh || 0)} кВт·ч` : 'нет';
+      body = `
+        <div class="tiny-note mb-2">${v.display?.description || ''}</div>
+        <div class="recommend-price">${price}</div>
+        <div class="small mt-2">${formatInt(v.panel_count) || '-'} панелей · ${formatNum(v.system_kw) || '-'} кВт · ${formatNum(v.area_required_m2) || '-'} м²</div>
+        <div class="metric-grid mt-3">
+          <div class="metric"><div class="metric-label">Генерация</div><div class="metric-value">${formatNum(v.generation_coverage_percent) || '-'}%</div></div>
+          <div class="metric"><div class="metric-label">Экономия счёта</div><div class="metric-value">${formatNum(v.bill_coverage_percent) || '-'}%</div></div>
+          <div class="metric"><div class="metric-label">Окупаемость</div><div class="metric-value">${v.payback_years ?? '-'} лет</div></div>
+        </div>
+        <div class="mt-3 small">Экономия: <b>${formatCurrency(v.yearly_savings_kzt) || '-'}/год</b></div>
+        <div class="small">Аккумулятор: <b>${batteryText}</b></div>
+      `;
+    }
+
+    return `
+      <div class="col-lg-4 col-md-6">
+        <div class="solar-card ${isRecommended ? 'recommended' : ''}">
+          <div class="p-3 p-md-4">
+            <div class="d-flex justify-content-between align-items-center mb-1">
               <h6 class="mb-0">${v.display?.title || v.name}</h6>
-              ${isRecommended ? '<span class="badge bg-primary">Рекомендуем</span>' : ''}
+              <span class="badge ${isRecommended ? 'bg-primary' : 'bg-light text-dark'}">${isRecommended ? 'Рекомендуем' : (v.display?.badge || '')}</span>
             </div>
-            <div class="text-muted small mb-2">${v.display?.subtitle || ''}</div>
-            <ul class="small mb-2 ps-3">
-              ${metrics}
-            </ul>
-            <div class="small">${v.note || ''}</div>
+            <div class="tiny-note mb-2">${v.display?.subtitle || ''}</div>
+            ${body}
+            <button class="btn btn-outline-primary w-100 mt-3 get-quote-btn" data-variant='${JSON.stringify(v)}'>Получить КП</button>
           </div>
         </div>
-      `;
-      container.appendChild(card);
+      </div>
+    `;
+  }
+
+  let latestCalculation = null;
+
+  function renderResult(data) {
+    latestCalculation = data;
+    const section = document.getElementById('resultSection');
+    const variants = Array.isArray(data?.variants) ? data.variants : [];
+    const recommended = variants.find((v) => v.name === data?.recommended_variant) || variants[0] || null;
+
+    const recommendBox = document.getElementById('recommendBox');
+    if (recommended) {
+      recommendBox.innerHTML = buildRecommendation(recommended, data.mode);
+      recommendBox.style.display = 'block';
+    } else {
+      recommendBox.innerHTML = '';
+      recommendBox.style.display = 'none';
+    }
+
+    const cards = document.getElementById('variantCards');
+    cards.innerHTML = variants.map((v) => renderVariantCard(v, data)).join('');
+
+    document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+    section.style.display = 'block';
+
+    const hints = [];
+    hints.push('Расчёт предварительный. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.');
+    if (data.result_type === 'residential') hints.push('Без аккумулятора часть дневной генерации может не использоваться.');
+    if (variants.some((v) => v.name === 'premium')) hints.push('Аккумулятор повышает автономность, но увеличивает стоимость системы.');
+    if (data.mode === 'grid_export') hints.push('Выручка является потенциальной. Возможность продажи зависит от договора, техусловий и тарифа.');
+    document.getElementById('modeHints').textContent = hints.join(' ');
+
+    document.querySelectorAll('.get-quote-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const selectedVariant = JSON.parse(btn.dataset.variant || '{}');
+        openQuoteModal(selectedVariant, data);
+      });
     });
   }
 
   document.getElementById('runCalc').addEventListener('click', async () => {
-    if (!specificYieldInput.readOnly && !validateSpecificYield(true)) {
-      return;
-    }
-    if (!validateSpecificYield(true)) {
-      return;
-    }
-
-    const mode = document.getElementById('mode').value;
-    const payload = {
-      mode,
-      inputs: collectInputs(mode),
-    };
+    const mode = activeMode();
+    const payload = { mode, inputs: collectInputs(mode) };
 
     const response = await fetch('{% url "solar_calculator:calculate" %}', {
       method: 'POST',
@@ -457,16 +431,52 @@
     });
 
     const data = await response.json();
-    renderVariantCards(data);
-    document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+    renderResult(data);
   });
 
   document.getElementById('clearResult').addEventListener('click', () => {
-    document.getElementById('result').textContent = 'Нажмите «Рассчитать»';
+    document.getElementById('resultSection').style.display = 'none';
     document.getElementById('variantCards').innerHTML = '';
+    document.getElementById('recommendBox').innerHTML = '';
+    latestCalculation = null;
   });
 
-  setSpecificYieldReadonly(true);
-  updateFieldState();
+  document.getElementById('toggleJson').addEventListener('click', () => {
+    const wrap = document.getElementById('jsonWrap');
+    const isOpen = wrap.classList.toggle('open');
+    document.getElementById('toggleJson').textContent = isOpen ? 'Скрыть технический JSON' : 'Показать технический JSON';
+  });
+
+  document.querySelectorAll('.mode-tab').forEach((btn) => {
+    btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  });
+
+  function openQuoteModal(variant, calcData) {
+    document.getElementById('q_selected_variant').value = variant.name || '';
+    document.getElementById('q_calculation_json').value = JSON.stringify(calcData || latestCalculation || {});
+    document.getElementById('q_estimated_cost_kzt').value = variant.estimated_cost_kzt ?? variant.estimated_cost_min_kzt ?? variant.estimated_cost_max_kzt ?? '';
+    document.getElementById('q_capacity').value = variant.system_kw ?? variant.ac_mw ?? '';
+    document.getElementById('q_mode').value = calcData?.mode || activeMode();
+    document.getElementById('quoteThanks').classList.add('d-none');
+    document.getElementById('quoteModal').classList.add('open');
+    document.getElementById('quoteModal').setAttribute('aria-hidden', 'false');
+  }
+
+  function closeQuoteModal() {
+    document.getElementById('quoteModal').classList.remove('open');
+    document.getElementById('quoteModal').setAttribute('aria-hidden', 'true');
+  }
+
+  document.getElementById('closeQuoteModal').addEventListener('click', closeQuoteModal);
+  document.getElementById('quoteModal').addEventListener('click', (e) => {
+    if (e.target.id === 'quoteModal') closeQuoteModal();
+  });
+
+  document.getElementById('quoteForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    document.getElementById('quoteThanks').classList.remove('d-none');
+  });
+
+  switchMode('consumption');
 </script>
 {% endblock %}
