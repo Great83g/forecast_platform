@@ -352,7 +352,8 @@
               <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
               <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
               <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
-              <li>Покрытие: ${v.coverage_percent ?? '-'}%</li>
+              <li>Генерация: ${v.generation_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
+              <li>Экономия счета: ${v.bill_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
               <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
               <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
               <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>

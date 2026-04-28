@@ -120,13 +120,17 @@ def _residential_from_panel_count(
     export_or_unused_kwh = max(annual_generation - usable_generation_kwh, 0.0)
 
     coverage_percent = None
+    generation_coverage_percent = None
+    bill_coverage_percent = None
     yearly_bill_without_spp = None
     yearly_bill_with_spp = None
     yearly_savings = None
     payback_years = None
 
     if annual_kwh_need and annual_kwh_need > 0:
-        coverage_percent = min(100.0, usable_generation_kwh / annual_kwh_need * 100)
+        generation_coverage_percent = min(annual_generation / annual_kwh_need * 100, 999.0)
+        bill_coverage_percent = min(usable_generation_kwh / annual_kwh_need * 100, 100.0)
+        coverage_percent = bill_coverage_percent
         yearly_bill_without_spp = annual_kwh_need * tariff
         yearly_bill_with_spp = max(0.0, (annual_kwh_need - usable_generation_kwh) * tariff)
         yearly_savings = yearly_bill_without_spp - yearly_bill_with_spp
@@ -153,6 +157,8 @@ def _residential_from_panel_count(
         "annual_generation_kwh": _round2(annual_generation),
         "monthly_generation_kwh": _round2(monthly_generation),
         "coverage_percent": _round2(coverage_percent),
+        "generation_coverage_percent": _round2(generation_coverage_percent),
+        "bill_coverage_percent": _round2(bill_coverage_percent),
         "estimated_cost_kzt": _round2(estimated_cost),
         "yearly_bill_without_spp_kzt": _round2(yearly_bill_without_spp),
         "yearly_bill_with_spp_kzt": _round2(yearly_bill_with_spp),
@@ -380,11 +386,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         usable_area = roof_area_m2 * ROOF_COEFFICIENTS[roof_type]
         panel_count = int(math.floor(usable_area / PANEL_AREA_WITH_GAP_M2))
         panel_count = max(panel_count, 0)
-        summary = f"На крыше {_round2(roof_area_m2)} м² можно разместить систему примерно на {_round2(panel_count * PANEL_POWER_W / 1000)} кВт."
-        if annual_kwh_need:
-            summary += f" При потреблении {_round2(monthly_kwh)} кВт·ч/мес рассчитаны покрытие и экономика."
-
-        result = _residential_from_panel_count(
+        roof_max = _residential_from_panel_count(
             panel_count=panel_count,
             specific_yield=specific_yield,
             tariff=tariff,
@@ -392,20 +394,36 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             annual_kwh_need=annual_kwh_need,
             roof_area_m2=roof_area_m2,
             basis="По площади крыши и коэффициенту типа кровли.",
-            summary=summary,
+            summary=f"На крыше {_round2(roof_area_m2)} м² можно разместить систему примерно на {_round2(panel_count * PANEL_POWER_W / 1000)} кВт.",
+            self_consumption_percent=75.0,
+            battery_kwh=0.0,
         )
-        result["usable_area_m2"] = _round2(usable_area)
-        result["free_area_m2"] = _round2(max(0.0, roof_area_m2 - (panel_count * PANEL_AREA_WITH_GAP_M2)))
-        result["roof_fit"] = "fits"
-        result["roof_fit_message"] = "Расчёт построен от доступной площади крыши."
-        if annual_kwh_need:
-            result["annual_kwh_need"] = _round2(annual_kwh_need)
-            if (result.get("annual_generation_kwh") or 0) > annual_kwh_need:
-                response["warnings"].append("Генерация станции превышает годовое потребление объекта.")
-        response["result"] = result
+        roof_max["name"] = "roof_max"
+        roof_max["need_battery"] = False
+        roof_max["note"] = "Без аккумулятора часть дневной генерации может уходить в сеть или не использоваться."
+        roof_max["display"] = {
+            "title": "Максимум по крыше",
+            "subtitle": "Расчёт по доступной площади",
+            "badge": "По крыше",
+            "description": "Показывает максимум системы на вашей крыше.",
+        }
+        roof_max["usable_area_m2"] = _round2(usable_area)
+        roof_max["free_area_m2"] = _round2(max(0.0, roof_area_m2 - (panel_count * PANEL_AREA_WITH_GAP_M2)))
+
+        response["variants"] = [roof_max]
+        response["recommended_variant"] = "roof_max"
+        response["result"] = dict(roof_max)
+        response["smart_advice"] = {
+            "recommended_variant": "roof_max",
+            "reason": "Для режима roof_area используется вариант максимального размещения по площади.",
+            "client_message": "Рекомендуем ориентироваться на максимум по площади крыши и сравнить с вашим потреблением.",
+        }
         if annual_kwh_need:
             response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
+        if roof_max.get("roof_fit") is False:
+            response["warnings"].append("Площади крыши недостаточно для выбранной системы.")
         return response
+
 
     if mode == "max_roof":
         roof_area_m2 = _to_float(inputs.get("roof_area_m2"))
