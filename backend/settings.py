@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     "solar",
     "dashboard",
     "wind",
+    "solar_calculator",
 ]
 
 # === MIDDLEWARE ===
