@@ -205,7 +205,7 @@ def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, s
         )
         if name == "premium":
             item["need_battery"] = True
-            item["note"] = "Premium включает аккумулятор %s кВт·ч. Он повышает долю собственного потребления до 90%, но увеличивает стоимость системы." % int(battery_kwh)
+            item["note"] = f"Premium включает аккумулятор {int(battery_kwh)} кВт·ч. Он повышает долю собственного потребления до 90%, но увеличивает стоимость системы."
         else:
             item["need_battery"] = False
             item["note"] = "Без аккумулятора часть дневной генерации может уходить в сеть или не использоваться."
