@@ -64,6 +64,7 @@ def _meta() -> dict[str, Any]:
     return {
         "panel_model": PANEL_MODEL,
         "panel_power_w": PANEL_POWER_W,
+        "panel_price_kzt": PANEL_PRICE_KZT,
         "panel_length_m": PANEL_LENGTH_M,
         "panel_width_m": PANEL_WIDTH_M,
         "area_panel_m2": PANEL_AREA_M2,
@@ -74,6 +75,7 @@ def _meta() -> dict[str, Any]:
 
 def _response(mode: str, *, result_type: str = "residential", inputs_echo: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
+        "version": "2.0",
         "mode": mode,
         "result_type": result_type,
         "meta": _meta(),
@@ -85,15 +87,13 @@ def _response(mode: str, *, result_type: str = "residential", inputs_echo: dict[
     }
 
 
-def _roof_fit(roof_area_m2: float | None, area_required: float) -> tuple[str | None, str | None]:
+def _roof_fit(roof_area_m2: float | None, area_required: float) -> tuple[bool | None, str | None]:
     if roof_area_m2 is None:
         return None, None
 
-    if roof_area_m2 >= area_required:
-        return "fits", f"Система требует {_round2(area_required)} м², указанной площади достаточно."
-    if roof_area_m2 >= area_required * 0.85:
-        return "partial", f"Система требует {_round2(area_required)} м², указанной площади немного не хватает."
-    return "not_fit", f"Система требует {_round2(area_required)} м², указанной площади недостаточно."
+    if area_required <= roof_area_m2:
+        return True, "Система помещается на указанной площади крыши."
+    return False, "Площади крыши недостаточно. Нужно уменьшить мощность или выбрать другой тип размещения."
 
 
 def _residential_from_panel_count(
@@ -180,16 +180,21 @@ def _residential_from_panel_count(
     }
 
 
-def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, specific_yield: float, tariff: float, cost_per_kw: float) -> list[dict[str, Any]]:
+def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, specific_yield: float, tariff: float, cost_per_kw: float, roof_area_m2: float | None = None) -> list[dict[str, Any]]:
     variants = []
     monthly_kwh = (annual_kwh_need / 12) if annual_kwh_need else 0.0
+    variant_defs = [
+        ("economy", 0.4, 60.0, "Эконом", "Минимальная цена входа", "Доступно", "Подходит при ограниченном бюджете."),
+        ("optimal", 0.8, 75.0, "Оптимальный", "Лучший баланс", "Рекомендуем", "Подходит для большинства домов."),
+        ("premium", 1.0, 90.0, "Премиум", "Максимальная автономность", "С аккумулятором", "Максимум полезной генерации и автономности."),
+    ]
 
-    for name, factor, self_cons in (("economy", 0.5, 60.0), ("optimal", 0.75, 75.0), ("premium", 1.0, 90.0)):
+    for name, factor, self_cons, title, subtitle, badge, desc in variant_defs:
         target_panels = max(1, int(round((target_system_kw * factor) * 1000 / PANEL_POWER_W)))
         battery_kwh = 0.0
         if name == "premium":
             daily_kwh = (monthly_kwh / 30) if monthly_kwh > 0 else ((target_panels * PANEL_POWER_W / 1000) * specific_yield / 12 / 30)
-            battery_kwh = max(5.0, float(math.ceil(daily_kwh * 0.4)))
+            battery_kwh = min(30.0, max(5.0, float(math.ceil(daily_kwh * 0.4))))
 
         item = _residential_from_panel_count(
             panel_count=target_panels,
@@ -197,12 +202,13 @@ def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, s
             tariff=tariff,
             cost_per_kw=cost_per_kw,
             annual_kwh_need=annual_kwh_need,
-            roof_area_m2=None,
+            roof_area_m2=roof_area_m2,
             basis=f"{name} ({int(factor * 100)}% от целевой мощности)",
             summary=f"Вариант {name}: {target_panels} панелей, {_round2(target_panels * PANEL_POWER_W / 1000)} кВт.",
             self_consumption_percent=self_cons,
             battery_kwh=battery_kwh,
         )
+        item["display"] = {"title": title, "subtitle": subtitle, "badge": badge, "description": desc}
         if name == "premium":
             item["need_battery"] = True
             item["note"] = f"Premium включает аккумулятор {int(battery_kwh)} кВт·ч. Он повышает долю собственного потребления до 90%, но увеличивает стоимость системы."
@@ -272,6 +278,28 @@ def _build_station_economics(*, response: dict[str, Any], ac_mw: float, annual_g
     return result
 
 
+def _smart_advice(monthly_kwh: float | None) -> tuple[str, dict[str, str]]:
+    if monthly_kwh is None:
+        rec = "optimal"
+        reason = "Недостаточно данных о потреблении, выбран универсальный вариант."
+        msg = "Рекомендуем вариант Оптимальный как базовый баланс цены и экономии."
+        return rec, {"recommended_variant": rec, "reason": reason, "client_message": msg}
+
+    if monthly_kwh <= 250:
+        rec = "economy"
+        reason = "Низкое потребление, достаточно компактной системы."
+        msg = "Для вашего потребления оптимален вариант Эконом: он закрывает базовые потребности с минимальным бюджетом."
+    elif monthly_kwh <= 700:
+        rec = "optimal"
+        reason = "Лучший баланс стоимости, экономии и окупаемости."
+        msg = "Для вашего потребления оптимален вариант Оптимальный: он покрывает большую часть расходов без дорогого аккумулятора."
+    else:
+        rec = "premium"
+        reason = "Высокое потребление, имеет смысл рассмотреть аккумулятор и большую автономность."
+        msg = "Для вашего потребления рекомендуем Премиум: аккумулятор повышает автономность и долю полезной генерации."
+    return rec, {"recommended_variant": rec, "reason": reason, "client_message": msg}
+
+
 def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
     if mode not in CALC_MODES:
         return {
@@ -321,7 +349,17 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             specific_yield=specific_yield,
             tariff=tariff,
             cost_per_kw=cost_per_kw,
+            roof_area_m2=roof_area_m2,
         )
+        rec, advice = _smart_advice(monthly_kwh)
+        if inputs.get("preferred_variant") == "premium" or inputs.get("goal") in {"max_coverage", "premium"}:
+            rec = "premium"
+            advice["recommended_variant"] = "premium"
+        response["recommended_variant"] = rec
+        response["smart_advice"] = advice
+        response["result"] = next((v for v in response["variants"] if v["name"] == rec), response["variants"][1])
+        if response["result"].get("roof_fit") is False:
+            response["warnings"].append("Площади крыши недостаточно для выбранной системы.")
         return response
 
     if mode == "roof_area":
@@ -421,7 +459,6 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             summary=f"При бюджете {_round2(budget_kzt)} тг доступна система {_round2(panel_count * PANEL_POWER_W / 1000)} кВт ({panel_count} панелей).",
         )
         result["system_kw_raw"] = _round2(system_kw_raw)
-        response["result"] = result
         response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
         response["variants"] = _build_variants(
             target_system_kw=panel_count * PANEL_POWER_W / 1000,
@@ -429,7 +466,11 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             specific_yield=specific_yield,
             tariff=tariff,
             cost_per_kw=cost_per_kw,
+            roof_area_m2=None,
         )
+        response["recommended_variant"] = "optimal"
+        response["smart_advice"] = {"recommended_variant": "optimal", "reason": "Лучший баланс стоимости, экономии и окупаемости.", "client_message": "Для бюджета без профиля потребления рекомендуем вариант Оптимальный."}
+        response["result"] = next((v for v in response["variants"] if v["name"] == "optimal"), result)
         return response
 
     if mode == "utility_power":
@@ -563,7 +604,6 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
     result["monthly_kwh_derived"] = _round2(monthly_kwh)
     result["annual_kwh_derived"] = _round2(annual_kwh)
     result["peak_kw"] = _round2(peak_kw)
-    response["result"] = result
     response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
     response["variants"] = _build_variants(
         target_system_kw=panel_count * PANEL_POWER_W / 1000,
@@ -571,5 +611,14 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         specific_yield=specific_yield,
         tariff=tariff,
         cost_per_kw=cost_per_kw,
+        roof_area_m2=_to_float(inputs.get("roof_area_m2")),
     )
+    monthly_kwh_calc = annual_kwh / 12
+    rec, advice = _smart_advice(monthly_kwh_calc)
+    if inputs.get("preferred_variant") == "premium" or inputs.get("goal") in {"max_coverage", "premium"}:
+        rec = "premium"
+        advice["recommended_variant"] = "premium"
+    response["recommended_variant"] = rec
+    response["smart_advice"] = advice
+    response["result"] = next((v for v in response["variants"] if v["name"] == rec), response["variants"][1])
     return response

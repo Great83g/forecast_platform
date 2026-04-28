@@ -86,6 +86,8 @@
     </div>
 
     <hr class="my-4" />
+    <h5>Варианты</h5>
+    <div id="variantCards" class="row g-3 mb-4"></div>
     <h5>JSON ответ</h5>
     <pre id="result" class="bg-light p-3 rounded small">Нажмите «Рассчитать»</pre>
   </div>
@@ -328,6 +330,41 @@
     updateFieldState();
   });
 
+
+  function renderVariantCards(data) {
+    const container = document.getElementById('variantCards');
+    container.innerHTML = '';
+    const variants = Array.isArray(data?.variants) ? data.variants : [];
+    variants.forEach((v) => {
+      const isRecommended = data?.recommended_variant === v.name;
+      const card = document.createElement('div');
+      card.className = 'col-md-4';
+      card.innerHTML = `
+        <div class="card h-100 ${isRecommended ? 'border-primary' : ''}">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">${v.display?.title || v.name}</h6>
+              ${isRecommended ? '<span class="badge bg-primary">Рекомендуем</span>' : ''}
+            </div>
+            <div class="text-muted small mb-2">${v.display?.subtitle || ''}</div>
+            <ul class="small mb-2 ps-3">
+              <li>Панелей: ${v.panel_count ?? '-'}</li>
+              <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
+              <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
+              <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
+              <li>Покрытие: ${v.coverage_percent ?? '-'}%</li>
+              <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
+              <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
+              <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>
+            </ul>
+            <div class="small">${v.note || ''}</div>
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+
   document.getElementById('runCalc').addEventListener('click', async () => {
     if (!specificYieldInput.readOnly && !validateSpecificYield(true)) {
       return;
@@ -352,11 +389,13 @@
     });
 
     const data = await response.json();
+    renderVariantCards(data);
     document.getElementById('result').textContent = JSON.stringify(data, null, 2);
   });
 
   document.getElementById('clearResult').addEventListener('click', () => {
     document.getElementById('result').textContent = 'Нажмите «Рассчитать»';
+    document.getElementById('variantCards').innerHTML = '';
   });
 
   setSpecificYieldReadonly(true);
