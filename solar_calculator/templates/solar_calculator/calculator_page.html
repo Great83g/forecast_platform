@@ -78,8 +78,28 @@
         </div>
         <div class="col-md-4" data-field-wrap="specific_yield">
           <div class="field-card">
-            <label class="form-label">Выработка (кВт·ч/кВт/год)</label>
-            <input id="specific_yield" type="number" class="form-control" value="1450" min="800" max="2000">
+            <label class="form-label">Региональная солнечная выработка</label>
+            <div id="specificYieldLabel" class="small fw-semibold mb-2">Казахстан, средняя (1450)</div>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="toggleYieldEditor">Изменить</button>
+            <input id="specific_yield" type="hidden" value="1450">
+
+            <div id="yieldEditor" class="mt-3 d-none">
+              <div class="small mb-1">Выберите регион:</div>
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                <button type="button" class="btn btn-sm btn-light region-btn" data-label="Казахстан (север)" data-yield="1300">Казахстан (север) — 1300</button>
+                <button type="button" class="btn btn-sm btn-light region-btn" data-label="Казахстан (средняя)" data-yield="1450">Казахстан (средняя) — 1450</button>
+                <button type="button" class="btn btn-sm btn-light region-btn" data-label="Казахстан (юг)" data-yield="1600">Казахстан (юг) — 1600</button>
+              </div>
+
+              <div class="small mb-1">или задать вручную:</div>
+              <label class="form-label mb-1">Коэффициент солнечной выработки</label>
+              <input id="specific_yield_manual" type="number" class="form-control" value="1450" min="800" max="2200">
+              <div class="tiny-note mt-2">Показывает, сколько энергии в среднем даёт 1 кВт солнечных панелей за год.</div>
+              <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-sm btn-primary" type="button" id="saveYieldEditor">Сохранить</button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="cancelYieldEditor">Отмена</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="col-md-4" data-field-wrap="tariff_kzt_per_kwh">
@@ -213,12 +233,29 @@
     land_area_ha: document.getElementById('land_area_ha'),
   };
 
+  const specificYieldHidden = document.getElementById('specific_yield');
+  const specificYieldManual = document.getElementById('specific_yield_manual');
+  const specificYieldLabel = document.getElementById('specificYieldLabel');
+  const yieldEditor = document.getElementById('yieldEditor');
+  const toggleYieldEditor = document.getElementById('toggleYieldEditor');
+  const REGION_LOOKUP = {
+    1300: 'Казахстан, север',
+    1450: 'Казахстан, средняя',
+    1600: 'Казахстан, юг',
+  };
+
   function asNumByElement(el) {
     if (!el) return null;
     const raw = el.value;
     if (raw === '' || raw === null || raw === undefined) return null;
     const value = parseFloat(raw);
     return Number.isFinite(value) ? value : null;
+  }
+
+  function updateSpecificYieldLabel() {
+    const value = Number(specificYieldHidden.value || 1450);
+    const region = REGION_LOOKUP[value];
+    specificYieldLabel.textContent = region ? `${region} (${formatInt(value)})` : `Ручной коэффициент (${formatInt(value)})`;
   }
 
   function formatInt(value) {
@@ -234,9 +271,14 @@
     }).format(Number(value));
   }
 
-  function formatCurrency(value) {
+  function formatMoney(value) {
     if (value === null || value === undefined || value === '') return null;
     return `${formatInt(value)} ₸`;
+  }
+
+  function formatPriceFrom(value) {
+    if (value === null || value === undefined || value === '') return null;
+    return `от ${formatInt(value)} ₸`;
   }
 
   function formatPriceRange(minValue, maxValue) {
@@ -292,7 +334,7 @@
   function buildRecommendation(variant, mode) {
     if (!variant) return '';
     const title = variant.display?.title || variant.name || 'Оптимальный';
-    let price = formatCurrency(variant.estimated_cost_kzt);
+    let price = formatPriceFrom(variant.estimated_cost_kzt);
 
     if (!price && (variant.estimated_cost_min_kzt !== undefined || variant.estimated_cost_max_kzt !== undefined)) {
       price = formatPriceRange(variant.estimated_cost_min_kzt ?? null, variant.estimated_cost_max_kzt ?? null);
@@ -303,6 +345,7 @@
         <div class="recommend-title">Рекомендуем: ${title}</div>
         <div class="recommend-price mt-2">${price || '—'}</div>
         <div class="mt-2 small">AC: ${formatNum(variant.ac_mw) || '-'} МВт · DC: ${formatNum(variant.dc_mw) || '-'} МВт · Генерация: ${formatNum(variant.annual_generation_gwh) || '-'} ГВт·ч/год</div>
+        <div class="mt-1 tiny-note">Панель: 580 Вт</div>
       `;
     }
 
@@ -310,13 +353,14 @@
       <div class="recommend-title">Рекомендуем: ${title}</div>
       <div class="recommend-price mt-2">${price || '—'}</div>
       <div class="mt-2 small">${formatInt(variant.panel_count) || '-'} панелей · ${formatNum(variant.system_kw) || '-'} кВт · ${formatNum(variant.area_required_m2) || '-'} м²</div>
-      <div class="mt-1 small">Экономия: ${formatCurrency(variant.yearly_savings_kzt) || '-'} / год · Окупаемость: ${variant.payback_years ?? '-'} лет</div>
+      <div class="mt-1 tiny-note">Панель: 580 Вт</div>
+      <div class="mt-1 small">Экономия: ${formatMoney(variant.yearly_savings_kzt) || '-'} / год · Окупаемость: ${variant.payback_years ?? '-'} лет</div>
     `;
   }
 
   function renderVariantCard(v, data) {
     const isRecommended = data?.recommended_variant === v.name;
-    const price = formatCurrency(v.estimated_cost_kzt)
+    const price = formatPriceFrom(v.estimated_cost_kzt)
       || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null)
       || '—';
 
@@ -327,6 +371,7 @@
         <div class="tiny-note mb-2">${v.display?.description || ''}</div>
         <div class="recommend-price">${price}</div>
         <div class="small mt-2">${formatNum(v.ac_mw) || '-'} МВт AC · ${formatNum(v.dc_mw) || '-'} МВт DC · ${formatInt(v.panels) || '-'} панелей</div>
+        <div class="tiny-note mt-1">Панель: 580 Вт</div>
         <div class="metric-grid mt-3">
           <div class="metric"><div class="metric-label">Участок</div><div class="metric-value">${formatNum(area) || '-'} га</div></div>
           <div class="metric"><div class="metric-label">Инверторы</div><div class="metric-value">${formatInt(v.inverter_count) || '-'}</div></div>
@@ -339,10 +384,11 @@
         <div class="tiny-note mb-2">${v.display?.description || ''}</div>
         <div class="recommend-price">${price}</div>
         <div class="small mt-2">${formatInt(v.panel_count) || '-'} панелей · ${formatNum(v.system_kw) || '-'} кВт · ${formatNum(v.area_required_m2) || '-'} м²</div>
+        <div class="tiny-note mt-1">Панель: 580 Вт</div>
         <div class="metric-grid mt-3">
-          <div class="metric"><div class="metric-label">Потенциальная выручка</div><div class="metric-value">${formatCurrency(v.export_revenue_kzt) || '-'}</div></div>
+          <div class="metric"><div class="metric-label">Потенциальная выручка</div><div class="metric-value">${formatMoney(v.export_revenue_kzt) || '-'}</div></div>
           <div class="metric"><div class="metric-label">Продажа в сеть</div><div class="metric-value">${formatInt(v.export_kwh) || '-'} кВт·ч/год</div></div>
-          <div class="metric"><div class="metric-label">Общий эффект/год</div><div class="metric-value">${formatCurrency(v.total_benefit_kzt) || '-'}</div></div>
+          <div class="metric"><div class="metric-label">Общий эффект/год</div><div class="metric-value">${formatMoney(v.total_benefit_kzt) || '-'}</div></div>
         </div>
         ${v.payback_years !== null && v.payback_years !== undefined ? `<div class="mt-3 small">Окупаемость: <b>${formatNum(v.payback_years)} лет</b></div>` : ''}
       `;
@@ -352,12 +398,13 @@
         <div class="tiny-note mb-2">${v.display?.description || ''}</div>
         <div class="recommend-price">${price}</div>
         <div class="small mt-2">${formatInt(v.panel_count) || '-'} панелей · ${formatNum(v.system_kw) || '-'} кВт · ${formatNum(v.area_required_m2) || '-'} м²</div>
+        <div class="tiny-note mt-1">Панель: 580 Вт</div>
         <div class="metric-grid mt-3">
           <div class="metric"><div class="metric-label">Генерация</div><div class="metric-value">${formatNum(v.generation_coverage_percent) || '-'}%</div></div>
           <div class="metric"><div class="metric-label">Экономия счёта</div><div class="metric-value">${formatNum(v.bill_coverage_percent) || '-'}%</div></div>
           <div class="metric"><div class="metric-label">Окупаемость</div><div class="metric-value">${v.payback_years ?? '-'} лет</div></div>
         </div>
-        <div class="mt-3 small">Экономия: <b>${formatCurrency(v.yearly_savings_kzt) || '-'}/год</b></div>
+        <div class="mt-3 small">Экономия: <b>${formatMoney(v.yearly_savings_kzt) || '-'}/год</b></div>
         <div class="small">Аккумулятор: <b>${batteryText}</b></div>
       `;
     }
@@ -451,6 +498,30 @@
     btn.addEventListener('click', () => switchMode(btn.dataset.mode));
   });
 
+  toggleYieldEditor.addEventListener('click', () => {
+    specificYieldManual.value = specificYieldHidden.value || '1450';
+    yieldEditor.classList.toggle('d-none');
+  });
+
+  document.querySelectorAll('.region-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      specificYieldManual.value = btn.dataset.yield;
+    });
+  });
+
+  document.getElementById('saveYieldEditor').addEventListener('click', () => {
+    const value = asNumByElement(specificYieldManual);
+    if (value === null) return;
+    specificYieldHidden.value = value;
+    yieldEditor.classList.add('d-none');
+    updateSpecificYieldLabel();
+  });
+
+  document.getElementById('cancelYieldEditor').addEventListener('click', () => {
+    yieldEditor.classList.add('d-none');
+    specificYieldManual.value = specificYieldHidden.value || '1450';
+  });
+
   function openQuoteModal(variant, calcData) {
     document.getElementById('q_selected_variant').value = variant.name || '';
     document.getElementById('q_calculation_json').value = JSON.stringify(calcData || latestCalculation || {});
@@ -478,5 +549,6 @@
   });
 
   switchMode('consumption');
+  updateSpecificYieldLabel();
 </script>
 {% endblock %}
