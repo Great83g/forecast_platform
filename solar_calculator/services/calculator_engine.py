@@ -538,7 +538,18 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         if ac_mw < 1:
             result["ac_kw"] = _round2(ac_mw * 1000)
             result["dc_kw"] = _round2(dc_mw * 1000)
-        response["result"] = result
+        response["variants"] = [{
+            "name": "utility_power",
+            "display": {
+                "title": "Станция по мощности",
+                "subtitle": "Расчёт по целевой AC мощности",
+                "badge": "Utility",
+                "description": "Показывает панели, площадь, генерацию и стоимость станции.",
+            },
+            **result,
+        }]
+        response["recommended_variant"] = "utility_power"
+        response["result"] = response["variants"][0]
         return response
 
     if mode == "utility_land":

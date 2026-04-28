@@ -363,6 +363,44 @@
     const variants = Array.isArray(data?.variants) ? data.variants : [];
     variants.forEach((v) => {
       const isRecommended = data?.recommended_variant === v.name;
+      let metrics = `
+        <li>Панелей: ${v.panel_count ?? '-'}</li>
+        <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
+        <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
+        <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
+        <li>Генерация: ${v.generation_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
+        <li>Экономия счета: ${v.bill_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
+        <li>Выручка от экспорта: ${v.export_revenue_kzt ?? '-'} тг</li>
+        <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
+        <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
+        <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
+        <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>
+      `;
+
+      if (v.name === 'utility_power') {
+        metrics = `
+          <li>AC мощность: ${v.ac_mw ?? '-'} МВт</li>
+          <li>DC мощность: ${v.dc_mw ?? '-'} МВт</li>
+          <li>Панелей: ${v.panels ?? '-'}</li>
+          <li>Площадь участка: ${v.land_required_ha ?? '-'} га</li>
+          <li>Генерация/год: ${v.annual_generation_gwh ?? '-'} ГВт·ч</li>
+          <li>Инверторов: ${v.inverter_count ?? '-'}</li>
+          <li>Стоимость min: ${v.estimated_cost_min_kzt ?? '-'} тг</li>
+          <li>Стоимость max: ${v.estimated_cost_max_kzt ?? '-'} тг</li>
+          <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
+        `;
+      } else if (v.name === 'grid_export') {
+        metrics = `
+          <li>Панелей: ${v.panel_count ?? '-'}</li>
+          <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
+          <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
+          <li>Потенциальная выручка: ${v.export_revenue_kzt ?? '-'} тг</li>
+          <li>Экспорт в сеть: ${v.export_kwh ?? '-'} кВт·ч/год</li>
+          <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
+          <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
+        `;
+      }
+
       const card = document.createElement('div');
       card.className = 'col-md-4';
       card.innerHTML = `
@@ -374,17 +412,7 @@
             </div>
             <div class="text-muted small mb-2">${v.display?.subtitle || ''}</div>
             <ul class="small mb-2 ps-3">
-              <li>Панелей: ${v.panel_count ?? '-'}</li>
-              <li>Мощность: ${v.system_kw ?? '-'} кВт</li>
-              <li>Площадь: ${v.area_required_m2 ?? '-'} м²</li>
-              <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
-              <li>Генерация: ${v.generation_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
-              <li>Экономия счета: ${v.bill_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
-              <li>Выручка от экспорта: ${v.export_revenue_kzt ?? '-'} тг</li>
-              <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
-              <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
-              <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
-              <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>
+              ${metrics}
             </ul>
             <div class="small">${v.note || ''}</div>
           </div>
