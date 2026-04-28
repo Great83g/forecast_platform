@@ -593,7 +593,18 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         if ac_mw < 1:
             result["ac_kw"] = _round2(ac_mw * 1000)
             result["dc_kw"] = _round2(dc_mw * 1000)
-        response["result"] = result
+        response["variants"] = [{
+            "name": "utility_land",
+            "display": {
+                "title": "Станция по участку",
+                "subtitle": "Расчёт по площади земли",
+                "badge": "Utility",
+                "description": "Показывает, какую СЭС можно построить на указанном участке.",
+            },
+            **result,
+        }]
+        response["recommended_variant"] = "utility_land"
+        response["result"] = response["variants"][0]
         return response
 
     if mode == "grid_export":

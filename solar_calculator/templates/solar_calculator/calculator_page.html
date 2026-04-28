@@ -389,6 +389,17 @@
           <li>Стоимость max: ${v.estimated_cost_max_kzt ?? '-'} тг</li>
           <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
         `;
+      } else if (v.name === 'utility_land') {
+        metrics = `
+          <li>Площадь участка: ${v.land_hectares ?? '-'} га</li>
+          <li>AC мощность: ${v.ac_mw ?? '-'} МВт</li>
+          <li>DC мощность: ${v.dc_mw ?? '-'} МВт</li>
+          <li>Панелей: ${v.panels ?? '-'}</li>
+          <li>Инверторов: ${v.inverter_count ?? '-'}</li>
+          <li>Генерация: ${v.annual_generation_gwh ?? '-'} ГВт·ч/год</li>
+          <li>Стоимость: ${v.estimated_cost_max_kzt ?? v.estimated_cost_min_kzt ?? '-'} ₸</li>
+          <li>Окупаемость: ${v.payback_years ?? 'не рассчитана'}</li>
+        `;
       } else if (v.name === 'grid_export') {
         metrics = `
           <li>Панелей: ${v.panel_count ?? '-'}</li>

@@ -66,6 +66,17 @@ class CalculatorEngineTests(TestCase):
         self.assertEqual(payload["variants"][0]["name"], "utility_power")
         self.assertEqual(payload["result"], payload["variants"][0])
 
+    def test_utility_land_has_variant_and_result_matches(self):
+        payload = calculate(
+            "utility_land",
+            {"land_hectares": 2, "specific_yield": 1450, "tariff_kzt_per_kwh": 35},
+        )
+        self.assertEqual(payload["errors"], [])
+        self.assertTrue(payload["variants"])
+        self.assertEqual(payload["recommended_variant"], "utility_land")
+        self.assertEqual(payload["variants"][0]["name"], "utility_land")
+        self.assertEqual(payload["result"], payload["variants"][0])
+
 
 class CalculatorApiTests(TestCase):
     def setUp(self):
