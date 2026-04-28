@@ -55,6 +55,17 @@ class CalculatorEngineTests(TestCase):
         self.assertIn("export_revenue_kzt", payload["result"])
         self.assertIn("total_benefit_kzt", payload["result"])
 
+    def test_utility_power_has_variant_and_result_matches(self):
+        payload = calculate(
+            "utility_power",
+            {"target_mw_ac": 10, "specific_yield": 1450, "tariff_kzt_per_kwh": 35},
+        )
+        self.assertEqual(payload["errors"], [])
+        self.assertTrue(payload["variants"])
+        self.assertEqual(payload["recommended_variant"], "utility_power")
+        self.assertEqual(payload["variants"][0]["name"], "utility_power")
+        self.assertEqual(payload["result"], payload["variants"][0])
+
 
 class CalculatorApiTests(TestCase):
     def setUp(self):
