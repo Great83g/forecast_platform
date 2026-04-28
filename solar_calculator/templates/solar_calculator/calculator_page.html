@@ -22,8 +22,9 @@
           <option value="appliances">По приборам</option>
           <option value="budget">По бюджету</option>
           <option value="roof_area">По площади крыши</option>
-                    <option value="utility_power" title="Расчет солнечной станции по заданной мощности (в мегаваттах)">Станция (по мощности)</option>
+          <option value="utility_power" title="Расчет солнечной станции по заданной мощности (в мегаваттах)">Станция (по мощности)</option>
           <option value="utility_land" title="Расчет мощности станции по доступной площади участка (в гектарах)">Станция (по площади участка)</option>
+          <option value="grid_export" title="Расчет станции с продажей электроэнергии в сеть">Продажа в сеть</option>
         </select>
       </div>
       <div class="col-md-4" data-field-wrap="specific_yield">
@@ -69,6 +70,22 @@
       <div class="col-md-4" data-field-wrap="land_hectares">
         <label class="form-label">Площадь участка (га)</label>
         <input id="land_hectares" type="number" class="form-control" value="10" step="0.1">
+      </div>
+      <div class="col-md-4" data-field-wrap="target_kw">
+        <label class="form-label">Мощность станции (кВт)</label>
+        <input id="target_kw" type="number" class="form-control" value="500" step="1">
+      </div>
+      <div class="col-md-4" data-field-wrap="own_consumption_percent">
+        <label class="form-label">Собственное потребление (%)</label>
+        <input id="own_consumption_percent" type="number" class="form-control" value="0" min="0" max="100" step="1">
+      </div>
+      <div class="col-md-4" data-field-wrap="export_tariff_kzt_per_kwh">
+        <label class="form-label">Тариф продажи (тг/кВт·ч)</label>
+        <input id="export_tariff_kzt_per_kwh" type="number" class="form-control" value="25" step="0.1">
+      </div>
+      <div class="col-md-4" data-field-wrap="land_area_ha">
+        <label class="form-label">Участок под станцию (га)</label>
+        <input id="land_area_ha" type="number" class="form-control" value="5" step="0.1">
       </div>
 
       <div class="col-12" data-field-wrap="appliances">
@@ -125,6 +142,11 @@
       optional: [],
       optionalDepends: {},
     },
+    grid_export: {
+      active: ['target_kw', 'specific_yield', 'tariff_kzt_per_kwh', 'export_tariff_kzt_per_kwh', 'own_consumption_percent'],
+      optional: ['land_area_ha'],
+      optionalDepends: {},
+    },
   };
 
   const specificYieldInput = document.getElementById('specific_yield');
@@ -143,6 +165,10 @@
     roof_type: document.getElementById('roof_type'),
     target_mw_ac: document.getElementById('target_mw_ac'),
     land_hectares: document.getElementById('land_hectares'),
+    target_kw: document.getElementById('target_kw'),
+    own_consumption_percent: document.getElementById('own_consumption_percent'),
+    export_tariff_kzt_per_kwh: document.getElementById('export_tariff_kzt_per_kwh'),
+    land_area_ha: document.getElementById('land_area_ha'),
     appliances: document.getElementById('appliances'),
   };
 
@@ -354,7 +380,9 @@
               <li>Стоимость: ${v.estimated_cost_kzt ?? '-'} тг</li>
               <li>Генерация: ${v.generation_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
               <li>Экономия счета: ${v.bill_coverage_percent ?? v.coverage_percent ?? '-'}%</li>
+              <li>Выручка от экспорта: ${v.export_revenue_kzt ?? '-'} тг</li>
               <li>Экономия/год: ${v.yearly_savings_kzt ?? '-'} тг</li>
+              <li>Общая выгода/год: ${v.total_benefit_kzt ?? '-'} тг</li>
               <li>Окупаемость: ${v.payback_years ?? '-'} лет</li>
               <li>АКБ: ${v.need_battery ? `${v.battery_kwh || 0} кВт·ч` : 'нет'}</li>
             </ul>

@@ -35,6 +35,26 @@ class CalculatorEngineTests(TestCase):
         self.assertGreater(payload["result"]["daily_kwh"], 0)
         self.assertGreater(payload["result"]["peak_kw"], 0)
 
+    def test_grid_export_mode(self):
+        payload = calculate(
+            "grid_export",
+            {
+                "target_kw": 500,
+                "specific_yield": 1450,
+                "tariff_kzt_per_kwh": 35,
+                "export_tariff_kzt_per_kwh": 25,
+                "own_consumption_percent": 10,
+                "land_area_ha": 5,
+            },
+        )
+        self.assertEqual(payload["result_type"], "commercial")
+        self.assertEqual(payload["errors"], [])
+        self.assertIn("cost_breakdown", payload)
+        self.assertIn("energy_model", payload)
+        self.assertEqual(payload["recommended_variant"], "grid_export")
+        self.assertIn("export_revenue_kzt", payload["result"])
+        self.assertIn("total_benefit_kzt", payload["result"])
+
 
 class CalculatorApiTests(TestCase):
     def setUp(self):
