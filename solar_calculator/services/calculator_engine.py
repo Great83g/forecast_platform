@@ -16,6 +16,12 @@ DEFAULT_TARIFF_KZT_PER_KWH = 35.0
 PANEL_PRICE_PER_W_KZT = 100.0
 DEFAULT_COST_PER_KW = PANEL_PRICE_PER_W_KZT * 1000
 
+PANEL_PRICE_KZT = 58_000.0
+INVERTER_COST_PER_KW_KZT = 70_000.0
+MOUNTING_COST_PER_KW_KZT = 50_000.0
+CABLES_PROTECTION_COST_PER_KW_KZT = 30_000.0
+BATTERY_COST_PER_KWH_KZT = 120_000.0
+
 DC_AC_RATIO = 1.2
 LAND_PER_MW_HA = 1.5
 INVERTER_UNIT_MW = 0.25
@@ -100,6 +106,8 @@ def _residential_from_panel_count(
     roof_area_m2: float | None = None,
     basis: str,
     summary: str,
+    self_consumption_percent: float = 100.0,
+    battery_kwh: float = 0.0,
 ) -> dict[str, Any]:
     system_kw_final = panel_count * PANEL_POWER_W / 1000
     area_panels = panel_count * PANEL_AREA_M2
@@ -108,6 +116,9 @@ def _residential_from_panel_count(
     annual_generation = system_kw_final * specific_yield
     monthly_generation = annual_generation / 12
 
+    usable_generation_kwh = annual_generation * max(min(self_consumption_percent, 100.0), 0.0) / 100
+    export_or_unused_kwh = max(annual_generation - usable_generation_kwh, 0.0)
+
     coverage_percent = None
     yearly_bill_without_spp = None
     yearly_bill_with_spp = None
@@ -115,12 +126,18 @@ def _residential_from_panel_count(
     payback_years = None
 
     if annual_kwh_need and annual_kwh_need > 0:
-        coverage_percent = min(100.0, annual_generation / annual_kwh_need * 100)
+        coverage_percent = min(100.0, usable_generation_kwh / annual_kwh_need * 100)
         yearly_bill_without_spp = annual_kwh_need * tariff
-        yearly_bill_with_spp = max(0.0, (annual_kwh_need - annual_generation) * tariff)
+        yearly_bill_with_spp = max(0.0, (annual_kwh_need - usable_generation_kwh) * tariff)
         yearly_savings = yearly_bill_without_spp - yearly_bill_with_spp
 
-    estimated_cost = system_kw_final * cost_per_kw
+    panels_cost_kzt = panel_count * PANEL_PRICE_KZT
+    inverter_cost_kzt = system_kw_final * INVERTER_COST_PER_KW_KZT
+    mounting_cost_kzt = system_kw_final * MOUNTING_COST_PER_KW_KZT
+    cables_protection_cost_kzt = system_kw_final * CABLES_PROTECTION_COST_PER_KW_KZT
+    battery_cost_kzt = max(battery_kwh, 0.0) * BATTERY_COST_PER_KWH_KZT
+    estimated_cost = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + battery_cost_kzt
+
     if yearly_savings and yearly_savings > 0:
         payback_years = estimated_cost / yearly_savings
 
@@ -145,13 +162,35 @@ def _residential_from_panel_count(
         "roof_fit_message": roof_fit_message,
         "summary": summary,
         "calculation_basis": basis,
+        "cost_breakdown": {
+            "panels_cost_kzt": _round2(panels_cost_kzt),
+            "inverter_cost_kzt": _round2(inverter_cost_kzt),
+            "mounting_cost_kzt": _round2(mounting_cost_kzt),
+            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
+            "battery_cost_kzt": _round2(battery_cost_kzt),
+            "total_cost_kzt": _round2(estimated_cost),
+        },
+        "energy_model": {
+            "self_consumption_percent": _round2(self_consumption_percent),
+            "usable_generation_kwh": _round2(usable_generation_kwh),
+            "export_or_unused_kwh": _round2(export_or_unused_kwh),
+            "annual_kwh_need": _round2(annual_kwh_need),
+        },
+        "battery_kwh": _round2(battery_kwh) if battery_kwh else 0.0,
     }
 
 
 def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, specific_yield: float, tariff: float, cost_per_kw: float) -> list[dict[str, Any]]:
     variants = []
-    for name, factor in (("economy", 0.5), ("optimal", 0.75), ("premium", 1.0)):
+    monthly_kwh = (annual_kwh_need / 12) if annual_kwh_need else 0.0
+
+    for name, factor, self_cons in (("economy", 0.5, 60.0), ("optimal", 0.75, 75.0), ("premium", 1.0, 90.0)):
         target_panels = max(1, int(round((target_system_kw * factor) * 1000 / PANEL_POWER_W)))
+        battery_kwh = 0.0
+        if name == "premium":
+            daily_kwh = (monthly_kwh / 30) if monthly_kwh > 0 else ((target_panels * PANEL_POWER_W / 1000) * specific_yield / 12 / 30)
+            battery_kwh = max(5.0, float(math.ceil(daily_kwh * 0.4)))
+
         item = _residential_from_panel_count(
             panel_count=target_panels,
             specific_yield=specific_yield,
@@ -161,12 +200,15 @@ def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, s
             roof_area_m2=None,
             basis=f"{name} ({int(factor * 100)}% от целевой мощности)",
             summary=f"Вариант {name}: {target_panels} панелей, {_round2(target_panels * PANEL_POWER_W / 1000)} кВт.",
+            self_consumption_percent=self_cons,
+            battery_kwh=battery_kwh,
         )
         if name == "premium":
             item["need_battery"] = True
-            item["battery_kwh"] = max(5.0, round(item["system_kw"] * 1.5, 1))
+            item["note"] = "Premium включает аккумулятор %s кВт·ч. Он повышает долю собственного потребления до 90%, но увеличивает стоимость системы." % int(battery_kwh)
         else:
             item["need_battery"] = False
+            item["note"] = "Без аккумулятора часть дневной генерации может уходить в сеть или не использоваться."
         item["name"] = name
         variants.append(item)
     return variants
@@ -272,6 +314,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             summary=f"Для потребления {_round2(monthly_kwh)} кВт·ч/мес подходит система на {_round2(panel_count * PANEL_POWER_W / 1000)} кВт из {panel_count} панелей.",
         )
         response["result"]["annual_kwh_need"] = _round2(annual_kwh)
+        response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
         response["variants"] = _build_variants(
             target_system_kw=panel_count * PANEL_POWER_W / 1000,
             annual_kwh_need=annual_kwh,
@@ -322,6 +365,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             if (result.get("annual_generation_kwh") or 0) > annual_kwh_need:
                 response["warnings"].append("Генерация станции превышает годовое потребление объекта.")
         response["result"] = result
+        if annual_kwh_need:
+            response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
         return response
 
     if mode == "max_roof":
@@ -377,6 +422,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         )
         result["system_kw_raw"] = _round2(system_kw_raw)
         response["result"] = result
+        response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
         response["variants"] = _build_variants(
             target_system_kw=panel_count * PANEL_POWER_W / 1000,
             annual_kwh_need=None,
@@ -518,6 +564,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
     result["annual_kwh_derived"] = _round2(annual_kwh)
     result["peak_kw"] = _round2(peak_kw)
     response["result"] = result
+    response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
     response["variants"] = _build_variants(
         target_system_kw=panel_count * PANEL_POWER_W / 1000,
         annual_kwh_need=annual_kwh,
