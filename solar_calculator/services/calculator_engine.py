@@ -227,6 +227,29 @@ def _build_variants(*, target_system_kw: float, annual_kwh_need: float | None, s
     return variants
 
 
+def _apply_export_model_to_variant(variant: dict[str, Any], *, export_enabled: bool, export_tariff: float | None) -> dict[str, Any]:
+    export_kwh = _to_float((variant.get("energy_model") or {}).get("export_or_unused_kwh"), 0.0) or 0.0
+    yearly_savings = _to_float(variant.get("yearly_savings_kzt"), 0.0) or 0.0
+    estimated_cost = _to_float(variant.get("estimated_cost_kzt"), 0.0) or 0.0
+    tariff_value = export_tariff if export_enabled else None
+
+    export_income = export_kwh * (tariff_value or 0.0)
+    total_benefit = yearly_savings + export_income
+    payback_years = (estimated_cost / total_benefit) if total_benefit > 0 else None
+
+    enriched = dict(variant)
+    enriched["export_model"] = {
+        "export_enabled": bool(export_enabled),
+        "export_tariff_kzt_per_kwh": _round2(tariff_value) if tariff_value is not None else None,
+        "export_kwh": _round2(export_kwh),
+        "export_income_kzt": _round2(export_income),
+        "total_benefit_kzt": _round2(total_benefit),
+    }
+    if export_enabled:
+        enriched["payback_years"] = _round2(payback_years)
+    return enriched
+
+
 def _validate_positive(value: float | None, field: str, errors: list[str], *, allow_zero: bool = False) -> None:
     if value is None:
         errors.append(f"Поле '{field}' обязательно.")
@@ -334,9 +357,13 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
     if mode == "consumption":
         monthly_kwh = _to_float(inputs.get("monthly_kwh"))
         roof_area_m2 = _to_float(inputs.get("roof_area_m2"))
+        export_enabled = bool(inputs.get("export_enabled"))
+        export_tariff = _to_float(inputs.get("export_tariff_kzt_per_kwh"), 20.0) if export_enabled else None
         _validate_positive(monthly_kwh, "monthly_kwh", response["errors"])
         if roof_area_m2 is not None and roof_area_m2 < 3:
             response["warnings"].append("Площадь крыши очень маленькая для полноценной системы.")
+        if export_enabled and export_tariff is not None and export_tariff < 0:
+            response["errors"].append("Поле 'export_tariff_kzt_per_kwh' должно быть >= 0.")
         if response["errors"]:
             return response
 
@@ -363,6 +390,10 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             cost_per_kw=cost_per_kw,
             roof_area_m2=roof_area_m2,
         )
+        response["variants"] = [
+            _apply_export_model_to_variant(v, export_enabled=export_enabled, export_tariff=export_tariff)
+            for v in response["variants"]
+        ]
         rec, advice = _smart_advice(monthly_kwh)
         if inputs.get("preferred_variant") == "premium" or inputs.get("goal") in {"max_coverage", "premium"}:
             rec = "premium"
@@ -370,6 +401,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         response["recommended_variant"] = rec
         response["smart_advice"] = advice
         response["result"] = next((v for v in response["variants"] if v["name"] == rec), response["variants"][1])
+        if export_enabled:
+            response["warnings"].append("Продажа излишков является предварительным расчётом. Возможность продажи зависит от договора, техусловий и тарифа.")
         if response["result"].get("roof_fit") is False:
             response["warnings"].append("Площади крыши недостаточно для выбранной системы.")
         return response

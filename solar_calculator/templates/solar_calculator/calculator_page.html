@@ -108,6 +108,21 @@
             <input id="tariff" type="number" class="form-control" value="35">
           </div>
         </div>
+        <div class="col-md-4" data-field-wrap="export_enabled">
+          <div class="field-card">
+            <label class="form-label d-block">Излишки энергии</label>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="export_enabled">
+              <label class="form-check-label" for="export_enabled">Учитывать продажу излишков в сеть</label>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4 hidden-field" data-field-wrap="export_tariff_kzt_per_kwh_optional">
+          <div class="field-card">
+            <label class="form-label">Тариф продажи (₸/кВт·ч)</label>
+            <input id="export_tariff_kzt_per_kwh_optional" type="number" class="form-control" value="20" min="0" step="0.1">
+          </div>
+        </div>
         <div class="col-md-4" data-field-wrap="target_mw_ac">
           <div class="field-card">
             <label class="form-label">Мощность станции AC (МВт)</label>
@@ -212,7 +227,7 @@
 
 <script>
   const MODE_FIELDS = {
-    consumption: ['monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
+    consumption: ['monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh', 'export_enabled'],
     roof_area: ['roof_area_m2', 'roof_type', 'monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
     utility_power: ['target_mw_ac', 'specific_yield'],
     utility_land: ['land_hectares', 'specific_yield'],
@@ -231,6 +246,8 @@
     export_tariff_kzt_per_kwh: document.getElementById('export_tariff_kzt_per_kwh'),
     own_consumption_percent: document.getElementById('own_consumption_percent'),
     land_area_ha: document.getElementById('land_area_ha'),
+    export_enabled: document.getElementById('export_enabled'),
+    export_tariff_kzt_per_kwh_optional: document.getElementById('export_tariff_kzt_per_kwh_optional'),
   };
 
   const specificYieldHidden = document.getElementById('specific_yield');
@@ -310,6 +327,13 @@
       if (wrap) wrap.classList.toggle('hidden-field', !isVisible);
       if (el) el.disabled = !isVisible;
     });
+
+    const exportTariffWrap = document.querySelector('[data-field-wrap="export_tariff_kzt_per_kwh_optional"]');
+    const shouldShowExportTariff = mode === 'consumption' && !!FIELD_TO_ELEMENT.export_enabled?.checked;
+    if (exportTariffWrap) exportTariffWrap.classList.toggle('hidden-field', !shouldShowExportTariff);
+    if (FIELD_TO_ELEMENT.export_tariff_kzt_per_kwh_optional) {
+      FIELD_TO_ELEMENT.export_tariff_kzt_per_kwh_optional.disabled = !shouldShowExportTariff;
+    }
   }
 
   function collectInputs(mode) {
@@ -319,6 +343,8 @@
       if (!el || el.disabled) return;
       if (field === 'roof_type') {
         inputs.roof_type = el.value;
+      } else if (field === 'export_enabled') {
+        inputs.export_enabled = !!el.checked;
       } else {
         const value = asNumByElement(el);
         if (value !== null) inputs[field] = value;
@@ -327,6 +353,10 @@
     if (mode === 'grid_export') {
       const tariff = asNumByElement(FIELD_TO_ELEMENT.tariff_kzt_per_kwh);
       if (tariff !== null) inputs.tariff_kzt_per_kwh = tariff;
+    }
+    if (mode === 'consumption' && FIELD_TO_ELEMENT.export_enabled?.checked) {
+      const exportTariff = asNumByElement(FIELD_TO_ELEMENT.export_tariff_kzt_per_kwh_optional);
+      if (exportTariff !== null) inputs.export_tariff_kzt_per_kwh = exportTariff;
     }
     return inputs;
   }
@@ -354,7 +384,12 @@
       <div class="recommend-price mt-2">${price || '—'}</div>
       <div class="mt-2 small">${formatInt(variant.panel_count) || '-'} панелей · ${formatNum(variant.system_kw) || '-'} кВт · ${formatNum(variant.area_required_m2) || '-'} м²</div>
       <div class="mt-1 tiny-note">Панель: 580 Вт</div>
-      <div class="mt-1 small">Экономия: ${formatMoney(variant.yearly_savings_kzt) || '-'} / год · Окупаемость: ${variant.payback_years ?? '-'} лет</div>
+      <div class="mt-1 small">Экономия: ${formatMoney(variant.yearly_savings_kzt) || '-'} / год</div>
+      ${variant.export_model?.export_enabled ? `
+        <div class="small">Доход от продажи: ${formatMoney(variant.export_model.export_income_kzt) || '-'} / год</div>
+        <div class="small">Общая выгода: ${formatMoney(variant.export_model.total_benefit_kzt) || '-'} / год</div>
+        <div class="small">Окупаемость: ${variant.payback_years ?? '-'} лет</div>
+      ` : `<div class="small">Окупаемость: ${variant.payback_years ?? '-'} лет</div>`}
     `;
   }
 
@@ -394,6 +429,8 @@
       `;
     } else {
       const batteryText = v.need_battery ? `${formatNum(v.battery_kwh || 0)} кВт·ч` : 'нет';
+      const exportKwh = v.export_model?.export_kwh;
+      const showExportBlock = exportKwh !== null && exportKwh !== undefined && Number(exportKwh) > 0;
       body = `
         <div class="tiny-note mb-2">${v.display?.description || ''}</div>
         <div class="recommend-price">${price}</div>
@@ -405,6 +442,17 @@
           <div class="metric"><div class="metric-label">Окупаемость</div><div class="metric-value">${v.payback_years ?? '-'} лет</div></div>
         </div>
         <div class="mt-3 small">Экономия: <b>${formatMoney(v.yearly_savings_kzt) || '-'}/год</b></div>
+        ${showExportBlock ? `
+          <div class="metric mt-3">
+            <div class="metric-label">${v.export_model?.export_enabled ? 'Потенциальная продажа' : 'Излишек энергии'}</div>
+            <div class="metric-value">${formatInt(v.export_model.export_kwh) || '-'} кВт·ч/год</div>
+            ${v.export_model?.export_enabled
+              ? `<div class="small mt-1">Доход: ${formatMoney(v.export_model.export_income_kzt) || '-'} / год</div>
+                 <div class="small">Общая выгода: ${formatMoney(v.export_model.total_benefit_kzt) || '-'} / год</div>
+                 <div class="tiny-note mt-1">Продажа излишков является предварительным расчётом. Возможность продажи зависит от договора, техусловий и тарифа.</div>`
+              : `<div class="small mt-1">Можно использовать с аккумулятором или продажей в сеть</div>`}
+          </div>
+        ` : ''}
         <div class="small">Аккумулятор: <b>${batteryText}</b></div>
       `;
     }
@@ -497,6 +545,7 @@
   document.querySelectorAll('.mode-tab').forEach((btn) => {
     btn.addEventListener('click', () => switchMode(btn.dataset.mode));
   });
+  FIELD_TO_ELEMENT.export_enabled?.addEventListener('change', updateFieldState);
 
   toggleYieldEditor.addEventListener('click', () => {
     specificYieldManual.value = specificYieldHidden.value || '1450';

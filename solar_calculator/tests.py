@@ -21,6 +21,21 @@ class CalculatorEngineTests(TestCase):
         payload = calculate("consumption", {"monthly_kwh": 350, "roof_area_m2": 10})
         self.assertIn(payload["result"]["roof_fit"], {"fits", "partial", "not_fit"})
 
+    def test_consumption_export_model_enabled(self):
+        payload = calculate(
+            "consumption",
+            {
+                "monthly_kwh": 350,
+                "export_enabled": True,
+                "export_tariff_kzt_per_kwh": 20,
+            },
+        )
+        self.assertEqual(payload["errors"], [])
+        export_model = payload["result"]["export_model"]
+        self.assertTrue(export_model["export_enabled"])
+        self.assertEqual(export_model["export_tariff_kzt_per_kwh"], 20.0)
+        self.assertIn("total_benefit_kzt", export_model)
+
     def test_appliances_real_mode(self):
         payload = calculate(
             "appliances",
