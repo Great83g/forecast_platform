@@ -1,0 +1,17 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="card border-0 shadow-sm" style="border-radius:16px;">
+    <div class="card-body p-4 p-md-5">
+      <h1>{{ h1 }}</h1>
+      {% if intro %}<p class="lead">{{ intro }}</p>{% endif %}
+      {% block seo_content %}{% endblock %}
+      <div class="mt-4 p-3 bg-light rounded-3">
+        <h2 class="h5 mb-2">Рассчитайте солнечную станцию онлайн</h2>
+        <a class="btn btn-primary" href="/solar-calculator">Открыть калькулятор</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
