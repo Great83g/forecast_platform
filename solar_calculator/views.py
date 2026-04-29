@@ -1,7 +1,6 @@
 from django.http import HttpResponse
 from django.shortcuts import render
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .serializers import CalculatorRequestSerializer
@@ -47,7 +46,6 @@ def robots_txt(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
 def calculate_api(request):
     serializer = CalculatorRequestSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

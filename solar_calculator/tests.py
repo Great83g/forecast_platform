@@ -126,3 +126,13 @@ class CalculatorApiTests(TestCase):
         data = response.json()
         self.assertIn("result", data)
         self.assertEqual(data["errors"], [])
+
+    def test_calculate_api_anonymous_allowed(self):
+        response = self.client.post(
+            reverse("solar_calculator:calculate"),
+            data={"mode": "consumption", "inputs": {"monthly_kwh": 350}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("result", data)
