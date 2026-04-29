@@ -518,10 +518,13 @@
     const inputs = data?.inputs_echo || {};
     const price = formatPriceFrom(selected.estimated_cost_kzt) || formatPriceRange(selected.estimated_cost_min_kzt ?? null, selected.estimated_cost_max_kzt ?? null) || '—';
     const inputLines = Object.entries(inputs).map(([k, v]) => [k, typeof v === 'number' ? formatNum(v) : String(v)]);
+    const inferredInverterCount = selected.inverter_count ?? ((selected.system_kw && Number(selected.system_kw) > 0) ? 1 : null);
     const lines = [
       ['Стоимость', price],
       ['Панели', selected.panel_count ?? selected.panels ?? '—'],
+      ['Панель (номинал)', '580 Вт'],
       ['Мощность', selected.system_kw ? `${formatNum(selected.system_kw)} кВт` : (selected.ac_mw ? `${formatNum(selected.ac_mw)} МВт AC` : '—')],
+      ['Инверторы', inferredInverterCount ?? '—'],
       ['Площадь', selected.area_required_m2 ? `${formatNum(selected.area_required_m2)} м²` : (selected.land_hectares ? `${formatNum(selected.land_hectares)} га` : (selected.land_required_ha ? `${formatNum(selected.land_required_ha)} га` : '—'))],
       ['Экономия', selected.yearly_savings_kzt ? `${formatMoney(selected.yearly_savings_kzt)} / год` : '—'],
       ['Общая выгода', selected.export_model?.total_benefit_kzt ? `${formatMoney(selected.export_model.total_benefit_kzt)} / год` : (selected.total_benefit_kzt ? `${formatMoney(selected.total_benefit_kzt)} / год` : '—')],
