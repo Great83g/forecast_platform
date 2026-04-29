@@ -525,6 +525,7 @@
       ['Панель (номинал)', '580 Вт'],
       ['Мощность', selected.system_kw ? `${formatNum(selected.system_kw)} кВт` : (selected.ac_mw ? `${formatNum(selected.ac_mw)} МВт AC` : '—')],
       ['Инверторы', inferredInverterCount ?? '—'],
+      ['Аккумулятор', (selected.battery_kwh && Number(selected.battery_kwh) > 0) ? `${formatNum(selected.battery_kwh)} кВт·ч` : 'нет'],
       ['Площадь', selected.area_required_m2 ? `${formatNum(selected.area_required_m2)} м²` : (selected.land_hectares ? `${formatNum(selected.land_hectares)} га` : (selected.land_required_ha ? `${formatNum(selected.land_required_ha)} га` : '—'))],
       ['Экономия', selected.yearly_savings_kzt ? `${formatMoney(selected.yearly_savings_kzt)} / год` : '—'],
       ['Общая выгода', selected.export_model?.total_benefit_kzt ? `${formatMoney(selected.export_model.total_benefit_kzt)} / год` : (selected.total_benefit_kzt ? `${formatMoney(selected.total_benefit_kzt)} / год` : '—')],
