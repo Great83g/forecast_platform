@@ -36,6 +36,22 @@ class CalculatorEngineTests(TestCase):
         self.assertEqual(export_model["export_tariff_kzt_per_kwh"], 20.0)
         self.assertIn("total_benefit_kzt", export_model)
 
+    def test_roof_area_export_model_enabled(self):
+        payload = calculate(
+            "roof_area",
+            {
+                "roof_area_m2": 40,
+                "roof_type": "simple",
+                "monthly_kwh": 350,
+                "export_enabled": True,
+                "export_tariff_kzt_per_kwh": 20,
+            },
+        )
+        self.assertEqual(payload["errors"], [])
+        export_model = payload["result"]["export_model"]
+        self.assertTrue(export_model["export_enabled"])
+        self.assertEqual(export_model["export_tariff_kzt_per_kwh"], 20.0)
+
     def test_appliances_real_mode(self):
         payload = calculate(
             "appliances",
