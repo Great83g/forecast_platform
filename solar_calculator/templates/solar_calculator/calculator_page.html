@@ -467,11 +467,71 @@
             </div>
             <div class="tiny-note mb-2">${v.display?.subtitle || ''}</div>
             ${body}
-            <button class="btn btn-outline-primary w-100 mt-3 get-quote-btn" data-variant='${JSON.stringify(v)}'>Получить КП</button>
+            <div class="d-grid gap-2 mt-3">
+              <button class="btn btn-outline-primary w-100 get-quote-btn" data-variant='${JSON.stringify(v)}'>Получить КП</button>
+              <button class="btn btn-outline-secondary w-100 download-pdf-btn" data-variant='${JSON.stringify(v)}'>Скачать PDF</button>
+            </div>
           </div>
         </div>
       </div>
     `;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function renderPdfHtml(selected, data) {
+    const variants = Array.isArray(data?.variants) ? data.variants : [];
+    const inputs = data?.inputs_echo || {};
+    const price = formatPriceFrom(selected.estimated_cost_kzt) || formatPriceRange(selected.estimated_cost_min_kzt ?? null, selected.estimated_cost_max_kzt ?? null) || '—';
+    const inputLines = Object.entries(inputs).map(([k, v]) => [k, typeof v === 'number' ? formatNum(v) : String(v)]);
+    const lines = [
+      ['Стоимость', price],
+      ['Панели', selected.panel_count ?? selected.panels ?? '—'],
+      ['Мощность', selected.system_kw ? `${formatNum(selected.system_kw)} кВт` : (selected.ac_mw ? `${formatNum(selected.ac_mw)} МВт AC` : '—')],
+      ['Площадь', selected.area_required_m2 ? `${formatNum(selected.area_required_m2)} м²` : (selected.land_hectares ? `${formatNum(selected.land_hectares)} га` : (selected.land_required_ha ? `${formatNum(selected.land_required_ha)} га` : '—'))],
+      ['Экономия', selected.yearly_savings_kzt ? `${formatMoney(selected.yearly_savings_kzt)} / год` : '—'],
+      ['Общая выгода', selected.export_model?.total_benefit_kzt ? `${formatMoney(selected.export_model.total_benefit_kzt)} / год` : (selected.total_benefit_kzt ? `${formatMoney(selected.total_benefit_kzt)} / год` : '—')],
+      ['Окупаемость', selected.payback_years ? `${formatNum(selected.payback_years)} лет` : 'не рассчитана'],
+    ];
+
+    if (selected.export_model?.export_enabled) {
+      lines.push(['Продажа в сеть', `${formatInt(selected.export_model.export_kwh)} кВт·ч/год`]);
+      lines.push(['Доход от продажи', `${formatMoney(selected.export_model.export_income_kzt)} / год`]);
+    }
+
+    return `<!doctype html><html><head><meta charset="utf-8"><title>КП Solar</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:28px;color:#0f172a}
+      .head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:14px}
+      .logo{font-weight:800;font-size:22px;color:#1d4ed8}.badge{background:#eff6ff;color:#1d4ed8;padding:4px 10px;border-radius:999px;font-size:12px}
+      .price{font-size:34px;font-weight:800;margin:10px 0}
+      table{width:100%;border-collapse:collapse;margin-top:10px}.td{padding:8px;border:1px solid #e2e8f0}
+      .block{border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-top:12px}
+      .small{font-size:12px;color:#475569}
+    </style></head><body>
+      <div class="head"><div class="logo">InTech-Forecast</div><div class="badge">Предварительное КП</div></div>
+      <h2>Рекомендуемый вариант: ${escapeHtml(selected.display?.title || selected.name || '')}</h2>
+      <div class="price">${escapeHtml(price)}</div>
+      <div class="block"><b>Входные параметры</b>
+        <table>${inputLines.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(v)}</td></tr>`).join('')}</table>
+      </div>
+      <div class="block"><b>Ключевые данные варианта</b>
+        <table>${lines.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(v)}</td></tr>`).join('')}</table>
+      </div>
+      <div class="block"><b>Сравнение вариантов</b>
+        <table>${variants.map(v=>`<tr><td class="td">${escapeHtml(v.display?.title || v.name)}</td><td class="td">${escapeHtml(formatPriceFrom(v.estimated_cost_kzt) || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null) || '—')}</td><td class="td">${escapeHtml(v.payback_years ? `${formatNum(v.payback_years)} лет` : '—')}</td></tr>`).join('')}</table>
+      </div>
+      <div class="block"><b>Предупреждения</b><div class="small">${(data?.warnings || []).map(escapeHtml).join('<br>') || 'Нет'}</div></div>
+      <div class="block small"><b>Расчёт является предварительным</b>. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.</div>
+      <div class="block small"><b>Контакты компании</b><br>InTech-Forecast<br>Телефон: +7 (700) 000-00-00<br>Email: sales@intech-forecast.kz</div>
+    </body></html>`;
   }
 
   let latestCalculation = null;
@@ -508,6 +568,18 @@
       btn.addEventListener('click', () => {
         const selectedVariant = JSON.parse(btn.dataset.variant || '{}');
         openQuoteModal(selectedVariant, data);
+      });
+    });
+    document.querySelectorAll('.download-pdf-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const selectedVariant = JSON.parse(btn.dataset.variant || '{}');
+        const html = renderPdfHtml(selectedVariant, data);
+        const win = window.open('', '_blank');
+        if (!win) return;
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+        setTimeout(() => win.print(), 400);
       });
     });
   }
