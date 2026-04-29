@@ -257,6 +257,7 @@
           <li><a href="{% url 'dashboard:station-list' %}">Станции</a></li>
           <li><a href="{% url 'dashboard:about-company' %}">О компании</a></li>
           <li><a href="{% url 'dashboard:about-company' %}#contacts">Контакты</a></li>
+          <li><a href="{% url 'solar_calculator:page' %}">Калькулятор</a></li>
           <li><a href="{% url 'register' %}">Регистрация</a></li>
         </ul>
       </header>
@@ -272,9 +273,10 @@
         <div class="entry-block">
           <div class="entry-actions">
             <button type="button" class="btn btn-light" disabled data-i18n="entry_login">Вход</button>
+            <a class="btn btn-outline-info" href="{% url 'solar_calculator:page' %}" data-i18n="entry_calculator">Калькулятор</a>
             <a class="btn btn-success" href="{% url 'register' %}" data-i18n="entry_register">Регистрация</a>
           </div>
-          <p class="entry-note" data-i18n="entry_note">Блок входа и регистрации: быстрый доступ для команды.</p>
+          <p class="entry-note" data-i18n="entry_note">Калькулятор доступен без регистрации. Вход и регистрация — для командной работы.</p>
         </div>
 
         <div class="card auth-card border-0">
@@ -348,8 +350,9 @@
           hero_title: "Точные прогнозы солнца и ветра для уверенных решений",
           hero_text: "Следите за солнцем и ветром в одной системе: прогноз, факт и план в реальном времени. Помогаем команде быстрее принимать точные решения по генерации и балансу.",
           entry_login: "Вход",
+          entry_calculator: "Калькулятор",
           entry_register: "Регистрация",
-          entry_note: "Блок входа и регистрации: быстрый доступ для команды.",
+          entry_note: "Калькулятор доступен без регистрации. Вход и регистрация — для командной работы.",
           login_title: "Вход в систему",
           error_bad_credentials: "Неверное имя пользователя или пароль. Попробуйте еще раз.",
           login_continue: "Пожалуйста, авторизуйтесь чтобы продолжить.",
@@ -368,8 +371,9 @@
           hero_title: "Нақты шешімдер үшін күн мен желдің дәл болжамдары",
           hero_text: "Күн мен желді бір жүйеде бақылаңыз: болжам, факт және жоспар нақты уақытта. Командаға генерация мен баланс бойынша дәл шешімдерді жылдам қабылдауға көмектесеміз.",
           entry_login: "Кіру",
+          entry_calculator: "Калькулятор",
           entry_register: "Тіркелу",
-          entry_note: "Кіру және тіркелу блогы: командаға жылдам қолжетімділік.",
+          entry_note: "Калькулятор тіркелусіз қолжетімді. Кіру және тіркелу — командаға арналған.",
           login_title: "Жүйеге кіру",
           error_bad_credentials: "Пайдаланушы аты немесе құпиясөз қате. Қайталап көріңіз.",
           login_continue: "Жалғастыру үшін жүйеге кіріңіз.",
@@ -388,8 +392,9 @@
           hero_title: "Accurate solar and wind forecasts for confident decisions",
           hero_text: "Track solar and wind in one system: forecast, actuals, and plan in real time. We help teams make faster and more accurate generation and balancing decisions.",
           entry_login: "Sign in",
+          entry_calculator: "Calculator",
           entry_register: "Register",
-          entry_note: "Login and registration panel: quick access for your team.",
+          entry_note: "Calculator is available without registration. Login and registration are for team access.",
           login_title: "Sign in to the system",
           error_bad_credentials: "Incorrect username or password. Please try again.",
           login_continue: "Please sign in to continue.",
