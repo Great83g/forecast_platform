@@ -228,7 +228,7 @@
 <script>
   const MODE_FIELDS = {
     consumption: ['monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh', 'export_enabled'],
-    roof_area: ['roof_area_m2', 'roof_type', 'monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh'],
+    roof_area: ['roof_area_m2', 'roof_type', 'monthly_kwh', 'specific_yield', 'tariff_kzt_per_kwh', 'export_enabled'],
     utility_power: ['target_mw_ac', 'specific_yield'],
     utility_land: ['land_hectares', 'specific_yield'],
     grid_export: ['target_kw', 'specific_yield', 'export_tariff_kzt_per_kwh', 'own_consumption_percent', 'land_area_ha'],
@@ -329,7 +329,7 @@
     });
 
     const exportTariffWrap = document.querySelector('[data-field-wrap="export_tariff_kzt_per_kwh_optional"]');
-    const shouldShowExportTariff = mode === 'consumption' && !!FIELD_TO_ELEMENT.export_enabled?.checked;
+    const shouldShowExportTariff = (mode === 'consumption' || mode === 'roof_area') && !!FIELD_TO_ELEMENT.export_enabled?.checked;
     if (exportTariffWrap) exportTariffWrap.classList.toggle('hidden-field', !shouldShowExportTariff);
     if (FIELD_TO_ELEMENT.export_tariff_kzt_per_kwh_optional) {
       FIELD_TO_ELEMENT.export_tariff_kzt_per_kwh_optional.disabled = !shouldShowExportTariff;
@@ -354,7 +354,7 @@
       const tariff = asNumByElement(FIELD_TO_ELEMENT.tariff_kzt_per_kwh);
       if (tariff !== null) inputs.tariff_kzt_per_kwh = tariff;
     }
-    if (mode === 'consumption' && FIELD_TO_ELEMENT.export_enabled?.checked) {
+    if ((mode === 'consumption' || mode === 'roof_area') && FIELD_TO_ELEMENT.export_enabled?.checked) {
       const exportTariff = asNumByElement(FIELD_TO_ELEMENT.export_tariff_kzt_per_kwh_optional);
       if (exportTariff !== null) inputs.export_tariff_kzt_per_kwh = exportTariff;
     }

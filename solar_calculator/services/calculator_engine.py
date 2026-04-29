@@ -411,6 +411,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         roof_area_m2 = _to_float(inputs.get("roof_area_m2"))
         roof_type = str(inputs.get("roof_type") or "simple")
         monthly_kwh = _to_float(inputs.get("monthly_kwh"))
+        export_enabled = bool(inputs.get("export_enabled"))
+        export_tariff = _to_float(inputs.get("export_tariff_kzt_per_kwh"), 20.0) if export_enabled else None
         annual_kwh_need = monthly_kwh * 12 if monthly_kwh and monthly_kwh > 0 else None
 
         _validate_positive(roof_area_m2, "roof_area_m2", response["errors"])
@@ -419,6 +421,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         if roof_type not in ROOF_COEFFICIENTS:
             response["warnings"].append("roof_type неизвестен, применён коэффициент simple.")
             roof_type = "simple"
+        if export_enabled and export_tariff is not None and export_tariff < 0:
+            response["errors"].append("Поле 'export_tariff_kzt_per_kwh' должно быть >= 0.")
         if response["errors"]:
             return response
 
@@ -448,6 +452,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         }
         roof_max["usable_area_m2"] = _round2(usable_area)
         roof_max["free_area_m2"] = _round2(max(0.0, roof_area_m2 - (panel_count * PANEL_AREA_WITH_GAP_M2)))
+        roof_max = _apply_export_model_to_variant(roof_max, export_enabled=export_enabled, export_tariff=export_tariff)
 
         response["variants"] = [roof_max]
         response["recommended_variant"] = "roof_max"
@@ -459,6 +464,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         }
         if annual_kwh_need:
             response["warnings"].append("Расчёт ориентировочный. Без почасового профиля потребления фактическая экономия может отличаться.")
+        if export_enabled:
+            response["warnings"].append("Продажа излишков является предварительным расчётом. Возможность продажи зависит от договора, техусловий и тарифа.")
         if roof_max.get("roof_fit") is False:
             response["warnings"].append("Площади крыши недостаточно для выбранной системы.")
         return response
