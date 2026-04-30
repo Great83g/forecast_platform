@@ -38,4 +38,4 @@ class RegisterPageTests(TestCase):
 class RegisterApiTests(TestCase):
     def test_api_register_get_redirects_to_web_register(self):
         response = self.client.get('/api/accounts/register/')
-        self.assertRedirects(response, reverse('register'))
+        self.assertRedirects(response, '/register/')

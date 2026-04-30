@@ -1,5 +1,4 @@
 from django.shortcuts import redirect
-from django.urls import reverse
 from rest_framework import generics, permissions
 from django.contrib.auth.models import User
 from .serializers import RegisterSerializer, UserSerializer
@@ -9,7 +8,7 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
 
     def get(self, request, *args, **kwargs):
-        return redirect(reverse('register'))
+        return redirect('/register/')
 
 
 class MeView(generics.RetrieveAPIView):
