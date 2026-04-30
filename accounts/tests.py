@@ -33,3 +33,9 @@ class RegisterPageTests(TestCase):
 
         self.assertRedirects(response, reverse("login"))
         self.assertTrue(get_user_model().objects.filter(username="newuser").exists())
+
+
+class RegisterApiTests(TestCase):
+    def test_api_register_get_redirects_to_web_register(self):
+        response = self.client.get('/api/accounts/register/')
+        self.assertRedirects(response, reverse('register'))
