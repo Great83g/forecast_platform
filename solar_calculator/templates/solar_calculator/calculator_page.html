@@ -533,6 +533,13 @@
     const price = formatPriceFrom(selected.estimated_cost_kzt) || formatPriceRange(selected.estimated_cost_min_kzt ?? null, selected.estimated_cost_max_kzt ?? null) || '—';
     const inputLines = Object.entries(inputs).map(([k, v]) => [k, typeof v === 'number' ? formatNum(v) : String(v)]);
     const inferredInverterCount = selected.inverter_count ?? ((selected.system_kw && Number(selected.system_kw) > 0) ? 1 : null);
+    const totalCost = Number(selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? 0);
+    const costBreakdown = totalCost > 0 ? [
+      ['Панели (40%)', Math.round(totalCost * 0.40)],
+      ['Инвертор (28%)', Math.round(totalCost * 0.28)],
+      ['Монтаж (20%)', Math.round(totalCost * 0.20)],
+      ['Кабели и комплектующие (12%)', Math.round(totalCost * 0.12)],
+    ] : [];
     const lines = [
       ['Стоимость', price],
       ['Панели', selected.panel_count ?? selected.panels ?? '—'],
@@ -575,6 +582,12 @@
       </div>
       <div class="block"><b>Сравнение вариантов</b>
         <table>${variants.map(v=>`<tr><td class="td">${escapeHtml(v.display?.title || v.name)}</td><td class="td">${escapeHtml(formatPriceFrom(v.estimated_cost_kzt) || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null) || '—')}</td><td class="td">${escapeHtml(v.payback_years ? `${formatNum(v.payback_years)} лет` : '—')}</td></tr>`).join('')}</table>
+      </div>
+      <div class="block"><b>Расшифровка стоимости (предварительно)</b>
+        ${costBreakdown.length
+          ? `<table>${costBreakdown.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(v))}</td></tr>`).join('')}</table>
+             <div class="small mt-2">Суммы ориентировочные и могут меняться после инженерного расчёта, подбора оборудования и условий монтажа.</div>`
+          : '<div class="small">Недостаточно данных для детальной расшифровки стоимости.</div>'}
       </div>
       <div class="block"><b>Предупреждения</b><div class="small">${(data?.warnings || []).map(escapeHtml).join('<br>') || 'Нет'}</div></div>
       <div class="block small"><b>Расчёт является предварительным</b>. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.</div>
