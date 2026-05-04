@@ -238,7 +238,7 @@
       </div>
       <div class="col-md-6">
         <label class="form-label">Email</label>
-        <input type="email" id="q_email" class="form-control" required>
+        <input type="email" id="q_email" class="form-control">
       </div>
       <div class="col-12">
         <label class="form-label">Комментарий</label>
@@ -703,9 +703,57 @@
     if (e.target.id === 'quoteModal') closeQuoteModal();
   });
 
-  document.getElementById('quoteForm').addEventListener('submit', (e) => {
+  document.getElementById('quoteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    document.getElementById('quoteThanks').classList.remove('d-none');
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const selectedVariantName = document.getElementById('q_selected_variant').value || '';
+    const selectedCard = (latestCalculation?.variants || []).find((v) => v.name === selectedVariantName) || {};
+    const payload = {
+      name: document.getElementById('q_name').value.trim(),
+      phone: document.getElementById('q_phone').value.trim(),
+      email: document.getElementById('q_email').value.trim(),
+      comment: document.getElementById('q_comment').value.trim(),
+      selected_plan: selectedCard.display?.title || selectedCard.name || selectedVariantName || '',
+      price: formatPriceFrom(selectedCard.estimated_cost_kzt)
+        || formatPriceRange(selectedCard.estimated_cost_min_kzt ?? null, selectedCard.estimated_cost_max_kzt ?? null)
+        || '',
+      panel_count: selectedCard.panel_count ? String(selectedCard.panel_count) : '',
+      system_power_kw: selectedCard.system_kw ? `${formatNum(selectedCard.system_kw)} кВт` : '',
+      payback_years: selectedCard.payback_years ? `${formatNum(selectedCard.payback_years)} лет` : '',
+    };
+
+    if (!payload.name || !payload.phone) {
+      alert('Заполните имя и телефон.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Отправка...';
+    try {
+      const resp = await fetch('{% url "solar_calculator:lead" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = await resp.json();
+      if (!resp.ok || !result.success) {
+        throw new Error(result.error || 'Ошибка отправки заявки');
+      }
+      document.getElementById('quoteThanks').textContent = 'Заявка отправлена';
+      document.getElementById('quoteThanks').classList.remove('d-none');
+      e.target.reset();
+      setTimeout(() => {
+        closeQuoteModal();
+      }, 1200);
+    } catch (err) {
+      alert(`Не удалось отправить заявку: ${err.message}`);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Отправить заявку';
+    }
   });
 
   switchMode('consumption');
