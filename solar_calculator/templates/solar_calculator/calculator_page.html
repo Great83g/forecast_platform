@@ -546,15 +546,16 @@
     <style>
       body{font-family:Arial,sans-serif;padding:28px;color:#0f172a}
       .head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:14px}
-      .logo-wrap{display:flex;align-items:center;gap:10px}
-      .logo-img{height:34px;max-width:220px;object-fit:contain}
+      .logo-wrap{display:flex;align-items:center;gap:14px}
+      .logo-img{height:52px;max-width:260px;object-fit:contain}
+      .logo-text{font-weight:800;font-size:30px;letter-spacing:.3px;color:#1d4ed8;line-height:1}
       .logo{font-weight:800;font-size:22px;color:#1d4ed8}.badge{background:#eff6ff;color:#1d4ed8;padding:4px 10px;border-radius:999px;font-size:12px}
       .price{font-size:34px;font-weight:800;margin:10px 0}
       table{width:100%;border-collapse:collapse;margin-top:10px}.td{padding:8px;border:1px solid #e2e8f0}
       .block{border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-top:12px}
       .small{font-size:12px;color:#475569}
     </style></head><body>
-      <div class="head"><div class="logo-wrap"><img class="logo-img" src="${escapeHtml(pdfLogoUrl)}" alt="${escapeHtml(companyName)}"></div><div class="badge">Предварительное КП</div></div>
+      <div class="head"><div class="logo-wrap"><img class="logo-img" src="${escapeHtml(pdfLogoUrl)}" alt="${escapeHtml(companyName)}"><div class="logo-text">InTech-Forecast</div></div><div class="badge">Предварительное КП</div></div>
       <h2>Рекомендуемый вариант: ${escapeHtml(selected.display?.title || selected.name || '')}</h2>
       <div class="price">${escapeHtml(price)}</div>
       <div class="block"><b>Входные параметры</b>
