@@ -478,6 +478,7 @@
           <div class="metric"><div class="metric-label">Окупаемость</div><div class="metric-value">${v.payback_years ?? '-'} лет</div></div>
         </div>
         <div class="mt-3 small">Экономия: <b>${formatMoney(v.yearly_savings_kzt) || '-'}/год</b></div>
+        <div class="small">Выработка ~ <b>${formatInt(v.annual_generation_kwh) || '-'}</b> кВт·ч/год</div>
         ${showExportBlock ? `
           <div class="metric mt-3">
             <div class="metric-label">${v.export_model?.export_enabled ? 'Потенциальная продажа' : 'Излишек энергии'}</div>
