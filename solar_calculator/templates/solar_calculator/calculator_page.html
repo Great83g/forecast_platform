@@ -1,6 +1,13 @@
 {% extends "dashboard/base.html" %}
-{% block page_title %}Калькулятор солнечных панелей в Казахстане — цена, окупаемость, генерация{% endblock %}
-{% block meta_description %}Рассчитайте солнечную электростанцию для дома или бизнеса в Казахстане. Узнайте стоимость, генерацию, окупаемость и возможную экономию онлайн.{% endblock %}
+{% block page_title %}Калькулятор солнечных панелей в Казахстане | InTech-Forecast{% endblock %}
+{% block meta_description %}Рассчитайте стоимость, мощность, количество панелей и окупаемость солнечной станции в Казахстане. Онлайн-калькулятор InTech-Forecast для дома, бизнеса и СЭС.{% endblock %}
+{% block canonical_url %}<link rel="canonical" href="https://intech-forecast.com/solar-calculator/">{% endblock %}
+{% block open_graph %}
+<meta property="og:type" content="website">
+<meta property="og:title" content="Калькулятор солнечных панелей в Казахстане | InTech-Forecast">
+<meta property="og:description" content="Рассчитайте стоимость, мощность, количество панелей и окупаемость солнечной станции в Казахстане. Онлайн-калькулятор InTech-Forecast для дома, бизнеса и СЭС.">
+<meta property="og:url" content="https://intech-forecast.com/solar-calculator/">
+{% endblock %}
 
 {% block content %}
 <div class="solar-page container-fluid px-0">
@@ -192,6 +199,8 @@
 <div class="container mt-4">
   <div class="card border-0 shadow-sm" style="border-radius:16px;">
     <div class="card-body p-4">
+      <h2>Онлайн расчёт солнечной станции</h2>
+      <p>Калькулятор InTech-Forecast помогает предварительно рассчитать солнечную электростанцию для дома, бизнеса или промышленного объекта в Казахстане. Сервис учитывает потребление, площадь крыши, мощность станции, ориентировочную выработку, экономию и срок окупаемости.</p>
       <h2>Сколько энергии дают солнечные панели</h2>
       <p>Солнечные панели в Казахстане помогают снизить расходы на электроэнергию для дома, бизнеса и промышленных объектов. Средняя годовая выработка солнечной станции зависит от региона и обычно составляет около 1300–1600 кВт·ч на 1 кВт установленной мощности в год.</p>
       <p>С помощью калькулятора INTECH-FORECAST можно рассчитать мощность солнечной системы, количество панелей, ориентировочную стоимость, годовую генерацию, экономию и срок окупаемости. Расчёт подходит для частных домов, крыш, коммерческих объектов и наземных солнечных станций.</p>
@@ -238,7 +247,7 @@
       </div>
       <div class="col-md-6">
         <label class="form-label">Email</label>
-        <input type="email" id="q_email" class="form-control" required>
+        <input type="email" id="q_email" class="form-control">
       </div>
       <div class="col-12">
         <label class="form-label">Комментарий</label>
@@ -514,11 +523,23 @@
   }
 
   function renderPdfHtml(selected, data) {
+    const pdfLogoUrl = `${window.location.origin}/static/dashboard/img/logo.png`;
+    const companyName = 'TGS Energy';
+    const companyEmail = 'info@tgs-energy.kz';
+    const companyPhone = '+7701 409 0810';
+    const companyLocation = 'Казахстан, Алматы';
     const variants = Array.isArray(data?.variants) ? data.variants : [];
     const inputs = data?.inputs_echo || {};
     const price = formatPriceFrom(selected.estimated_cost_kzt) || formatPriceRange(selected.estimated_cost_min_kzt ?? null, selected.estimated_cost_max_kzt ?? null) || '—';
     const inputLines = Object.entries(inputs).map(([k, v]) => [k, typeof v === 'number' ? formatNum(v) : String(v)]);
     const inferredInverterCount = selected.inverter_count ?? ((selected.system_kw && Number(selected.system_kw) > 0) ? 1 : null);
+    const totalCost = Number(selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? 0);
+    const costBreakdown = totalCost > 0 ? [
+      ['Панели (40%)', Math.round(totalCost * 0.40)],
+      ['Инвертор (28%)', Math.round(totalCost * 0.28)],
+      ['Монтаж (20%)', Math.round(totalCost * 0.20)],
+      ['Кабели и комплектующие (12%)', Math.round(totalCost * 0.12)],
+    ] : [];
     const lines = [
       ['Стоимость', price],
       ['Панели', selected.panel_count ?? selected.panels ?? '—'],
@@ -541,13 +562,16 @@
     <style>
       body{font-family:Arial,sans-serif;padding:28px;color:#0f172a}
       .head{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:14px}
+      .logo-wrap{display:flex;align-items:center;gap:14px}
+      .logo-img{height:52px;max-width:260px;object-fit:contain}
+      .logo-text{font-weight:800;font-size:30px;letter-spacing:.3px;color:#1d4ed8;line-height:1}
       .logo{font-weight:800;font-size:22px;color:#1d4ed8}.badge{background:#eff6ff;color:#1d4ed8;padding:4px 10px;border-radius:999px;font-size:12px}
       .price{font-size:34px;font-weight:800;margin:10px 0}
       table{width:100%;border-collapse:collapse;margin-top:10px}.td{padding:8px;border:1px solid #e2e8f0}
       .block{border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-top:12px}
       .small{font-size:12px;color:#475569}
     </style></head><body>
-      <div class="head"><div class="logo">InTech-Forecast</div><div class="badge">Предварительное КП</div></div>
+      <div class="head"><div class="logo-wrap"><img class="logo-img" src="${escapeHtml(pdfLogoUrl)}" alt="${escapeHtml(companyName)}"><div class="logo-text">InTech-Forecast</div></div><div class="badge">Предварительное КП</div></div>
       <h2>Рекомендуемый вариант: ${escapeHtml(selected.display?.title || selected.name || '')}</h2>
       <div class="price">${escapeHtml(price)}</div>
       <div class="block"><b>Входные параметры</b>
@@ -559,9 +583,15 @@
       <div class="block"><b>Сравнение вариантов</b>
         <table>${variants.map(v=>`<tr><td class="td">${escapeHtml(v.display?.title || v.name)}</td><td class="td">${escapeHtml(formatPriceFrom(v.estimated_cost_kzt) || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null) || '—')}</td><td class="td">${escapeHtml(v.payback_years ? `${formatNum(v.payback_years)} лет` : '—')}</td></tr>`).join('')}</table>
       </div>
+      <div class="block"><b>Расшифровка стоимости (предварительно)</b>
+        ${costBreakdown.length
+          ? `<table>${costBreakdown.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(v))}</td></tr>`).join('')}</table>
+             <div class="small mt-2">Суммы ориентировочные и могут меняться после инженерного расчёта, подбора оборудования и условий монтажа.</div>`
+          : '<div class="small">Недостаточно данных для детальной расшифровки стоимости.</div>'}
+      </div>
       <div class="block"><b>Предупреждения</b><div class="small">${(data?.warnings || []).map(escapeHtml).join('<br>') || 'Нет'}</div></div>
       <div class="block small"><b>Расчёт является предварительным</b>. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.</div>
-      <div class="block small"><b>Контакты компании</b><br>InTech-Forecast<br>Телефон: +7 (700) 000-00-00<br>Email: sales@intech-forecast.kz</div>
+      <div class="block small"><b>Контакты компании</b><br>${escapeHtml(companyName)}<br>Телефон: ${escapeHtml(companyPhone)}<br>Email: ${escapeHtml(companyEmail)}<br>${escapeHtml(companyLocation)}</div>
     </body></html>`;
   }
 
@@ -695,9 +725,57 @@
     if (e.target.id === 'quoteModal') closeQuoteModal();
   });
 
-  document.getElementById('quoteForm').addEventListener('submit', (e) => {
+  document.getElementById('quoteForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    document.getElementById('quoteThanks').classList.remove('d-none');
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const selectedVariantName = document.getElementById('q_selected_variant').value || '';
+    const selectedCard = (latestCalculation?.variants || []).find((v) => v.name === selectedVariantName) || {};
+    const payload = {
+      name: document.getElementById('q_name').value.trim(),
+      phone: document.getElementById('q_phone').value.trim(),
+      email: document.getElementById('q_email').value.trim(),
+      comment: document.getElementById('q_comment').value.trim(),
+      selected_plan: selectedCard.display?.title || selectedCard.name || selectedVariantName || '',
+      price: formatPriceFrom(selectedCard.estimated_cost_kzt)
+        || formatPriceRange(selectedCard.estimated_cost_min_kzt ?? null, selectedCard.estimated_cost_max_kzt ?? null)
+        || '',
+      panel_count: selectedCard.panel_count ? String(selectedCard.panel_count) : '',
+      system_power_kw: selectedCard.system_kw ? `${formatNum(selectedCard.system_kw)} кВт` : '',
+      payback_years: selectedCard.payback_years ? `${formatNum(selectedCard.payback_years)} лет` : '',
+    };
+
+    if (!payload.name || !payload.phone) {
+      alert('Заполните имя и телефон.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Отправка...';
+    try {
+      const resp = await fetch('{% url "solar_calculator:lead" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = await resp.json();
+      if (!resp.ok || !result.success) {
+        throw new Error(result.error || 'Ошибка отправки заявки');
+      }
+      document.getElementById('quoteThanks').textContent = 'Заявка отправлена';
+      document.getElementById('quoteThanks').classList.remove('d-none');
+      e.target.reset();
+      setTimeout(() => {
+        closeQuoteModal();
+      }, 1200);
+    } catch (err) {
+      alert(`Не удалось отправить заявку: ${err.message}`);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Отправить заявку';
+    }
   });
 
   switchMode('consumption');

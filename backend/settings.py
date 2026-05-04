@@ -175,3 +175,10 @@ LOGOUT_REDIRECT_URL = "/login/"
 # LOGIN_HERO_POSTER_URL=/media/login-background.png
 LOGIN_HERO_VIDEO_URL = os.getenv("LOGIN_HERO_VIDEO_URL", "/media/login-hero.mp4")
 LOGIN_HERO_POSTER_URL = os.getenv("LOGIN_HERO_POSTER_URL", "/media/login-background.png")
+
+# === hCaptcha ===
+HCAPTCHA_SITE_KEY = os.getenv("HCAPTCHA_SITE_KEY", "")
+HCAPTCHA_SECRET_KEY = os.getenv("HCAPTCHA_SECRET_KEY", "")
+
+# === Bitrix24 ===
+BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL", "https://portal.care-tech.kz/rest/1/alg2q93ky7mw2oly/")
