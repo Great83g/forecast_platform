@@ -36,7 +36,7 @@ def sitemap_xml(request):
     xml = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://intech-forecast.com/</loc></url>
-  <url><loc>https://intech-forecast.com/solar-calculator</loc></url>
+  <url><loc>https://intech-forecast.com/solar-calculator/</loc></url>
   <url><loc>https://intech-forecast.com/solar-panels-kazakhstan</loc></url>
   <url><loc>https://intech-forecast.com/solar-panels-almaty-price</loc></url>
   <url><loc>https://intech-forecast.com/sell-electricity-kazakhstan</loc></url>
