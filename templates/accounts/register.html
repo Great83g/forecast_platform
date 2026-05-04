@@ -29,6 +29,20 @@
             </div>
 
             <div class="mb-3">
+              <label for="id_email" class="form-label">Email</label>
+              <input type="email"
+                     name="email"
+                     autocomplete="email"
+                     required
+                     id="id_email"
+                     value="{{ form.email.value|default:'' }}"
+                     class="form-control{% if form.email.errors %} is-invalid{% endif %}">
+              {% for error in form.email.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="mb-3">
               <label for="id_password1" class="form-label">Пароль</label>
               <input type="password"
                      name="password1"
@@ -39,6 +53,26 @@
               {% for error in form.password1.errors %}
                 <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
+            </div>
+
+            <div class="mb-3">
+              <label for="id_organization_name" class="form-label">Название организации</label>
+              <input type="text"
+                     name="organization_name"
+                     id="id_organization_name"
+                     value="{{ form.organization_name.value|default:'' }}"
+                     class="form-control{% if form.organization_name.errors %} is-invalid{% endif %}">
+              {% for error in form.organization_name.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <input type="hidden" name="hcaptcha_token" id="id_hcaptcha_token">
+            {% for error in form.hcaptcha_token.errors %}
+              <div class="alert alert-danger py-2">{{ error }}</div>
+            {% endfor %}
+            <div class="mb-3">
+              <div class="h-captcha" data-sitekey="{{ HCAPTCHA_SITE_KEY }}" data-callback="setCaptchaToken"></div>
             </div>
 
             <div class="mb-3">
@@ -65,4 +99,14 @@
       </div>
     </div>
   </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+  <script>
+    function setCaptchaToken(token) {
+      var input = document.getElementById("id_hcaptcha_token");
+      if (input) input.value = token;
+    }
+  </script>
 {% endblock %}
