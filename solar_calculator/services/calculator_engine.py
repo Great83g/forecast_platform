@@ -137,11 +137,12 @@ def _residential_from_panel_count(
         yearly_savings = yearly_bill_without_spp - yearly_bill_with_spp
 
     panels_cost_kzt = panel_count * PANEL_PRICE_KZT
-    inverter_cost_kzt = system_kw_final * INVERTER_COST_PER_KW_KZT
-    mounting_cost_kzt = system_kw_final * MOUNTING_COST_PER_KW_KZT
-    cables_protection_cost_kzt = system_kw_final * CABLES_PROTECTION_COST_PER_KW_KZT
-    battery_cost_kzt = max(battery_kwh, 0.0) * BATTERY_COST_PER_KWH_KZT
-    estimated_cost = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + battery_cost_kzt
+    total_cost_kzt = panels_cost_kzt / 0.50
+    equipment_cost_kzt = total_cost_kzt * 0.11
+    mounting_structure_cost_kzt = total_cost_kzt * 0.17
+    cables_cost_kzt = total_cost_kzt * 0.08
+    installation_commissioning_cost_kzt = total_cost_kzt * 0.14
+    estimated_cost = total_cost_kzt
 
     if yearly_savings and yearly_savings > 0:
         payback_years = estimated_cost / yearly_savings
@@ -171,10 +172,10 @@ def _residential_from_panel_count(
         "calculation_basis": basis,
         "cost_breakdown": {
             "panels_cost_kzt": _round2(panels_cost_kzt),
-            "inverter_cost_kzt": _round2(inverter_cost_kzt),
-            "mounting_cost_kzt": _round2(mounting_cost_kzt),
-            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
-            "battery_cost_kzt": _round2(battery_cost_kzt),
+            "equipment_cost_kzt": _round2(equipment_cost_kzt),
+            "mounting_structure_cost_kzt": _round2(mounting_structure_cost_kzt),
+            "cables_cost_kzt": _round2(cables_cost_kzt),
+            "installation_commissioning_cost_kzt": _round2(installation_commissioning_cost_kzt),
             "total_cost_kzt": _round2(estimated_cost),
         },
         "energy_model": {
@@ -546,26 +547,46 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
 
         ac_mw = target_mw_ac
         dc_mw = ac_mw * DC_AC_RATIO
+        dc_kw = dc_mw * 1000
         panels = int(math.ceil(dc_mw * 1_000_000 / PANEL_POWER_W))
         annual_generation_gwh = ac_mw * specific_yield / 1000
         annual_generation_kwh = annual_generation_gwh * 1_000_000
         land_required_ha = ac_mw * LAND_PER_MW_HA
+        panels_cost_kzt = panels * PANEL_PRICE_KZT
+        estimated_cost_kzt = panels_cost_kzt / 0.35
+        equipment_cost_kzt = estimated_cost_kzt * 0.10
+        mounting_structure_cost_kzt = estimated_cost_kzt * 0.16
+        cables_cost_kzt = estimated_cost_kzt * 0.11
+        communication_system_cost_kzt = estimated_cost_kzt * 0.07
+        installation_commissioning_cost_kzt = estimated_cost_kzt * 0.21
         economics = _build_station_economics(
             response=response,
             ac_mw=ac_mw,
             annual_generation_kwh=annual_generation_kwh,
             tariff_value=tariff_station,
         )
+        economics["estimated_cost_kzt"] = _round2(estimated_cost_kzt)
+        economics["cost_breakdown"] = {
+            "panels_cost_kzt": _round2(panels_cost_kzt),
+            "equipment_cost_kzt": _round2(equipment_cost_kzt),
+            "mounting_structure_cost_kzt": _round2(mounting_structure_cost_kzt),
+            "cables_cost_kzt": _round2(cables_cost_kzt),
+            "communication_system_cost_kzt": _round2(communication_system_cost_kzt),
+            "installation_commissioning_cost_kzt": _round2(installation_commissioning_cost_kzt),
+        }
+        economics["estimated_cost_min_kzt"] = _round2(estimated_cost_kzt)
+        economics["estimated_cost_max_kzt"] = _round2(estimated_cost_kzt)
 
         summary = (
             f"Станция {_round2(ac_mw)} МВт AC: участок ~{_round2(land_required_ha)} га, "
             f"генерация ~{_round2(annual_generation_gwh)} ГВт·ч/год, "
-            f"стоимость ~{economics['estimated_cost_min_kzt']}-{economics['estimated_cost_max_kzt']} тг."
+            f"стоимость ~{economics['estimated_cost_kzt']} тг."
         )
 
         result = {
             "ac_mw": _round2(ac_mw),
             "dc_mw": _round2(dc_mw),
+            "dc_kw": _round2(dc_kw),
             "panels": panels,
             "land_required_ha": _round2(land_required_ha),
             "annual_generation_gwh": _round2(annual_generation_gwh),
