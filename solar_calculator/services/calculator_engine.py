@@ -546,26 +546,53 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
 
         ac_mw = target_mw_ac
         dc_mw = ac_mw * DC_AC_RATIO
+        dc_kw = dc_mw * 1000
         panels = int(math.ceil(dc_mw * 1_000_000 / PANEL_POWER_W))
         annual_generation_gwh = ac_mw * specific_yield / 1000
         annual_generation_kwh = annual_generation_gwh * 1_000_000
         land_required_ha = ac_mw * LAND_PER_MW_HA
+        panels_cost_kzt = panels * PANEL_PRICE_KZT
+        inverter_cost_kzt = ac_mw * 1000 * 70_000
+        mounting_cost_kzt = ac_mw * 1000 * 50_000
+        cables_protection_cost_kzt = ac_mw * 1000 * 30_000
+        grid_connection_cost_kzt = ac_mw * 1000 * 40_000
+        project_docs_cost_kzt = ac_mw * 1000 * 20_000
+        estimated_cost_kzt = (
+            panels_cost_kzt
+            + inverter_cost_kzt
+            + mounting_cost_kzt
+            + cables_protection_cost_kzt
+            + grid_connection_cost_kzt
+            + project_docs_cost_kzt
+        )
         economics = _build_station_economics(
             response=response,
             ac_mw=ac_mw,
             annual_generation_kwh=annual_generation_kwh,
             tariff_value=tariff_station,
         )
+        economics["estimated_cost_kzt"] = _round2(estimated_cost_kzt)
+        economics["cost_breakdown"] = {
+            "panels_cost_kzt": _round2(panels_cost_kzt),
+            "inverter_cost_kzt": _round2(inverter_cost_kzt),
+            "mounting_cost_kzt": _round2(mounting_cost_kzt),
+            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
+            "grid_connection_cost_kzt": _round2(grid_connection_cost_kzt),
+            "project_docs_cost_kzt": _round2(project_docs_cost_kzt),
+        }
+        economics["estimated_cost_min_kzt"] = _round2(estimated_cost_kzt)
+        economics["estimated_cost_max_kzt"] = _round2(estimated_cost_kzt)
 
         summary = (
             f"Станция {_round2(ac_mw)} МВт AC: участок ~{_round2(land_required_ha)} га, "
             f"генерация ~{_round2(annual_generation_gwh)} ГВт·ч/год, "
-            f"стоимость ~{economics['estimated_cost_min_kzt']}-{economics['estimated_cost_max_kzt']} тг."
+            f"стоимость ~{economics['estimated_cost_kzt']} тг."
         )
 
         result = {
             "ac_mw": _round2(ac_mw),
             "dc_mw": _round2(dc_mw),
+            "dc_kw": _round2(dc_kw),
             "panels": panels,
             "land_required_ha": _round2(land_required_ha),
             "annual_generation_gwh": _round2(annual_generation_gwh),
