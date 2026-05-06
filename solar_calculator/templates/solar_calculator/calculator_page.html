@@ -131,6 +131,7 @@
           <div class="field-card">
             <label class="form-label">Тариф продажи (₸/кВт·ч)</label>
             <input id="export_tariff_kzt_per_kwh_optional" type="number" class="form-control" value="20" min="0" step="0.1">
+            <div class="tiny-note mt-2">Используйте согласованный тариф выкупа, не розничный тариф покупки.</div>
           </div>
         </div>
         <div class="col-md-4" data-field-wrap="target_mw_ac">
@@ -155,6 +156,7 @@
           <div class="field-card">
             <label class="form-label">Тариф продажи (₸/кВт·ч)</label>
             <input id="export_tariff_kzt_per_kwh" type="number" class="form-control" value="25" step="0.1">
+            <div class="tiny-note mt-2">Используйте согласованный тариф выкупа, не розничный тариф покупки.</div>
           </div>
         </div>
         <div class="col-md-4" data-field-wrap="own_consumption_percent">
@@ -398,6 +400,39 @@
     return inputs;
   }
 
+  function renderLandWarning(v) {
+    if (v?.land_fit !== false) return '';
+    const needed = formatNum(v.land_required_ha);
+    const provided = formatNum(v.land_area_ha);
+    return `
+      <div class="alert alert-warning py-2 px-3 mt-3 mb-0 small">
+        <div><b>⚠️ Участка недостаточно</b></div>
+        <div>Нужно: ${needed || '-'} га</div>
+        <div>Указано: ${provided || '-'} га</div>
+      </div>
+    `;
+  }
+
+  function renderGridExportValueRows(v, { compact = false } = {}) {
+    const ownPercent = Number(v?.own_consumption_percent ?? 0);
+    const ownSavings = Number(v?.own_savings_kzt ?? 0);
+    const rows = [];
+    if (ownPercent > 0 && ownSavings > 0) {
+      rows.push(['Экономия на собственном потреблении', `${formatMoney(v.own_savings_kzt) || '-'}/год`]);
+      rows.push(['Выручка от продажи', `${formatMoney(v.export_revenue_kzt) || '-'}/год`]);
+      rows.push(['Общий эффект', `${formatMoney(v.total_benefit_kzt) || '-'}/год`]);
+    } else {
+      rows.push(['Потенциальная выручка', `${formatMoney(v.export_revenue_kzt) || '-'}/год`]);
+    }
+    rows.push(['Годовая генерация', `${formatInt(v.annual_generation_kwh) || '-'} кВт·ч/год`]);
+    rows.push(['Стоимость проекта', formatPriceFrom(v.estimated_cost_kzt) || '-']);
+    rows.push(['Окупаемость', v.payback_years !== null && v.payback_years !== undefined ? `${formatNum(v.payback_years)} лет` : '—']);
+    return rows.map(([label, value]) => compact
+      ? `<div class="small mt-1"><b>${escapeHtml(label)}:</b> ${escapeHtml(value)}</div>`
+      : `<div class="small mt-2"><span class="text-muted">${escapeHtml(label)}:</span> <b>${escapeHtml(value)}</b></div>`
+    ).join('');
+  }
+
   function buildRecommendation(variant, mode) {
     if (!variant) return '';
     const title = variant.display?.title || variant.name || 'Оптимальный';
@@ -405,6 +440,18 @@
 
     if (!price && (variant.estimated_cost_min_kzt !== undefined || variant.estimated_cost_max_kzt !== undefined)) {
       price = formatPriceRange(variant.estimated_cost_min_kzt ?? null, variant.estimated_cost_max_kzt ?? null);
+    }
+
+    if (mode === 'grid_export') {
+      return `
+        <div class="recommend-title">Рекомендуем: ${title}</div>
+        <div class="tiny-note mt-2">Потенциальная выручка:</div>
+        <div class="recommend-price mt-1">${formatMoney(variant.export_revenue_kzt) || '—'}<span class="fs-6">/год</span></div>
+        <div class="mt-2 small">${formatNum(variant.system_kw) || '-'} кВт · ${formatInt(variant.panel_count) || '-'} панелей · ${formatNum((variant.annual_generation_kwh || 0) / 1000000)} ГВт·ч/год</div>
+        <div class="mt-1 small">Стоимость проекта: <b>${price || '—'}</b></div>
+        <div class="small">Окупаемость: <b>${variant.payback_years !== null && variant.payback_years !== undefined ? `${formatNum(variant.payback_years)} лет` : '—'}</b></div>
+        ${renderLandWarning(variant)}
+      `;
     }
 
     if (mode === 'utility_power' || mode === 'utility_land') {
@@ -454,15 +501,10 @@
     } else if (v.name === 'grid_export') {
       body = `
         <div class="tiny-note mb-2">${v.display?.description || ''}</div>
-        <div class="recommend-price">${price}</div>
-        <div class="small mt-2">${formatInt(v.panel_count) || '-'} панелей · ${formatNum(v.system_kw) || '-'} кВт · ${formatNum(v.area_required_m2) || '-'} м²</div>
+        <div class="small mt-2">${formatNum(v.system_kw) || '-'} кВт · ${formatInt(v.panel_count) || '-'} панелей · ${formatNum(v.area_required_m2) || '-'} м²</div>
         <div class="tiny-note mt-1">Панель: 580 Вт</div>
-        <div class="metric-grid mt-3">
-          <div class="metric"><div class="metric-label">Потенциальная выручка</div><div class="metric-value">${formatMoney(v.export_revenue_kzt) || '-'}</div></div>
-          <div class="metric"><div class="metric-label">Продажа в сеть</div><div class="metric-value">${formatInt(v.export_kwh) || '-'} кВт·ч/год</div></div>
-          <div class="metric"><div class="metric-label">Общий эффект/год</div><div class="metric-value">${formatMoney(v.total_benefit_kzt) || '-'}</div></div>
-        </div>
-        ${v.payback_years !== null && v.payback_years !== undefined ? `<div class="mt-3 small">Окупаемость: <b>${formatNum(v.payback_years)} лет</b></div>` : ''}
+        <div class="mt-3">${renderGridExportValueRows(v)}</div>
+        ${renderLandWarning(v)}
       `;
     } else {
       const batteryText = v.need_battery ? `${formatNum(v.battery_kwh || 0)} кВт·ч` : 'нет';
@@ -559,23 +601,43 @@
       return { rows, total: Number.isFinite(total) && total > 0 ? total : null };
     };
     const breakdownPayload = toMoneyRows(selected.cost_breakdown, selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? null);
-    const lines = [
-      ['Стоимость', price],
-      ['Панели', selected.panel_count ?? selected.panels ?? '—'],
-      ['Панель (номинал)', '580 Вт'],
-      ['Мощность', selected.system_kw ? `${formatNum(selected.system_kw)} кВт` : (selected.ac_mw ? `${formatNum(selected.ac_mw)} МВт AC` : '—')],
-      ['Инверторы', inferredInverterCount ?? '—'],
-      ['Аккумулятор', (selected.battery_kwh && Number(selected.battery_kwh) > 0) ? `${formatNum(selected.battery_kwh)} кВт·ч` : 'нет'],
-      ['Площадь', selected.area_required_m2 ? `${formatNum(selected.area_required_m2)} м²` : (selected.land_hectares ? `${formatNum(selected.land_hectares)} га` : (selected.land_required_ha ? `${formatNum(selected.land_required_ha)} га` : '—'))],
-      ['Экономия', selected.yearly_savings_kzt ? `${formatMoney(selected.yearly_savings_kzt)} / год` : '—'],
-      ['Общая выгода', selected.export_model?.total_benefit_kzt ? `${formatMoney(selected.export_model.total_benefit_kzt)} / год` : (selected.total_benefit_kzt ? `${formatMoney(selected.total_benefit_kzt)} / год` : '—')],
-      ['Окупаемость', selected.payback_years ? `${formatNum(selected.payback_years)} лет` : 'не рассчитана'],
-    ];
-
-    if (selected.export_model?.export_enabled) {
-      lines.push(['Продажа в сеть', `${formatInt(selected.export_model.export_kwh)} кВт·ч/год`]);
-      lines.push(['Доход от продажи', `${formatMoney(selected.export_model.export_income_kzt)} / год`]);
+    let lines = [];
+    if (selected.name === 'grid_export') {
+      const ownPercent = Number(selected.own_consumption_percent ?? 0);
+      lines = [
+        ['Параметры станции', `${formatNum(selected.system_kw) || '-'} кВт · ${formatInt(selected.panel_count) || '-'} панелей · ${formatNum(selected.area_required_m2) || '-'} м²`],
+        ['Годовая генерация', `${formatInt(selected.annual_generation_kwh) || '-'} кВт·ч/год`],
+      ];
+      if (ownPercent > 0 && Number(selected.own_savings_kzt || 0) > 0) {
+        lines.push(['Экономия на собственном потреблении', `${formatMoney(selected.own_savings_kzt) || '-'}/год`]);
+        lines.push(['Выручка от продажи', `${formatMoney(selected.export_revenue_kzt) || '-'}/год`]);
+        lines.push(['Общий эффект', `${formatMoney(selected.total_benefit_kzt) || '-'}/год`]);
+      } else {
+        lines.push(['Потенциальная выручка', `${formatMoney(selected.export_revenue_kzt) || '-'}/год`]);
+      }
+      lines.push(['Стоимость проекта', price]);
+      lines.push(['Окупаемость', selected.payback_years ? `${formatNum(selected.payback_years)} лет` : 'не рассчитана']);
+    } else {
+      lines = [
+        ['Стоимость', price],
+        ['Панели', selected.panel_count ?? selected.panels ?? '—'],
+        ['Панель (номинал)', '580 Вт'],
+        ['Мощность', selected.system_kw ? `${formatNum(selected.system_kw)} кВт` : (selected.ac_mw ? `${formatNum(selected.ac_mw)} МВт AC` : '—')],
+        ['Инверторы', inferredInverterCount ?? '—'],
+        ['Аккумулятор', (selected.battery_kwh && Number(selected.battery_kwh) > 0) ? `${formatNum(selected.battery_kwh)} кВт·ч` : 'нет'],
+        ['Площадь', selected.area_required_m2 ? `${formatNum(selected.area_required_m2)} м²` : (selected.land_hectares ? `${formatNum(selected.land_hectares)} га` : (selected.land_required_ha ? `${formatNum(selected.land_required_ha)} га` : '—'))],
+        ['Экономия', selected.yearly_savings_kzt ? `${formatMoney(selected.yearly_savings_kzt)} / год` : '—'],
+        ['Общая выгода', selected.export_model?.total_benefit_kzt ? `${formatMoney(selected.export_model.total_benefit_kzt)} / год` : (selected.total_benefit_kzt ? `${formatMoney(selected.total_benefit_kzt)} / год` : '—')],
+        ['Окупаемость', selected.payback_years ? `${formatNum(selected.payback_years)} лет` : 'не рассчитана'],
+      ];
+      if (selected.export_model?.export_enabled) {
+        lines.push(['Продажа в сеть', `${formatInt(selected.export_model.export_kwh)} кВт·ч/год`]);
+        lines.push(['Доход от продажи', `${formatMoney(selected.export_model.export_income_kzt)} / год`]);
+      }
     }
+    const landWarningPdf = selected.land_fit === false
+      ? `⚠️ Участка недостаточно<br>Нужно: ${escapeHtml(formatNum(selected.land_required_ha) || '-')} га<br>Указано: ${escapeHtml(formatNum(selected.land_area_ha) || '-')} га`
+      : '';
 
     return `<!doctype html><html><head><meta charset="utf-8"><title>КП Solar</title>
     <style>
@@ -603,6 +665,7 @@
       <div class="block"><b>Сравнение вариантов</b>
         <table>${variants.map(v=>`<tr><td class="td">${escapeHtml(v.display?.title || v.name)}</td><td class="td">${escapeHtml(formatPriceFrom(v.estimated_cost_kzt) || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null) || '—')}</td><td class="td">${escapeHtml(v.payback_years ? `${formatNum(v.payback_years)} лет` : '—')}</td></tr>`).join('')}</table>
       </div>
+      ${landWarningPdf ? `<div class="block"><b>Предупреждение по участку</b><div class="small">${landWarningPdf}</div></div>` : ''}
       <div class="block breakdown-block"><b>Расшифровка стоимости</b>
         ${breakdownPayload.rows.length
           ? `<table>${breakdownPayload.rows.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(Math.round(v)))}</td></tr>`).join('')}
@@ -646,10 +709,13 @@
     section.style.display = 'block';
 
     const hints = [];
-    hints.push('Расчёт предварительный. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.');
-    if (data.result_type === 'residential') hints.push('Без аккумулятора часть дневной генерации может не использоваться.');
-    if (variants.some((v) => v.name === 'premium')) hints.push('Аккумулятор повышает автономность, но увеличивает стоимость системы.');
-    if (data.mode === 'grid_export') hints.push('Выручка является потенциальной. Возможность продажи зависит от договора, техусловий и тарифа.');
+    if (data.mode === 'grid_export') {
+      hints.push('Расчёт предварительный. Продажа электроэнергии возможна только при наличии договора, техусловий и согласованного тарифа.');
+    } else {
+      hints.push('Расчёт предварительный. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.');
+      if (data.result_type === 'residential') hints.push('Без аккумулятора часть дневной генерации может не использоваться.');
+      if (variants.some((v) => v.name === 'premium')) hints.push('Аккумулятор повышает автономность, но увеличивает стоимость системы.');
+    }
     document.getElementById('modeHints').textContent = hints.join(' ');
 
     document.querySelectorAll('.get-quote-btn').forEach((btn) => {

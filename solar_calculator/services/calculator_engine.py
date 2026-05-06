@@ -735,6 +735,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "payback_years": _round2(payback_years) if payback_years is not None else None,
             "area_required_m2": _round2(area_required_m2),
             "land_required_ha": _round2(land_required_ha),
+            "land_area_ha": _round2(land_area_ha),
             "land_fit": land_fit,
             "land_fit_message": land_fit_message,
             "summary": f"Станция {_round2(system_kw)} кВт может продавать в сеть около {_round2(export_kwh)} кВт·ч/год.",
