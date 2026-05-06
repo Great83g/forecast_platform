@@ -136,12 +136,8 @@ def _residential_from_panel_count(
         yearly_bill_with_spp = max(0.0, (annual_kwh_need - usable_generation_kwh) * tariff)
         yearly_savings = yearly_bill_without_spp - yearly_bill_with_spp
 
-    panels_cost_kzt = panel_count * PANEL_PRICE_KZT
-    inverter_cost_kzt = system_kw_final * INVERTER_COST_PER_KW_KZT
-    mounting_cost_kzt = system_kw_final * MOUNTING_COST_PER_KW_KZT
-    cables_protection_cost_kzt = system_kw_final * CABLES_PROTECTION_COST_PER_KW_KZT
-    battery_cost_kzt = max(battery_kwh, 0.0) * BATTERY_COST_PER_KWH_KZT
-    estimated_cost = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + battery_cost_kzt
+    cost_breakdown = _residential_cost_breakdown(panel_count)
+    estimated_cost = cost_breakdown["total_cost_kzt"]
 
     if yearly_savings and yearly_savings > 0:
         payback_years = estimated_cost / yearly_savings
@@ -170,12 +166,7 @@ def _residential_from_panel_count(
         "summary": summary,
         "calculation_basis": basis,
         "cost_breakdown": {
-            "panels_cost_kzt": _round2(panels_cost_kzt),
-            "inverter_cost_kzt": _round2(inverter_cost_kzt),
-            "mounting_cost_kzt": _round2(mounting_cost_kzt),
-            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
-            "battery_cost_kzt": _round2(battery_cost_kzt),
-            "total_cost_kzt": _round2(estimated_cost),
+            **cost_breakdown,
         },
         "energy_model": {
             "self_consumption_percent": _round2(self_consumption_percent),
@@ -306,6 +297,33 @@ def _build_station_economics(*, response: dict[str, Any], ac_mw: float, annual_g
         result["payback_years"] = None
 
     return result
+
+
+def _residential_cost_breakdown(panel_count: int) -> dict[str, float]:
+    panels_cost_kzt = panel_count * PANEL_PRICE_KZT
+    total_cost_kzt = panels_cost_kzt / 0.50
+    return {
+        "panels_cost_kzt": _round2(panels_cost_kzt),
+        "equipment_cost_kzt": _round2(total_cost_kzt * 0.11),
+        "mounting_structure_cost_kzt": _round2(total_cost_kzt * 0.17),
+        "cables_cost_kzt": _round2(total_cost_kzt * 0.08),
+        "installation_commissioning_cost_kzt": _round2(total_cost_kzt * 0.14),
+        "total_cost_kzt": _round2(total_cost_kzt),
+    }
+
+
+def _utility_cost_breakdown(panel_count: int) -> dict[str, float]:
+    panels_cost_kzt = panel_count * PANEL_PRICE_KZT
+    total_cost_kzt = panels_cost_kzt / 0.35
+    return {
+        "panels_cost_kzt": _round2(panels_cost_kzt),
+        "equipment_cost_kzt": _round2(total_cost_kzt * 0.10),
+        "mounting_structure_cost_kzt": _round2(total_cost_kzt * 0.16),
+        "cables_cost_kzt": _round2(total_cost_kzt * 0.11),
+        "communication_system_cost_kzt": _round2(total_cost_kzt * 0.07),
+        "installation_commissioning_cost_kzt": _round2(total_cost_kzt * 0.21),
+        "total_cost_kzt": _round2(total_cost_kzt),
+    }
 
 
 def _smart_advice(monthly_kwh: float | None) -> tuple[str, dict[str, str]]:
@@ -546,26 +564,34 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
 
         ac_mw = target_mw_ac
         dc_mw = ac_mw * DC_AC_RATIO
+        dc_kw = dc_mw * 1000
         panels = int(math.ceil(dc_mw * 1_000_000 / PANEL_POWER_W))
         annual_generation_gwh = ac_mw * specific_yield / 1000
         annual_generation_kwh = annual_generation_gwh * 1_000_000
         land_required_ha = ac_mw * LAND_PER_MW_HA
+        cost_breakdown = _utility_cost_breakdown(panels)
+        estimated_cost_kzt = cost_breakdown["total_cost_kzt"]
         economics = _build_station_economics(
             response=response,
             ac_mw=ac_mw,
             annual_generation_kwh=annual_generation_kwh,
             tariff_value=tariff_station,
         )
+        economics["estimated_cost_kzt"] = _round2(estimated_cost_kzt)
+        economics["cost_breakdown"] = {**cost_breakdown}
+        economics["estimated_cost_min_kzt"] = _round2(estimated_cost_kzt)
+        economics["estimated_cost_max_kzt"] = _round2(estimated_cost_kzt)
 
         summary = (
             f"Станция {_round2(ac_mw)} МВт AC: участок ~{_round2(land_required_ha)} га, "
             f"генерация ~{_round2(annual_generation_gwh)} ГВт·ч/год, "
-            f"стоимость ~{economics['estimated_cost_min_kzt']}-{economics['estimated_cost_max_kzt']} тг."
+            f"стоимость ~{economics['estimated_cost_kzt']} тг."
         )
 
         result = {
             "ac_mw": _round2(ac_mw),
             "dc_mw": _round2(dc_mw),
+            "dc_kw": _round2(dc_kw),
             "panels": panels,
             "land_required_ha": _round2(land_required_ha),
             "annual_generation_gwh": _round2(annual_generation_gwh),
@@ -612,6 +638,11 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             annual_generation_kwh=annual_generation_kwh,
             tariff_value=tariff_station,
         )
+        cost_breakdown = _utility_cost_breakdown(panels)
+        economics["estimated_cost_kzt"] = cost_breakdown["total_cost_kzt"]
+        economics["cost_breakdown"] = {**cost_breakdown}
+        economics["estimated_cost_min_kzt"] = cost_breakdown["total_cost_kzt"]
+        economics["estimated_cost_max_kzt"] = cost_breakdown["total_cost_kzt"]
 
         result = {
             "ac_mw": _round2(ac_mw),
@@ -625,7 +656,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "summary": (
                 f"На участке {_round2(land_hectares)} га можно построить станцию примерно на {_round2(ac_mw)} МВт, "
                 f"с генерацией ~{_round2(annual_generation_gwh)} ГВт·ч/год и стоимостью "
-                f"~{economics['estimated_cost_min_kzt']}-{economics['estimated_cost_max_kzt']} тг."
+                f"~{economics['estimated_cost_kzt']} тг."
             ),
             "calculation_basis": "Расчёт station-проекта по площади земельного участка.",
             **economics,
@@ -676,13 +707,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         own_savings_kzt = own_consumption_kwh * tariff
         total_benefit_kzt = export_revenue_kzt + own_savings_kzt
 
-        panels_cost_kzt = panel_count * PANEL_PRICE_KZT
-        inverter_cost_kzt = system_kw * INVERTER_COST_PER_KW_KZT
-        mounting_cost_kzt = system_kw * MOUNTING_COST_PER_KW_KZT
-        cables_protection_cost_kzt = system_kw * CABLES_PROTECTION_COST_PER_KW_KZT
-        grid_connection_cost_kzt = system_kw * 40_000
-        project_docs_cost_kzt = system_kw * 20_000
-        total_cost_kzt = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + grid_connection_cost_kzt + project_docs_cost_kzt
+        cost_breakdown = _utility_cost_breakdown(panel_count)
+        total_cost_kzt = cost_breakdown["total_cost_kzt"]
 
         payback_years = (total_cost_kzt / total_benefit_kzt) if total_benefit_kzt > 0 else None
 
@@ -709,19 +735,13 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "payback_years": _round2(payback_years) if payback_years is not None else None,
             "area_required_m2": _round2(area_required_m2),
             "land_required_ha": _round2(land_required_ha),
+            "land_area_ha": _round2(land_area_ha),
             "land_fit": land_fit,
             "land_fit_message": land_fit_message,
             "summary": f"Станция {_round2(system_kw)} кВт может продавать в сеть около {_round2(export_kwh)} кВт·ч/год.",
+            "cost_breakdown": {**cost_breakdown},
         }
-        response["cost_breakdown"] = {
-            "panels_cost_kzt": _round2(panels_cost_kzt),
-            "inverter_cost_kzt": _round2(inverter_cost_kzt),
-            "mounting_cost_kzt": _round2(mounting_cost_kzt),
-            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
-            "grid_connection_cost_kzt": _round2(grid_connection_cost_kzt),
-            "project_docs_cost_kzt": _round2(project_docs_cost_kzt),
-            "total_cost_kzt": _round2(total_cost_kzt),
-        }
+        response["cost_breakdown"] = {**cost_breakdown}
         response["energy_model"] = {
             "annual_generation_kwh": _round2(annual_generation_kwh),
             "own_consumption_percent": _round2(own_percent),
