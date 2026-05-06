@@ -178,6 +178,7 @@
 
       <div id="resultSection" class="result-section mt-4">
         <div id="recommendBox" class="recommend-box mb-3"></div>
+        <div id="costBreakdownBlock" class="field-card mb-3" style="display:none;"></div>
         <div id="variantCards" class="row g-3"></div>
 
         <div class="mt-3 tiny-note">
@@ -534,13 +535,30 @@
     const price = formatPriceFrom(selected.estimated_cost_kzt) || formatPriceRange(selected.estimated_cost_min_kzt ?? null, selected.estimated_cost_max_kzt ?? null) || '—';
     const inputLines = Object.entries(inputs).map(([k, v]) => [k, typeof v === 'number' ? formatNum(v) : String(v)]);
     const inferredInverterCount = selected.inverter_count ?? ((selected.system_kw && Number(selected.system_kw) > 0) ? 1 : null);
-    const totalCost = Number(selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? 0);
-    const costBreakdown = totalCost > 0 ? [
-      ['Панели (40%)', Math.round(totalCost * 0.40)],
-      ['Инвертор (28%)', Math.round(totalCost * 0.28)],
-      ['Монтаж (20%)', Math.round(totalCost * 0.20)],
-      ['Кабели и комплектующие (12%)', Math.round(totalCost * 0.12)],
-    ] : [];
+    const getCostLabels = (breakdown) => {
+      const isUtility = breakdown && breakdown.communication_system_cost_kzt !== undefined;
+      return {
+        panels_cost_kzt: 'ФЭМ панели',
+        equipment_cost_kzt: 'Оборудование (инверторы и автоматика)',
+        mounting_structure_cost_kzt: isUtility ? 'Опорная конструкция под ФЭМ и оборудование' : 'Опорная конструкция',
+        cables_cost_kzt: 'Кабельная продукция',
+        communication_system_cost_kzt: 'Система связи',
+        installation_commissioning_cost_kzt: 'Монтаж и пусконаладка',
+      };
+    };
+    const toMoneyRows = (breakdown, fallbackTotal) => {
+      const rows = [];
+      if (breakdown && typeof breakdown === 'object') {
+        const labels = getCostLabels(breakdown);
+        Object.entries(labels).forEach(([key, label]) => {
+          const value = Number(breakdown[key]);
+          if (Number.isFinite(value) && value > 0) rows.push([label, value]);
+        });
+      }
+      const total = Number((breakdown && breakdown.total_cost_kzt) ?? fallbackTotal);
+      return { rows, total: Number.isFinite(total) && total > 0 ? total : null };
+    };
+    const breakdownPayload = toMoneyRows(selected.cost_breakdown, selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? null);
     const lines = [
       ['Стоимость', price],
       ['Панели', selected.panel_count ?? selected.panels ?? '—'],
@@ -571,6 +589,7 @@
       table{width:100%;border-collapse:collapse;margin-top:10px}.td{padding:8px;border:1px solid #e2e8f0}
       .block{border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-top:12px}
       .small{font-size:12px;color:#475569}
+      .breakdown-block{page-break-inside:avoid;break-inside:avoid}
     </style></head><body>
       <div class="head"><div class="logo-wrap"><img class="logo-img" src="${escapeHtml(pdfLogoUrl)}" alt="${escapeHtml(companyName)}"><div class="logo-text">InTech-Forecast</div></div><div class="badge">Предварительное КП</div></div>
       <h2>Рекомендуемый вариант: ${escapeHtml(selected.display?.title || selected.name || '')}</h2>
@@ -584,11 +603,13 @@
       <div class="block"><b>Сравнение вариантов</b>
         <table>${variants.map(v=>`<tr><td class="td">${escapeHtml(v.display?.title || v.name)}</td><td class="td">${escapeHtml(formatPriceFrom(v.estimated_cost_kzt) || formatPriceRange(v.estimated_cost_min_kzt ?? null, v.estimated_cost_max_kzt ?? null) || '—')}</td><td class="td">${escapeHtml(v.payback_years ? `${formatNum(v.payback_years)} лет` : '—')}</td></tr>`).join('')}</table>
       </div>
-      <div class="block"><b>Расшифровка стоимости (предварительно)</b>
-        ${costBreakdown.length
-          ? `<table>${costBreakdown.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(v))}</td></tr>`).join('')}</table>
-             <div class="small mt-2">Суммы ориентировочные и могут меняться после инженерного расчёта, подбора оборудования и условий монтажа.</div>`
-          : '<div class="small">Недостаточно данных для детальной расшифровки стоимости.</div>'}
+      <div class="block breakdown-block"><b>Расшифровка стоимости</b>
+        ${breakdownPayload.rows.length
+          ? `<table>${breakdownPayload.rows.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(Math.round(v)))}</td></tr>`).join('')}
+               <tr><td class="td"><b>Итого</b></td><td class="td"><b>${escapeHtml(formatMoney(Math.round(breakdownPayload.total || 0)))}</b></td></tr>
+             </table>`
+          : `<div class="small">Итого: <b>${escapeHtml(formatMoney(Math.round(breakdownPayload.total || 0)))}</b></div>`}
+        <div class="small mt-2">Расчёт предварительный. Финальная стоимость уточняется после подбора оборудования, проекта и условий подключения.</div>
       </div>
       <div class="block"><b>Предупреждения</b><div class="small">${(data?.warnings || []).map(escapeHtml).join('<br>') || 'Нет'}</div></div>
       <div class="block small"><b>Расчёт является предварительным</b>. Итоговая стоимость зависит от монтажа, оборудования, проекта и условий подключения.</div>
@@ -605,12 +626,17 @@
     const recommended = variants.find((v) => v.name === data?.recommended_variant) || variants[0] || null;
 
     const recommendBox = document.getElementById('recommendBox');
+    const costBreakdownBlock = document.getElementById('costBreakdownBlock');
     if (recommended) {
       recommendBox.innerHTML = buildRecommendation(recommended, data.mode);
       recommendBox.style.display = 'block';
+      costBreakdownBlock.innerHTML = renderCostBreakdownHtml(recommended);
+      costBreakdownBlock.style.display = 'block';
     } else {
       recommendBox.innerHTML = '';
       recommendBox.style.display = 'none';
+      costBreakdownBlock.innerHTML = '';
+      costBreakdownBlock.style.display = 'none';
     }
 
     const cards = document.getElementById('variantCards');
@@ -644,6 +670,35 @@
         setTimeout(() => win.print(), 400);
       });
     });
+  }
+
+  function renderCostBreakdownHtml(variant) {
+    const breakdown = variant?.cost_breakdown || {};
+    const isUtility = breakdown.communication_system_cost_kzt !== undefined;
+    const labels = {
+      panels_cost_kzt: 'ФЭМ панели',
+      equipment_cost_kzt: 'Оборудование (инверторы и автоматика)',
+      mounting_structure_cost_kzt: isUtility ? 'Опорная конструкция под ФЭМ и оборудование' : 'Опорная конструкция',
+      cables_cost_kzt: 'Кабельная продукция',
+      communication_system_cost_kzt: 'Система связи',
+      installation_commissioning_cost_kzt: 'Монтаж и пусконаладка',
+    };
+    const rows = Object.entries(labels)
+      .map(([key, label]) => [label, Number(breakdown[key])])
+      .filter(([, value]) => Number.isFinite(value) && value > 0);
+    const total = Number(breakdown.total_cost_kzt ?? variant?.estimated_cost_kzt ?? 0);
+    return `
+      <div class="fw-semibold mb-2">Расшифровка стоимости</div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-2">
+          <tbody>
+            ${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td class="text-end">${escapeHtml(formatMoney(Math.round(value)))}</td></tr>`).join('')}
+            <tr><td><b>Итого</b></td><td class="text-end"><b>${escapeHtml(formatMoney(Math.round(total)))}</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tiny-note">Расчёт предварительный. Финальная стоимость уточняется после подбора оборудования, проекта и условий подключения.</div>
+    `;
   }
 
   document.getElementById('runCalc').addEventListener('click', async () => {
