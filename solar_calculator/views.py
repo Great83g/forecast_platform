@@ -16,6 +16,10 @@ def calculator_page(request):
     return render(request, "solar_calculator/calculator_page.html")
 
 
+def calculator_embed_page(request):
+    return render(request, "solar_calculator/calculator_embed.html")
+
+
 def seo_solar_panels_kazakhstan(request):
     return render(request, "solar_calculator/seo_solar_panels_kazakhstan.html", {"h1": "Солнечные панели в Казахстане"})
 

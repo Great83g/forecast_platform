@@ -6,6 +6,7 @@ app_name = "solar_calculator"
 
 urlpatterns = [
     path("", views.calculator_page, name="page"),
+    path("embed/", views.calculator_embed_page, name="embed"),
     path("api/calculator/calculate/", views.calculate_api, name="calculate"),
     path("lead/", views.create_lead_api, name="lead"),
     path("solar-panels-kazakhstan/", views.seo_solar_panels_kazakhstan, name="seo-panels-kz"),
