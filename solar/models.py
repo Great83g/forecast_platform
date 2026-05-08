@@ -77,6 +77,8 @@ class SolarForecast(models.Model):
     pred_xgb = models.FloatField(null=True, blank=True)
     pred_heur = models.FloatField(null=True, blank=True)
     pred_final = models.FloatField(null=True, blank=True)
+    pred_final_raw = models.FloatField(null=True, blank=True)
+    guardrail_reason = models.CharField(max_length=64, blank=True, default="")
 
     # прогноз погоды из Visual Crossing / заглушка
     irradiation_fc = models.FloatField(null=True, blank=True)

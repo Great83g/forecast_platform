@@ -23,6 +23,7 @@ from stations.models import Station
 from .model_storage import resolve_station_model_dir
 from .open_meteo import fetch_open_meteo_hourly
 from .vc_weather import fetch_visual_crossing_hourly
+from .forecast_guardrails import apply_visual_crossing_fallback, write_forecast_guardrail_log
 
 
 MODEL_DIR: Path = Path(getattr(settings, "MODEL_DIR", Path(settings.BASE_DIR) / "models_cache"))
@@ -1331,10 +1332,26 @@ def run_forecast_for_station(
     y_heur = np.clip(y_heur * winter_factor, 0, capacity_mw)
     y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
 
+    guardrail_df = pd.DataFrame(
+        {
+            "timestamp": feat["ds"],
+            "irradiation": feat.get("irradiation", pd.Series([pd.NA] * len(feat))),
+            "pred_final_mw": y_final,
+        }
+    )
+    if abs(capacity_mw - 1.2) < 0.05:
+        guardrail_df = apply_visual_crossing_fallback(guardrail_df)
+        write_forecast_guardrail_log(guardrail_df)
+        y_final = guardrail_df["pred_final_mw"].to_numpy(dtype=float)
+    else:
+        guardrail_df["pred_final_raw_mw"] = y_final
+        guardrail_df["guardrail_reason"] = "OK"
+
     y_np_kw = y_np * 1000.0
     y_xgb_kw = y_xgb * 1000.0
     y_heur_kw = y_heur * 1000.0
     y_final_kw = y_final * 1000.0
+    y_final_raw_kw = pd.to_numeric(guardrail_df["pred_final_raw_mw"], errors="coerce").to_numpy(dtype=float) * 1000.0
 
     # ---- save ----
     base_cleanup_start = timezone.datetime.combine(
@@ -1372,6 +1389,8 @@ def run_forecast_for_station(
                 pred_xgb=pred_xgb_kw,
                 pred_heur=float(y_heur_kw[i]),
                 pred_final=float(y_final_kw[i]),
+                pred_final_raw=float(y_final_raw_kw[i]) if not np.isnan(y_final_raw_kw[i]) else None,
+                guardrail_reason=str(guardrail_df.at[i, "guardrail_reason"] or "OK"),
                 irradiation_fc=float(row.get("irradiation") or 0.0) if not pd.isna(row.get("irradiation")) else None,
                 air_temp_fc=float(row.get("air_temp") or 0.0) if not pd.isna(row.get("air_temp")) else None,
                 wind_speed_fc=float(row.get("wind_speed") or 0.0) if not pd.isna(row.get("wind_speed")) else None,
