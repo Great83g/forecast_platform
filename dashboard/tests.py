@@ -22,6 +22,11 @@ from dashboard.services.forecast_engine import (
     WeatherFetchResult,
     run_forecast_for_station,
 )
+from dashboard.services.forecast_guardrails import (
+    apply_visual_crossing_fallback,
+    fallback_heuristic_1_2mw,
+    is_bad_irradiation,
+)
 from dashboard.services.forecast_scheduler import _normalize_schedule_providers, run_scheduled_forecasts
 from dashboard.services.model_storage import (
     canonical_station_model_dir,
@@ -56,6 +61,37 @@ from dashboard.forms import ForecastScheduleForm, StationForm
 from dashboard.management.commands.run_scheduled_forecasts import _run_auto_history_updates_safe
 from solar.models import SolarForecast, SolarRecord
 from stations.models import Organization, OrganizationMember, Station
+
+
+class ForecastGuardrailTests(TestCase):
+    def test_bad_irradiation_detection_respects_daytime_only(self):
+        self.assertFalse(is_bad_irradiation(0, 5))
+        self.assertFalse(is_bad_irradiation(0, 21))
+        self.assertTrue(is_bad_irradiation(None, 12))
+        self.assertTrue(is_bad_irradiation("", 12))
+        self.assertTrue(is_bad_irradiation(0, 12))
+        self.assertTrue(is_bad_irradiation(1301, 12))
+        self.assertFalse(is_bad_irradiation(700, 12))
+
+    def test_fallback_heuristic_for_summer_noon_uses_1_2mw_profile(self):
+        self.assertEqual(fallback_heuristic_1_2mw("2026-05-07 12:00:00"), 1.14)
+
+    def test_apply_visual_crossing_fallback_replaces_only_bad_daytime_irradiation(self):
+        df = pd.DataFrame(
+            [
+                {"timestamp": "2026-05-07 12:00:00", "irradiation": 0, "pred_final_mw": 0.03},
+                {"timestamp": "2026-05-07 22:00:00", "irradiation": 0, "pred_final_mw": 0.0},
+                {"timestamp": "2026-05-07 13:00:00", "irradiation": 800, "pred_final_mw": 0.5},
+            ]
+        )
+        guarded = apply_visual_crossing_fallback(df)
+        self.assertEqual(guarded.loc[0, "guardrail_reason"], "FALLBACK_BAD_IRRADIATION")
+        self.assertEqual(guarded.loc[0, "pred_final_raw_mw"], 0.03)
+        self.assertEqual(guarded.loc[0, "pred_final_mw"], 1.14)
+        self.assertEqual(guarded.loc[1, "guardrail_reason"], "OK")
+        self.assertEqual(guarded.loc[1, "pred_final_mw"], 0.0)
+        self.assertEqual(guarded.loc[2, "guardrail_reason"], "OK")
+        self.assertEqual(guarded.loc[2, "pred_final_mw"], 0.5)
 
 
 class TrainModelsXgbFramePreparationTests(TestCase):

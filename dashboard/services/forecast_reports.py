@@ -112,6 +112,8 @@ def build_forecast_report(
             "manual_snow_factor",
             "winter_factor_applied",
             "pred_final",
+            "pred_final_raw",
+            "guardrail_reason",
         )
     )
     df = pd.DataFrame(data)
@@ -137,12 +139,14 @@ def build_forecast_report(
                 "manual_snow_factor",
                 "winter_factor_applied",
                 "pred_final",
+                "pred_final_raw",
+                "guardrail_reason",
             ]
         )
 
     if "timestamp" in df.columns and not df.empty:
         df["timestamp"] = _excel_safe_datetime(df["timestamp"])
-        for col in ["pred_np", "pred_xgb", "pred_heur", "pred_final"]:
+        for col in ["pred_np", "pred_xgb", "pred_heur", "pred_final", "pred_final_raw"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce") / 1000.0
                 df.rename(columns={col: f"{col}_mw"}, inplace=True)
