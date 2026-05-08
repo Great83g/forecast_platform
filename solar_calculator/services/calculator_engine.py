@@ -45,6 +45,29 @@ ROOF_COEFFICIENTS = {
     "complex": 0.50,
 }
 
+RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES = {
+    "panels_cost_kzt": 0.50,
+    "equipment_cost_kzt": 0.11,
+    "mounting_structure_cost_kzt": 0.17,
+    "cables_cost_kzt": 0.08,
+    "installation_commissioning_cost_kzt": 0.14,
+}
+
+UTILITY_COST_BREAKDOWN_PERCENTAGES = {
+    "panels_cost_kzt": 0.35,
+    "equipment_cost_kzt": 0.10,
+    "mounting_structure_cost_kzt": 0.16,
+    "cables_cost_kzt": 0.11,
+    "communication_system_cost_kzt": 0.07,
+    "installation_commissioning_cost_kzt": 0.21,
+}
+
+
+def _build_cost_breakdown(total_cost_kzt: float, percentages: dict[str, float]) -> dict[str, float | None]:
+    breakdown = {key: _round2(total_cost_kzt * percent) for key, percent in percentages.items()}
+    breakdown["total_cost_kzt"] = _round2(total_cost_kzt)
+    return breakdown
+
 
 def _round2(value: float | None) -> float | None:
     if value is None:
@@ -169,14 +192,7 @@ def _residential_from_panel_count(
         "roof_fit_message": roof_fit_message,
         "summary": summary,
         "calculation_basis": basis,
-        "cost_breakdown": {
-            "panels_cost_kzt": _round2(panels_cost_kzt),
-            "inverter_cost_kzt": _round2(inverter_cost_kzt),
-            "mounting_cost_kzt": _round2(mounting_cost_kzt),
-            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
-            "battery_cost_kzt": _round2(battery_cost_kzt),
-            "total_cost_kzt": _round2(estimated_cost),
-        },
+        "cost_breakdown": _build_cost_breakdown(estimated_cost, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES),
         "energy_model": {
             "self_consumption_percent": _round2(self_consumption_percent),
             "usable_generation_kwh": _round2(usable_generation_kwh),
@@ -293,6 +309,8 @@ def _build_station_economics(*, response: dict[str, Any], ac_mw: float, annual_g
         },
         "estimated_cost_min_kzt": _round2(estimated_cost_min),
         "estimated_cost_max_kzt": _round2(estimated_cost_max),
+        "estimated_cost_kzt": _round2(estimated_cost_mid),
+        "cost_breakdown": _build_cost_breakdown(estimated_cost_mid, UTILITY_COST_BREAKDOWN_PERCENTAGES),
     }
 
     if tariff_value is not None and tariff_value > 0:
@@ -713,15 +731,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "land_fit_message": land_fit_message,
             "summary": f"Станция {_round2(system_kw)} кВт может продавать в сеть около {_round2(export_kwh)} кВт·ч/год.",
         }
-        response["cost_breakdown"] = {
-            "panels_cost_kzt": _round2(panels_cost_kzt),
-            "inverter_cost_kzt": _round2(inverter_cost_kzt),
-            "mounting_cost_kzt": _round2(mounting_cost_kzt),
-            "cables_protection_cost_kzt": _round2(cables_protection_cost_kzt),
-            "grid_connection_cost_kzt": _round2(grid_connection_cost_kzt),
-            "project_docs_cost_kzt": _round2(project_docs_cost_kzt),
-            "total_cost_kzt": _round2(total_cost_kzt),
-        }
+        response["cost_breakdown"] = _build_cost_breakdown(total_cost_kzt, UTILITY_COST_BREAKDOWN_PERCENTAGES)
+        response["result"]["cost_breakdown"] = response["cost_breakdown"]
         response["energy_model"] = {
             "annual_generation_kwh": _round2(annual_generation_kwh),
             "own_consumption_percent": _round2(own_percent),

@@ -278,7 +278,9 @@
 
   function formatInt(value) {
     if (value === null || value === undefined || value === '') return null;
-    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Number(value));
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return null;
+    return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(numericValue));
   }
 
   function formatNum(value, digits = 2) {
@@ -539,9 +541,9 @@
     const price = formatPriceFrom(selected.estimated_cost_kzt) || formatPriceRange(selected.estimated_cost_min_kzt ?? null, selected.estimated_cost_max_kzt ?? null) || '—';
     const inputLines = Object.entries(inputs).map(([k, v]) => [k, typeof v === 'number' ? formatNum(v) : String(v)]);
     const inferredInverterCount = selected.inverter_count ?? ((selected.system_kw && Number(selected.system_kw) > 0) ? 1 : null);
-    const getCostLabels = (breakdown) => {
+    const getCostLabel = (key, breakdown) => {
       const isUtility = breakdown && breakdown.communication_system_cost_kzt !== undefined;
-      return {
+      const labels = {
         panels_cost_kzt: 'ФЭМ панели',
         equipment_cost_kzt: 'Оборудование (инверторы и автоматика)',
         mounting_structure_cost_kzt: isUtility ? 'Опорная конструкция под ФЭМ и оборудование' : 'Опорная конструкция',
@@ -549,18 +551,30 @@
         communication_system_cost_kzt: 'Система связи',
         installation_commissioning_cost_kzt: 'Монтаж и пусконаладка',
       };
+      return labels[key] || key.replace(/_kzt$/, '').replaceAll('_', ' ');
     };
     const toMoneyRows = (breakdown, fallbackTotal) => {
       const rows = [];
       if (breakdown && typeof breakdown === 'object') {
-        const labels = getCostLabels(breakdown);
-        Object.entries(labels).forEach(([key, label]) => {
+        const preferredOrder = [
+          'panels_cost_kzt',
+          'equipment_cost_kzt',
+          'mounting_structure_cost_kzt',
+          'cables_cost_kzt',
+          'communication_system_cost_kzt',
+          'installation_commissioning_cost_kzt',
+        ];
+        const keys = [
+          ...preferredOrder.filter((key) => Object.prototype.hasOwnProperty.call(breakdown, key)),
+          ...Object.keys(breakdown).filter((key) => key !== 'total_cost_kzt' && !preferredOrder.includes(key)),
+        ];
+        keys.forEach((key) => {
           const value = Number(breakdown[key]);
-          if (Number.isFinite(value) && value > 0) rows.push([label, value]);
+          if (Number.isFinite(value) && value >= 0) rows.push([getCostLabel(key, breakdown), value]);
         });
       }
       const total = Number((breakdown && breakdown.total_cost_kzt) ?? fallbackTotal);
-      return { rows, total: Number.isFinite(total) && total > 0 ? total : null };
+      return { rows, total: Number.isFinite(total) && total >= 0 ? total : null };
     };
     const breakdownPayload = toMoneyRows(selected.cost_breakdown, selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? null);
     let lines = [];
@@ -630,10 +644,10 @@
       ${landWarningPdf ? `<div class="block"><b>Предупреждение по участку</b><div class="small">${landWarningPdf}</div></div>` : ''}
       <div class="block breakdown-block"><b>Расшифровка стоимости</b>
         ${breakdownPayload.rows.length
-          ? `<table>${breakdownPayload.rows.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(Math.round(v)))}</td></tr>`).join('')}
-               <tr><td class="td"><b>Итого</b></td><td class="td"><b>${escapeHtml(formatMoney(Math.round(breakdownPayload.total || 0)))}</b></td></tr>
+          ? `<table>${breakdownPayload.rows.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(v))}</td></tr>`).join('')}
+               <tr><td class="td"><b>Итого:</b></td><td class="td"><b>${escapeHtml(formatMoney(breakdownPayload.total || 0))}</b></td></tr>
              </table>`
-          : `<div class="small">Итого: <b>${escapeHtml(formatMoney(Math.round(breakdownPayload.total || 0)))}</b></div>`}
+          : `<div class="small">Итого: <b>${escapeHtml(formatMoney(breakdownPayload.total || 0))}</b></div>`}
         <div class="small mt-2">Расчёт предварительный. Финальная стоимость уточняется после подбора оборудования, проекта и условий подключения.</div>
       </div>
       <div class="block"><b>Предупреждения</b><div class="small">${(data?.warnings || []).map(escapeHtml).join('<br>') || 'Нет'}</div></div>
@@ -702,26 +716,41 @@
 
   function renderCostBreakdownHtml(variant) {
     const breakdown = variant?.cost_breakdown || {};
-    const isUtility = breakdown.communication_system_cost_kzt !== undefined;
-    const labels = {
-      panels_cost_kzt: 'ФЭМ панели',
-      equipment_cost_kzt: 'Оборудование (инверторы и автоматика)',
-      mounting_structure_cost_kzt: isUtility ? 'Опорная конструкция под ФЭМ и оборудование' : 'Опорная конструкция',
-      cables_cost_kzt: 'Кабельная продукция',
-      communication_system_cost_kzt: 'Система связи',
-      installation_commissioning_cost_kzt: 'Монтаж и пусконаладка',
+    const preferredOrder = [
+      'panels_cost_kzt',
+      'equipment_cost_kzt',
+      'mounting_structure_cost_kzt',
+      'cables_cost_kzt',
+      'communication_system_cost_kzt',
+      'installation_commissioning_cost_kzt',
+    ];
+    const getCostLabel = (key) => {
+      const isUtility = breakdown.communication_system_cost_kzt !== undefined;
+      const labels = {
+        panels_cost_kzt: 'ФЭМ панели',
+        equipment_cost_kzt: 'Оборудование (инверторы и автоматика)',
+        mounting_structure_cost_kzt: isUtility ? 'Опорная конструкция под ФЭМ и оборудование' : 'Опорная конструкция',
+        cables_cost_kzt: 'Кабельная продукция',
+        communication_system_cost_kzt: 'Система связи',
+        installation_commissioning_cost_kzt: 'Монтаж и пусконаладка',
+      };
+      return labels[key] || key.replace(/_kzt$/, '').replaceAll('_', ' ');
     };
-    const rows = Object.entries(labels)
-      .map(([key, label]) => [label, Number(breakdown[key])])
-      .filter(([, value]) => Number.isFinite(value) && value > 0);
+    const keys = [
+      ...preferredOrder.filter((key) => Object.prototype.hasOwnProperty.call(breakdown, key)),
+      ...Object.keys(breakdown).filter((key) => key !== 'total_cost_kzt' && !preferredOrder.includes(key)),
+    ];
+    const rows = keys
+      .map((key) => [getCostLabel(key), Number(breakdown[key])])
+      .filter(([, value]) => Number.isFinite(value) && value >= 0);
     const total = Number(breakdown.total_cost_kzt ?? variant?.estimated_cost_kzt ?? 0);
     return `
       <div class="fw-semibold mb-2">Расшифровка стоимости</div>
       <div class="table-responsive">
         <table class="table table-sm mb-2">
           <tbody>
-            ${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td class="text-end">${escapeHtml(formatMoney(Math.round(value)))}</td></tr>`).join('')}
-            <tr><td><b>Итого</b></td><td class="text-end"><b>${escapeHtml(formatMoney(Math.round(total)))}</b></td></tr>
+            ${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td class="text-end">${escapeHtml(formatMoney(value))}</td></tr>`).join('')}
+            <tr><td><b>Итого:</b></td><td class="text-end"><b>${escapeHtml(formatMoney(total))}</b></td></tr>
           </tbody>
         </table>
       </div>
