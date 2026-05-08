@@ -160,11 +160,12 @@ def _residential_from_panel_count(
         yearly_savings = yearly_bill_without_spp - yearly_bill_with_spp
 
     panels_cost_kzt = panel_count * PANEL_PRICE_KZT
-    inverter_cost_kzt = system_kw_final * INVERTER_COST_PER_KW_KZT
-    mounting_cost_kzt = system_kw_final * MOUNTING_COST_PER_KW_KZT
-    cables_protection_cost_kzt = system_kw_final * CABLES_PROTECTION_COST_PER_KW_KZT
-    battery_cost_kzt = max(battery_kwh, 0.0) * BATTERY_COST_PER_KWH_KZT
-    estimated_cost = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + battery_cost_kzt
+    equipment_cost_kzt = system_kw_final * INVERTER_COST_PER_KW_KZT
+    mounting_structure_cost_kzt = system_kw_final * MOUNTING_COST_PER_KW_KZT
+    cables_cost_kzt = system_kw_final * CABLES_PROTECTION_COST_PER_KW_KZT
+    battery_extra_cost = max(battery_kwh, 0.0) * BATTERY_COST_PER_KWH_KZT
+    base_system_cost = panels_cost_kzt + equipment_cost_kzt + mounting_structure_cost_kzt + cables_cost_kzt
+    estimated_cost = base_system_cost + battery_extra_cost
 
     if yearly_savings and yearly_savings > 0:
         payback_years = estimated_cost / yearly_savings
@@ -192,7 +193,7 @@ def _residential_from_panel_count(
         "roof_fit_message": roof_fit_message,
         "summary": summary,
         "calculation_basis": basis,
-        "cost_breakdown": _build_cost_breakdown(estimated_cost, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES),
+        "cost_breakdown": _build_cost_breakdown(base_system_cost, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES),
         "energy_model": {
             "self_consumption_percent": _round2(self_consumption_percent),
             "usable_generation_kwh": _round2(usable_generation_kwh),
@@ -695,12 +696,12 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         total_benefit_kzt = export_revenue_kzt + own_savings_kzt
 
         panels_cost_kzt = panel_count * PANEL_PRICE_KZT
-        inverter_cost_kzt = system_kw * INVERTER_COST_PER_KW_KZT
-        mounting_cost_kzt = system_kw * MOUNTING_COST_PER_KW_KZT
-        cables_protection_cost_kzt = system_kw * CABLES_PROTECTION_COST_PER_KW_KZT
+        equipment_cost_kzt = system_kw * INVERTER_COST_PER_KW_KZT
+        mounting_structure_cost_kzt = system_kw * MOUNTING_COST_PER_KW_KZT
+        cables_cost_kzt = system_kw * CABLES_PROTECTION_COST_PER_KW_KZT
         grid_connection_cost_kzt = system_kw * 40_000
         project_docs_cost_kzt = system_kw * 20_000
-        total_cost_kzt = panels_cost_kzt + inverter_cost_kzt + mounting_cost_kzt + cables_protection_cost_kzt + grid_connection_cost_kzt + project_docs_cost_kzt
+        total_cost_kzt = panels_cost_kzt + equipment_cost_kzt + mounting_structure_cost_kzt + cables_cost_kzt + grid_connection_cost_kzt + project_docs_cost_kzt
 
         payback_years = (total_cost_kzt / total_benefit_kzt) if total_benefit_kzt > 0 else None
 

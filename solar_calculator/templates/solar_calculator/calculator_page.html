@@ -569,17 +569,20 @@
           'communication_system_cost_kzt',
           'installation_commissioning_cost_kzt',
         ];
-        const keys = [
-          ...preferredOrder.filter((key) => Object.prototype.hasOwnProperty.call(breakdown, key)),
-          ...Object.keys(breakdown).filter((key) => key !== 'total_cost_kzt' && !preferredOrder.includes(key)),
-        ];
+        const keys = preferredOrder.filter((key) => Object.prototype.hasOwnProperty.call(breakdown, key));
         keys.forEach((key) => {
           const value = Number(breakdown[key]);
           if (Number.isFinite(value) && value >= 0) rows.push([getCostLabel(key, breakdown), value]);
         });
       }
-      const total = Number((breakdown && breakdown.total_cost_kzt) ?? fallbackTotal);
-      return { rows, total: Number.isFinite(total) && total >= 0 ? total : null };
+      const breakdownTotal = Number((breakdown && breakdown.total_cost_kzt) ?? fallbackTotal);
+      const normalizedBreakdownTotal = Number.isFinite(breakdownTotal) && breakdownTotal >= 0 ? breakdownTotal : null;
+      const estimatedTotal = Number(fallbackTotal);
+      const batteryCost = selected?.battery_kwh && Number(selected.battery_kwh) > 0 && normalizedBreakdownTotal !== null && Number.isFinite(estimatedTotal)
+        ? Math.max(estimatedTotal - normalizedBreakdownTotal, 0)
+        : 0;
+      const total = batteryCost > 0 && normalizedBreakdownTotal !== null ? normalizedBreakdownTotal + batteryCost : normalizedBreakdownTotal;
+      return { rows, batteryCost, total };
     };
     const breakdownPayload = toMoneyRows(selected.cost_breakdown, selected.estimated_cost_kzt ?? selected.estimated_cost_min_kzt ?? selected.estimated_cost_max_kzt ?? null);
     let lines = [];
@@ -650,6 +653,7 @@
       <div class="block breakdown-block"><b>Расшифровка стоимости</b>
         ${breakdownPayload.rows.length
           ? `<table>${breakdownPayload.rows.map(([k,v])=>`<tr><td class="td"><b>${escapeHtml(k)}</b></td><td class="td">${escapeHtml(formatMoney(v))}</td></tr>`).join('')}
+               ${breakdownPayload.batteryCost > 0 ? `<tr><td class="td"><b>Аккумулятор</b></td><td class="td">${escapeHtml(formatMoney(breakdownPayload.batteryCost))}</td></tr>` : ''}
                <tr><td class="td"><b>Итого:</b></td><td class="td"><b>${escapeHtml(formatMoney(breakdownPayload.total || 0))}</b></td></tr>
              </table>`
           : `<div class="small">Итого: <b>${escapeHtml(formatMoney(breakdownPayload.total || 0))}</b></div>`}
@@ -741,20 +745,23 @@
       };
       return labels[key] || key.replace(/_kzt$/, '').replaceAll('_', ' ');
     };
-    const keys = [
-      ...preferredOrder.filter((key) => Object.prototype.hasOwnProperty.call(breakdown, key)),
-      ...Object.keys(breakdown).filter((key) => key !== 'total_cost_kzt' && !preferredOrder.includes(key)),
-    ];
+    const keys = preferredOrder.filter((key) => Object.prototype.hasOwnProperty.call(breakdown, key));
     const rows = keys
       .map((key) => [getCostLabel(key), Number(breakdown[key])])
       .filter(([, value]) => Number.isFinite(value) && value >= 0);
-    const total = Number(breakdown.total_cost_kzt ?? variant?.estimated_cost_kzt ?? 0);
+    const breakdownTotal = Number(breakdown.total_cost_kzt ?? variant?.estimated_cost_kzt ?? 0);
+    const estimatedTotal = Number(variant?.estimated_cost_kzt ?? breakdownTotal);
+    const batteryCost = variant?.battery_kwh && Number(variant.battery_kwh) > 0 && Number.isFinite(breakdownTotal) && Number.isFinite(estimatedTotal)
+      ? Math.max(estimatedTotal - breakdownTotal, 0)
+      : 0;
+    const total = batteryCost > 0 ? breakdownTotal + batteryCost : breakdownTotal;
     return `
       <div class="fw-semibold mb-2">Расшифровка стоимости</div>
       <div class="table-responsive">
         <table class="table table-sm mb-2">
           <tbody>
             ${rows.map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td class="text-end">${escapeHtml(formatMoney(value))}</td></tr>`).join('')}
+            ${batteryCost > 0 ? `<tr><td>Аккумулятор</td><td class="text-end">${escapeHtml(formatMoney(batteryCost))}</td></tr>` : ''}
             <tr><td><b>Итого:</b></td><td class="text-end"><b>${escapeHtml(formatMoney(total))}</b></td></tr>
           </tbody>
         </table>
