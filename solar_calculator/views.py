@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import render
+from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -71,6 +72,11 @@ def _send_bitrix_lead(payload: dict[str, str]) -> int | None:
 
 def calculator_page(request):
     return render(request, "solar_calculator/calculator_page.html")
+
+
+@xframe_options_exempt
+def calculator_embed(request):
+    return render(request, "solar_calculator/calculator_embed.html")
 
 
 def seo_solar_panels_kazakhstan(request):

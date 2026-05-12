@@ -218,6 +218,14 @@ class CalculatorApiTests(TestCase):
         data = response.json()
         self.assertIn("result", data)
 
+    def test_calculator_embed_page_is_iframe_friendly(self):
+        response = self.client.get(reverse("solar_calculator:embed"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<meta name="robots" content="noindex,nofollow">')
+        self.assertContains(response, 'id="modeTabs"')
+        self.assertContains(response, reverse("solar_calculator:calculate"))
+        self.assertNotIn("X-Frame-Options", response.headers)
+
     def test_calculator_page_renders_lead_url(self):
         response = self.client.get(reverse("solar_calculator:page"))
         self.assertEqual(response.status_code, 200)
