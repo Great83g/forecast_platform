@@ -70,6 +70,53 @@ def _build_cost_breakdown(total_cost_kzt: float, percentages: dict[str, float]) 
     return breakdown
 
 
+def _cost_breakdown_base(payload: dict[str, Any]) -> float | None:
+    total_cost = _to_float(payload.get("total_cost_kzt"))
+    if total_cost is not None:
+        return total_cost
+
+    estimated_cost = _to_float(payload.get("estimated_cost_kzt"))
+    if estimated_cost is not None:
+        return estimated_cost
+
+    estimated_cost_min = _to_float(payload.get("estimated_cost_min_kzt"))
+    estimated_cost_max = _to_float(payload.get("estimated_cost_max_kzt"))
+    if estimated_cost_min is not None and estimated_cost_max is not None:
+        return (estimated_cost_min + estimated_cost_max) / 2
+
+    return None
+
+
+def _with_cost_breakdown(payload: dict[str, Any], percentages: dict[str, float]) -> dict[str, Any]:
+    total_cost = _cost_breakdown_base(payload)
+    if total_cost is None:
+        return payload
+
+    enriched = dict(payload)
+    enriched["cost_breakdown"] = _build_cost_breakdown(total_cost, percentages)
+    return enriched
+
+
+def _with_utility_cost_breakdown(payload: dict[str, Any]) -> dict[str, Any]:
+    return _with_cost_breakdown(payload, UTILITY_COST_BREAKDOWN_PERCENTAGES)
+
+
+def _attach_utility_cost_breakdown(response: dict[str, Any]) -> dict[str, Any]:
+    response["variants"] = [_with_utility_cost_breakdown(variant) for variant in response.get("variants", [])]
+
+    result_name = response.get("result", {}).get("name")
+    matched_result = next((variant for variant in response["variants"] if variant.get("name") == result_name), None)
+    if matched_result is not None:
+        response["result"] = matched_result
+    elif response.get("result"):
+        response["result"] = _with_utility_cost_breakdown(response["result"])
+
+    if response.get("result", {}).get("cost_breakdown"):
+        response["cost_breakdown"] = response["result"]["cost_breakdown"]
+
+    return response
+
+
 def _round2(value: float | None) -> float | None:
     if value is None:
         return None
@@ -194,7 +241,7 @@ def _residential_from_panel_count(
         "roof_fit_message": roof_fit_message,
         "summary": summary,
         "calculation_basis": basis,
-        "cost_breakdown": _build_cost_breakdown(base_system_cost, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES),
+        "cost_breakdown": _build_cost_breakdown(estimated_cost, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES),
         "energy_model": {
             "self_consumption_percent": _round2(self_consumption_percent),
             "usable_generation_kwh": _round2(usable_generation_kwh),
@@ -608,7 +655,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         }]
         response["recommended_variant"] = "utility_power"
         response["result"] = response["variants"][0]
-        return response
+        return _attach_utility_cost_breakdown(response)
 
     if mode == "utility_land":
         land_hectares = _to_float(inputs.get("land_hectares"))
@@ -663,7 +710,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         }]
         response["recommended_variant"] = "utility_land"
         response["result"] = response["variants"][0]
-        return response
+        return _attach_utility_cost_breakdown(response)
 
     if mode == "grid_export":
         target_kw = _to_float(inputs.get("target_kw"))
@@ -727,8 +774,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "land_fit_message": land_fit_message,
             "summary": f"Станция {_round2(system_kw)} кВт может продавать в сеть около {_round2(export_kwh)} кВт·ч/год.",
         }
-        response["cost_breakdown"] = _build_cost_breakdown(total_cost_kzt, UTILITY_COST_BREAKDOWN_PERCENTAGES)
-        response["result"]["cost_breakdown"] = response["cost_breakdown"]
+        response["result"] = _with_utility_cost_breakdown(response["result"])
+        response["cost_breakdown"] = response["result"]["cost_breakdown"]
         response["energy_model"] = {
             "annual_generation_kwh": _round2(annual_generation_kwh),
             "own_consumption_percent": _round2(own_percent),
@@ -755,7 +802,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "reason": "Режим ориентирован на потенциальную выручку от продажи в сеть.",
             "client_message": "Это расчёт потенциальной выручки, а не гарантированного заработка.",
         }
-        return response
+        return _attach_utility_cost_breakdown(response)
 
     # appliances
     appliances = inputs.get("appliances")

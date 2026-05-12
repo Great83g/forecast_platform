@@ -69,6 +69,41 @@ class CalculatorEngineTests(TestCase):
         self.assertTrue(export_model["export_enabled"])
         self.assertEqual(export_model["export_tariff_kzt_per_kwh"], 20.0)
 
+    def test_consumption_cost_breakdown_uses_residential_percentages(self):
+        payload = calculate("consumption", {"monthly_kwh": 350})
+        self.assertEqual(payload["errors"], [])
+        assert_cost_breakdown(self, payload["result"], RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES)
+        self.assertEqual(
+            payload["result"]["cost_breakdown"]["total_cost_kzt"],
+            payload["result"]["estimated_cost_kzt"],
+        )
+
+        for variant in payload["variants"]:
+            assert_cost_breakdown(self, variant, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES)
+            self.assertEqual(
+                variant["cost_breakdown"]["total_cost_kzt"],
+                variant["estimated_cost_kzt"],
+            )
+
+    def test_roof_area_cost_breakdown_uses_residential_percentages(self):
+        payload = calculate(
+            "roof_area",
+            {"roof_area_m2": 40, "roof_type": "simple", "monthly_kwh": 350},
+        )
+        self.assertEqual(payload["errors"], [])
+        assert_cost_breakdown(self, payload["result"], RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES)
+        self.assertEqual(
+            payload["result"]["cost_breakdown"]["total_cost_kzt"],
+            payload["result"]["estimated_cost_kzt"],
+        )
+
+        for variant in payload["variants"]:
+            assert_cost_breakdown(self, variant, RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES)
+            self.assertEqual(
+                variant["cost_breakdown"]["total_cost_kzt"],
+                variant["estimated_cost_kzt"],
+            )
+
     def test_appliances_real_mode(self):
         payload = calculate(
             "appliances",
@@ -110,7 +145,7 @@ class CalculatorEngineTests(TestCase):
         )
         self.assertEqual(payload["result"]["cost_breakdown"]["panels_cost_kzt"], 61_250_000.0)
 
-    def test_utility_power_has_variant_and_result_matches(self):
+    def test_utility_power_has_variant_result_and_utility_cost_breakdown(self):
         payload = calculate(
             "utility_power",
             {"target_mw_ac": 1.2, "specific_yield": 1450, "tariff_kzt_per_kwh": 35},
