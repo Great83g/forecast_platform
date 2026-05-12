@@ -1,3 +1,5 @@
+import logging
+
 from django.http import HttpResponse
 from django.shortcuts import render
 from rest_framework.decorators import api_view
@@ -5,6 +7,8 @@ from rest_framework.response import Response
 
 from .serializers import CalculatorRequestSerializer
 from .services.calculator_engine import calculate
+
+logger = logging.getLogger(__name__)
 
 
 def calculator_page(request):
@@ -43,6 +47,29 @@ def sitemap_xml(request):
 def robots_txt(request):
     body = "User-agent: *\nAllow: /\nSitemap: https://intech-forecast.com/sitemap.xml\n"
     return HttpResponse(body, content_type="text/plain")
+
+
+@api_view(["POST"])
+def lead_api(request):
+    name = str(request.data.get("name") or "").strip()
+    phone = str(request.data.get("phone") or "").strip()
+
+    if not name or not phone:
+        return Response({"success": False, "error": "Заполните имя и телефон."}, status=400)
+
+    lead_payload = {
+        "name": name,
+        "phone": phone,
+        "email": str(request.data.get("email") or "").strip(),
+        "comment": str(request.data.get("comment") or "").strip(),
+        "selected_plan": str(request.data.get("selected_plan") or "").strip(),
+        "price": str(request.data.get("price") or "").strip(),
+        "panel_count": str(request.data.get("panel_count") or "").strip(),
+        "system_power_kw": str(request.data.get("system_power_kw") or "").strip(),
+        "payback_years": str(request.data.get("payback_years") or "").strip(),
+    }
+    logger.info("Solar calculator lead submitted", extra={"lead": lead_payload})
+    return Response({"success": True})
 
 
 @api_view(["POST"])
