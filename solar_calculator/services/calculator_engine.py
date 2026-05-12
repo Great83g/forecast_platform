@@ -15,6 +15,7 @@ DEFAULT_SPECIFIC_YIELD = 1450.0
 DEFAULT_TARIFF_KZT_PER_KWH = 35.0
 PANEL_PRICE_PER_W_KZT = 100.0
 DEFAULT_COST_PER_KW = PANEL_PRICE_PER_W_KZT * 1000
+UTILITY_COST_PER_KW_KZT = 350_000.0
 
 PANEL_PRICE_KZT = 58_000.0
 INVERTER_COST_PER_KW_KZT = 70_000.0
@@ -337,9 +338,7 @@ def _label_project_size(ac_mw: float) -> str:
 
 def _station_price_range(ac_mw: float) -> tuple[float, float]:
     _ = ac_mw
-    # Базируемся на текущей цене панели: 100 тг/Вт (58 000 тг за 580 Вт).
-    station_price_per_kw = PANEL_PRICE_PER_W_KZT * 1000
-    return station_price_per_kw, station_price_per_kw
+    return UTILITY_COST_PER_KW_KZT, UTILITY_COST_PER_KW_KZT
 
 
 def _build_station_economics(*, response: dict[str, Any], ac_mw: float, annual_generation_kwh: float, tariff_value: float | None) -> dict[str, Any]:
@@ -742,13 +741,8 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
         own_savings_kzt = own_consumption_kwh * tariff
         total_benefit_kzt = export_revenue_kzt + own_savings_kzt
 
-        panels_cost_kzt = panel_count * PANEL_PRICE_KZT
-        equipment_cost_kzt = system_kw * INVERTER_COST_PER_KW_KZT
-        mounting_structure_cost_kzt = system_kw * MOUNTING_COST_PER_KW_KZT
-        cables_cost_kzt = system_kw * CABLES_PROTECTION_COST_PER_KW_KZT
-        grid_connection_cost_kzt = system_kw * 40_000
-        project_docs_cost_kzt = system_kw * 20_000
-        total_cost_kzt = panels_cost_kzt + equipment_cost_kzt + mounting_structure_cost_kzt + cables_cost_kzt + grid_connection_cost_kzt + project_docs_cost_kzt
+        price_per_kw_kzt = UTILITY_COST_PER_KW_KZT
+        total_cost_kzt = target_kw * price_per_kw_kzt
 
         payback_years = (total_cost_kzt / total_benefit_kzt) if total_benefit_kzt > 0 else None
 
@@ -771,6 +765,7 @@ def calculate(mode: str, inputs: dict[str, Any]) -> dict[str, Any]:
             "export_revenue_kzt": _round2(export_revenue_kzt),
             "own_savings_kzt": _round2(own_savings_kzt),
             "total_benefit_kzt": _round2(total_benefit_kzt),
+            "price_per_kw_kzt": _round2(price_per_kw_kzt),
             "estimated_cost_kzt": _round2(total_cost_kzt),
             "payback_years": _round2(payback_years) if payback_years is not None else None,
             "area_required_m2": _round2(area_required_m2),
