@@ -136,3 +136,26 @@ class CalculatorApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("result", data)
+
+    def test_calculator_page_renders_lead_url(self):
+        response = self.client.get(reverse("solar_calculator:page"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("solar_calculator:lead"))
+
+    def test_calculate_lead_api(self):
+        response = self.client.post(
+            reverse("solar_calculator:lead"),
+            data={"name": "Alex", "phone": "+77000000000"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+
+    def test_calculate_lead_api_requires_name_and_phone(self):
+        response = self.client.post(
+            reverse("solar_calculator:lead"),
+            data={"name": "", "phone": ""},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["success"])
