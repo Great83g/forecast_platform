@@ -85,17 +85,40 @@ class CalculatorEngineTests(TestCase):
         self.assertEqual(payload["recommended_variant"], "grid_export")
         self.assertIn("export_revenue_kzt", payload["result"])
         self.assertIn("total_benefit_kzt", payload["result"])
+        self.assertEqual(payload["result"]["price_per_kw_kzt"], 350_000.0)
+        self.assertEqual(payload["result"]["estimated_cost_kzt"], 175_000_000.0)
+        self.assertEqual(
+            payload["result"]["cost_breakdown"]["total_cost_kzt"],
+            175_000_000.0,
+        )
+        self.assertEqual(payload["result"]["cost_breakdown"]["panels_cost_kzt"], 61_250_000.0)
 
     def test_utility_power_has_variant_and_result_matches(self):
         payload = calculate(
             "utility_power",
-            {"target_mw_ac": 10, "specific_yield": 1450, "tariff_kzt_per_kwh": 35},
+            {"target_mw_ac": 1.2, "specific_yield": 1450, "tariff_kzt_per_kwh": 35},
         )
+        expected_breakdown = {
+            "panels_cost_kzt": 147_000_000.0,
+            "equipment_cost_kzt": 42_000_000.0,
+            "mounting_structure_cost_kzt": 67_200_000.0,
+            "cables_cost_kzt": 46_200_000.0,
+            "communication_system_cost_kzt": 29_400_000.0,
+            "installation_commissioning_cost_kzt": 88_200_000.0,
+            "total_cost_kzt": 420_000_000.0,
+        }
+
         self.assertEqual(payload["errors"], [])
         self.assertTrue(payload["variants"])
         self.assertEqual(payload["recommended_variant"], "utility_power")
         self.assertEqual(payload["variants"][0]["name"], "utility_power")
         self.assertEqual(payload["result"], payload["variants"][0])
+        self.assertEqual(
+            payload["result"]["price_per_kw_kzt"],
+            {"min": 350_000.0, "max": 350_000.0, "mid": 350_000.0},
+        )
+        self.assertEqual(payload["result"]["estimated_cost_kzt"], 420_000_000.0)
+        self.assertEqual(payload["result"]["cost_breakdown"], expected_breakdown)
 
     def test_utility_land_has_variant_and_result_matches(self):
         payload = calculate(
@@ -107,6 +130,12 @@ class CalculatorEngineTests(TestCase):
         self.assertEqual(payload["recommended_variant"], "utility_land")
         self.assertEqual(payload["variants"][0]["name"], "utility_land")
         self.assertEqual(payload["result"], payload["variants"][0])
+        self.assertEqual(
+            payload["result"]["price_per_kw_kzt"],
+            {"min": 350_000.0, "max": 350_000.0, "mid": 350_000.0},
+        )
+        self.assertEqual(payload["result"]["estimated_cost_kzt"], 466_666_666.67)
+        self.assertEqual(payload["result"]["cost_breakdown"]["total_cost_kzt"], 466_666_666.67)
 
 
 class CalculatorApiTests(TestCase):
