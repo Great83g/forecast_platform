@@ -1,45 +1,25 @@
+import json
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from .services.calculator_engine import calculate
 
 
-LEGACY_COST_BREAKDOWN_KEYS = {
-    "inverter_cost_kzt",
-    "mounting_cost_kzt",
-    "cables_protection_cost_kzt",
-}
+class BitrixResponse:
+    def __init__(self, payload):
+        self.payload = payload
 
-RESIDENTIAL_COST_BREAKDOWN_PERCENTAGES = {
-    "panels_cost_kzt": 0.50,
-    "equipment_cost_kzt": 0.11,
-    "mounting_structure_cost_kzt": 0.17,
-    "cables_cost_kzt": 0.08,
-    "installation_commissioning_cost_kzt": 0.14,
-}
+    def __enter__(self):
+        return self
 
-UTILITY_COST_BREAKDOWN_PERCENTAGES = {
-    "panels_cost_kzt": 0.35,
-    "equipment_cost_kzt": 0.10,
-    "mounting_structure_cost_kzt": 0.16,
-    "cables_cost_kzt": 0.11,
-    "communication_system_cost_kzt": 0.07,
-    "installation_commissioning_cost_kzt": 0.21,
-}
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
-
-def assert_cost_breakdown(test_case, payload, percentages, total_cost=None):
-    expected_keys = set(percentages) | {"total_cost_kzt"}
-    test_case.assertEqual(set(payload["cost_breakdown"]), expected_keys)
-    test_case.assertTrue(LEGACY_COST_BREAKDOWN_KEYS.isdisjoint(payload["cost_breakdown"]))
-
-    breakdown_total = payload["cost_breakdown"]["total_cost_kzt"]
-    if total_cost is not None:
-        test_case.assertEqual(breakdown_total, total_cost)
-
-    for key, percentage in percentages.items():
-        test_case.assertEqual(payload["cost_breakdown"][key], round(breakdown_total * percentage, 2))
+    def read(self):
+        return json.dumps(self.payload).encode("utf-8")
 
 
 class CalculatorEngineTests(TestCase):
@@ -243,14 +223,52 @@ class CalculatorApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("solar_calculator:lead"))
 
+    @override_settings(BITRIX_WEBHOOK_URL="https://portal.example/rest/1/token/")
     def test_calculate_lead_api(self):
-        response = self.client.post(
-            reverse("solar_calculator:lead"),
-            data={"name": "Alex", "phone": "+77000000000"},
-            content_type="application/json",
-        )
+        with patch(
+            "solar_calculator.views.urlopen",
+            return_value=BitrixResponse({"result": 123}),
+        ) as mocked_urlopen:
+            response = self.client.post(
+                reverse("solar_calculator:lead"),
+                data={
+                    "name": "Alex",
+                    "phone": "+77000000000",
+                    "email": "alex@example.com",
+                    "comment": "хочу КП",
+                    "selected_plan": "Оптимальный",
+                    "price": "580 000 ₸",
+                    "panel_count": "4",
+                    "system_power_kw": "2.32 кВт",
+                    "payback_years": "5.1 лет",
+                },
+                content_type="application/json",
+            )
+
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["success"])
+        self.assertEqual(response.json()["lead_id"], 123)
+
+        request = mocked_urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "https://portal.example/rest/1/token/crm.lead.add.json",
+        )
+        bitrix_payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(
+            bitrix_payload["fields"]["TITLE"],
+            "Заявка с калькулятора СЭС — Alex",
+        )
+        self.assertEqual(
+            bitrix_payload["fields"]["PHONE"],
+            [{"VALUE": "+77000000000", "VALUE_TYPE": "WORK"}],
+        )
+        self.assertEqual(
+            bitrix_payload["fields"]["EMAIL"],
+            [{"VALUE": "alex@example.com", "VALUE_TYPE": "WORK"}],
+        )
+        self.assertIn("Выбранный план: Оптимальный", bitrix_payload["fields"]["COMMENTS"])
+        self.assertIn("Цена: 580 000 ₸", bitrix_payload["fields"]["COMMENTS"])
 
     def test_calculate_lead_api_requires_name_and_phone(self):
         response = self.client.post(
@@ -260,3 +278,21 @@ class CalculatorApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()["success"])
+
+    def test_calculate_lead_api_reports_bitrix_error(self):
+        with patch(
+            "solar_calculator.views.urlopen",
+            return_value=BitrixResponse({
+                "error": "ERROR",
+                "error_description": "Bitrix failed",
+            }),
+        ):
+            response = self.client.post(
+                reverse("solar_calculator:lead"),
+                data={"name": "Alex", "phone": "+77000000000"},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertFalse(response.json()["success"])
+        self.assertEqual(response.json()["error"], "Bitrix failed")
