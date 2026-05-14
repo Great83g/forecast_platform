@@ -251,6 +251,33 @@ class WindForecastModuleTests(TestCase):
 
 
 
+    def test_visual_crossing_metric_wind_is_converted_to_ms(self):
+        from dashboard.services.vc_weather import _visual_crossing_hourly_df
+
+        df = _visual_crossing_hourly_df(
+            {
+                "days": [
+                    {
+                        "datetime": "2026-05-15",
+                        "hours": [
+                            {
+                                "datetime": "10:00:00",
+                                "windspeed": 36.0,
+                                "temp": 12.0,
+                                "cloudcover": 0.0,
+                                "humidity": 50.0,
+                                "precip": 0.0,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertAlmostEqual(float(df.iloc[0]["wind_speed"]), 10.0, places=3)
+
+
+
     @patch("wind.views.fetch_visual_crossing_hourly")
     @patch("wind.views.fetch_open_meteo_hourly")
     def test_forecast_run_creates_rows_for_scope(self, om_mock, vc_mock):
