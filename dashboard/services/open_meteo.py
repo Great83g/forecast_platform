@@ -72,6 +72,7 @@ def fetch_open_meteo_hourly(lat: float, lon: float, days: int, tz_name: Optional
         ),
         "forecast_days": forecast_days,
         "timezone": tz_name or "auto",
+        "wind_speed_unit": "ms",
     }
 
     try:

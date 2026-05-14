@@ -16,6 +16,41 @@
 <div class="card mb-3">
   <div class="card-body">
     <h5 class="card-title" data-i18n="wind_run_forecast_manual">Запустить прогноз (ручной запуск)</h5>
+
+    <div id="postfactum-forecast-panel" class="border border-warning rounded p-3 mb-3 bg-warning bg-opacity-10" data-postfactum-panel-version="2">
+      <h5 class="mb-2 text-warning-emphasis">Постфактум по старым данным</h5>
+      <div class="text-muted small mb-2">Создаёт прогноз за уже прошедшие даты из фактической истории ветра станции. Координаты и погодные провайдеры не нужны.</div>
+      <form method="get" action="{% url 'wind:station-forecast-run' station.pk %}" class="d-flex flex-wrap gap-2 align-items-end">
+        <input type="hidden" name="horizon_mode" value="postfactum">
+        <input type="hidden" name="days" value="1">
+        <div>
+          <label class="form-label mb-0 small">База</label>
+          <select class="form-select form-select-sm" name="scope" style="width:160px;">
+            <option value="main" {% if scope == 'main' %}selected{% endif %}>Основная</option>
+            <option value="test" {% if scope == 'test' %}selected{% endif %}>Тестовая</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label mb-0 small">Постфактум с даты</label>
+          <input type="date" class="form-control form-control-sm" name="postfactum_from" required style="width:150px;">
+        </div>
+        <div>
+          <label class="form-label mb-0 small">Постфактум по дату</label>
+          <input type="date" class="form-control form-control-sm" name="postfactum_to" required style="width:150px;">
+        </div>
+        <div>
+          <label class="form-label mb-0 small">Email</label>
+          <input type="text" class="form-control form-control-sm" name="emails" value="{{ emails }}" placeholder="mail1@example.com" style="width:280px;">
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="auto_send" value="1" id="postfactum_auto_send">
+          <label class="form-check-label" for="postfactum_auto_send">Авто-отправка email</label>
+        </div>
+        <button type="submit" class="btn btn-warning btn-sm fw-bold">Постфактум: построить</button>
+      </form>
+    </div>
+
+    <div class="text-muted small mb-2">Обычный прогноз вперёд по погодным провайдерам:</div>
     <form method="get" action="{% url 'wind:station-forecast-run' station.pk %}" class="d-flex flex-wrap gap-2 align-items-end">
       <div>
         <label class="form-label mb-0 small">Дней</label>
@@ -31,7 +66,7 @@
       <div>
         <label class="form-label mb-0 small">Режим горизонта</label>
         <select id="manual-horizon-mode" class="form-select form-select-sm" name="horizon_mode" style="width:320px;">
-          {% for value, label in schedule_form.horizon_mode.field.choices %}
+          {% for value, label in manual_horizon_choices %}
             <option value="{{ value }}" {% if manual_horizon_mode == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
@@ -88,13 +123,15 @@
     <input type="date" name="to" value="{{ to }}" class="form-control form-control-sm">
   </div>
   <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
-  <a class="btn btn-sm btn-success ms-auto" href="{% url 'wind:station-forecast-export' station.pk %}?scope={{ scope }}">Скачать Excel</a>
+  <a class="btn btn-sm btn-success ms-auto" href="{% url 'wind:station-forecast-export' station.pk %}?scope={{ scope }}{% if from %}&from={{ from }}{% endif %}{% if to %}&to={{ to }}{% endif %}">Скачать Excel</a>
 </form>
 
 <form method="post" action="{% url 'wind:station-forecast-clear' station.pk %}" class="mb-2">
   {% csrf_token %}
   <input type="hidden" name="scope" value="{{ scope }}">
-  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Очистить прогноз?');">Очистить прогноз</button>
+  <input type="hidden" name="from" value="{{ from }}">
+  <input type="hidden" name="to" value="{{ to }}">
+  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Очистить прогноз только для текущей станции{% if from or to %} и выбранного диапазона дат{% endif %}?');">Очистить прогноз</button>
 </form>
 
 <div class="text-muted small mb-2">Строк прогноза: <b>{{ count }}</b></div>
@@ -151,6 +188,10 @@
           "Email": "Email",
           "Авто-отправка email": "Email авто-жіберу",
           "Построить прогноз": "Болжам құру",
+          "Постфактум по старым данным": "Ескі деректер бойынша постфактум",
+          "Создаёт прогноз за уже прошедшие даты из фактической истории ветра станции. Координаты и погодные провайдеры не нужны.": "Станцияның нақты жел тарихынан өткен күндерге болжам жасайды. Координаттар мен ауа райы провайдерлері қажет емес.",
+          "Постфактум: построить": "Постфактум: құру",
+          "Обычный прогноз вперёд по погодным провайдерам": "Ауа райы провайдерлері бойынша алдағы әдеттегі болжам",
           "База автопрогноза": "Автоболжам базасы",
           "Основная (фиксировано)": "Негізгі (тұрақты)",
           "Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.": "Email міндетті емес: автоболжам онсыз да орындалады; email болмаса есеп жіберілмейді.",
@@ -164,7 +205,10 @@
           "Дата/время": "Күн/уақыт",
           "Нет прогноза": "Болжам жоқ",
           "Обычный (старый)": "Қалыпты (ескі)",
-          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Күнтізбе: Дс–Бс → +2 күн, Жм → +2/+3/+4 (Жс/Дс/Сс)"
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Күнтізбе: Дс–Бс → +2 күн, Жм → +2/+3/+4 (Жс/Дс/Сс)",
+          "Постфактум (по фактической истории)": "Постфактум (нақты тарих бойынша)",
+          "Постфактум с даты": "Постфактум басталуы",
+          "Постфактум по дату": "Постфактум аяқталуы"
         },
         en: {
           "Основная": "Main",
@@ -175,6 +219,10 @@
           "Email": "Email",
           "Авто-отправка email": "Auto-send email",
           "Построить прогноз": "Run forecast",
+          "Постфактум по старым данным": "Post-factum from old data",
+          "Создаёт прогноз за уже прошедшие даты из фактической истории ветра станции. Координаты и погодные провайдеры не нужны.": "Creates a forecast for past dates from the station's actual wind history. Coordinates and weather providers are not required.",
+          "Постфактум: построить": "Post-factum: run",
+          "Обычный прогноз вперёд по погодным провайдерам": "Normal forward forecast from weather providers",
           "База автопрогноза": "Auto-forecast database",
           "Основная (фиксировано)": "Main (fixed)",
           "Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.": "Email is optional: auto-forecast runs without it; report sending is skipped if email is empty.",
@@ -188,7 +236,10 @@
           "Дата/время": "Date/time",
           "Нет прогноза": "No forecast",
           "Обычный (старый)": "Normal (legacy)",
-          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Calendar: Mon–Thu → +2 days, Fri → +2/+3/+4 (Sun/Mon/Tue)"
+          "Календарь: Пн–Чт → +2 дня, Пт → +2/+3/+4 (Вс/Пн/Вт)": "Calendar: Mon–Thu → +2 days, Fri → +2/+3/+4 (Sun/Mon/Tue)",
+          "Постфактум (по фактической истории)": "Post-factum (from actual history)",
+          "Постфактум с даты": "Post-factum from",
+          "Постфактум по дату": "Post-factum to"
         }
       }[lang];
 
