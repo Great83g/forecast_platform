@@ -25,7 +25,7 @@ from dashboard.services.forecast_reports import send_report_email
 from stations.models import Organization, OrganizationMember, Station
 
 from .forms import WindForecastScheduleForm, WindStationForm, WindStationProfileForm
-from .models import WindForecast, WindRecord
+from .models import WindForecast, WindRecord, WindStationProfile
 from .services.forecast_runs import (
     WindForecastPayload,
     create_wind_forecast_run,
@@ -975,7 +975,104 @@ def station_forecast_export(request, pk: int):
     return resp
 
 
+def _train_wind_profile_from_history(station: Station, history_scope: str) -> dict:
+    profile, _ = WindStationProfile.objects.get_or_create(station=station)
+    qs = WindRecord.objects.filter(
+        station=station,
+        history_scope=history_scope,
+        wind_speed_ms__isnull=False,
+        power_kw__isnull=False,
+    ).order_by("timestamp")
+    df = pd.DataFrame(list(qs.values("wind_speed_ms", "power_kw")))
+    total_rows = int(WindRecord.objects.filter(station=station, history_scope=history_scope).count())
+    if df.empty:
+        return {
+            "ok": False,
+            "total_rows": total_rows,
+            "valid_rows": 0,
+            "message": "Нет строк с wind_speed_ms и power_kw для обучения.",
+            "profile": profile,
+        }
+
+    df["wind_speed_ms"] = pd.to_numeric(df["wind_speed_ms"], errors="coerce")
+    df["power_kw"] = pd.to_numeric(df["power_kw"], errors="coerce")
+    df = df.dropna(subset=["wind_speed_ms", "power_kw"])
+    df = df[(df["wind_speed_ms"] >= 0) & (df["power_kw"] >= 0)]
+    valid_rows = int(len(df))
+    if valid_rows < 5:
+        return {
+            "ok": False,
+            "total_rows": total_rows,
+            "valid_rows": valid_rows,
+            "message": "Для обучения нужно минимум 5 валидных строк с wind_speed_ms и power_kw.",
+            "profile": profile,
+        }
+
+    capacity_kw = float(getattr(station, "capacity_ac_kw", 0.0) or 0.0)
+    if capacity_kw <= 0:
+        capacity_kw = max(float(df["power_kw"].quantile(0.98) or 0.0), 1.0)
+
+    positive = df[df["power_kw"] >= capacity_kw * 0.01]
+    high_power = df[df["power_kw"] >= capacity_kw * 0.90]
+
+    cut_in = float(positive["wind_speed_ms"].quantile(0.10)) if not positive.empty else float(profile.cut_in_speed_ms)
+    if not high_power.empty:
+        rated = float(high_power["wind_speed_ms"].quantile(0.25))
+    else:
+        rated = float(df.loc[df["power_kw"].idxmax(), "wind_speed_ms"])
+
+    cut_in = min(max(cut_in, 0.1), 10.0)
+    rated = min(max(rated, cut_in + 0.5), 30.0)
+    cut_out = max(float(profile.cut_out_speed_ms or 25.0), rated + 1.0)
+
+    profile.cut_in_speed_ms = round(cut_in, 2)
+    profile.rated_speed_ms = round(rated, 2)
+    profile.cut_out_speed_ms = round(cut_out, 2)
+    profile.save(update_fields=["cut_in_speed_ms", "rated_speed_ms", "cut_out_speed_ms"])
+
+    return {
+        "ok": True,
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "message": (
+            f"Профиль обучен: cut-in={profile.cut_in_speed_ms} м/с, "
+            f"rated={profile.rated_speed_ms} м/с, cut-out={profile.cut_out_speed_ms} м/с."
+        ),
+        "profile": profile,
+    }
+
+
+
 @login_required
 def station_train(request, pk: int):
     station = _get_wind_station_or_404(request.user, pk)
-    return render(request, "wind/station_train.html", {"station": station})
+    history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
+    profile, _ = WindStationProfile.objects.get_or_create(station=station)
+
+    stats_qs = WindRecord.objects.filter(station=station, history_scope=history_scope)
+    total_rows = stats_qs.count()
+    valid_rows = stats_qs.filter(wind_speed_ms__isnull=False, power_kw__isnull=False).count()
+    last_result = None
+
+    if request.method == "POST":
+        last_result = _train_wind_profile_from_history(station, history_scope)
+        profile = last_result["profile"]
+        total_rows = last_result["total_rows"]
+        valid_rows = last_result["valid_rows"]
+        if last_result["ok"]:
+            messages.success(request, last_result["message"])
+        else:
+            messages.error(request, last_result["message"])
+
+    return render(
+        request,
+        "wind/station_train.html",
+        {
+            "station": station,
+            "history_scope": history_scope,
+            "profile": profile,
+            "total_rows": total_rows,
+            "valid_rows": valid_rows,
+            "last_result": last_result,
+        },
+    )

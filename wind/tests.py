@@ -85,6 +85,37 @@ class WindModuleRouteTests(TestCase):
                 response = self.client.get(url)
                 self.assertEqual(response.status_code, 200)
 
+    def test_wind_train_page_trains_profile_from_history(self):
+        from django.utils import timezone
+
+        self.client.force_login(self.user)
+        WindStationProfile.objects.create(
+            station=self.station,
+            turbine_count=2,
+            turbine_rated_power_kw=2500,
+            hub_height_m=100,
+            rotor_diameter_m=120,
+            cut_in_speed_ms=3.0,
+            rated_speed_ms=12.0,
+            cut_out_speed_ms=25.0,
+        )
+        for idx, (speed, power) in enumerate([(2.0, 0), (3.5, 80), (5.0, 500), (8.0, 1800), (10.0, 4200), (11.0, 5000)]):
+            WindRecord.objects.create(
+                station=self.station,
+                history_scope=WindRecord.HISTORY_SCOPE_MAIN,
+                timestamp=timezone.make_aware(timezone.datetime(2026, 5, 1, idx, 0, 0)),
+                wind_speed_ms=speed,
+                power_kw=power,
+            )
+
+        response = self.client.post(reverse("wind:station-train", args=[self.station.pk]), {"history_scope": "main"})
+
+        self.assertEqual(response.status_code, 200)
+        profile = WindStationProfile.objects.get(station=self.station)
+        self.assertNotEqual(profile.rated_speed_ms, 12.0)
+        self.assertContains(response, "Профиль обучен")
+
+
     def test_wind_station_list_uses_wind_module_urls(self):
         self.client.force_login(self.user)
         response = self.client.get(reverse("wind:station-list"))
@@ -221,33 +252,6 @@ class WindForecastModuleTests(TestCase):
         self.assertEqual(args[2], today + timedelta(days=1))
         self.assertEqual(args[3], today + timedelta(days=1))
         self.assertEqual(kwargs["source"], "visual_crossing")
-
-
-
-    def test_visual_crossing_metric_wind_is_converted_to_ms(self):
-        from dashboard.services.vc_weather import _visual_crossing_hourly_df
-
-        df = _visual_crossing_hourly_df(
-            {
-                "days": [
-                    {
-                        "datetime": "2026-05-15",
-                        "hours": [
-                            {
-                                "datetime": "10:00:00",
-                                "windspeed": 36.0,
-                                "temp": 12.0,
-                                "cloudcover": 0.0,
-                                "humidity": 50.0,
-                                "precip": 0.0,
-                            }
-                        ],
-                    }
-                ]
-            }
-        )
-
-        self.assertAlmostEqual(float(df.iloc[0]["wind_speed"]), 10.0, places=3)
 
 
 

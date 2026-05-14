@@ -37,3 +37,6 @@ models_cache/
 # data
 *.csv
 *.xlsx
+
+# Deployment backups
+backups/
