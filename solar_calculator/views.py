@@ -10,6 +10,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from .models import CalculatorUsageCounter
 from .serializers import CalculatorRequestSerializer
 from .services.calculator_engine import calculate
 
@@ -71,7 +72,16 @@ def _send_bitrix_lead(payload: dict[str, str]) -> int | None:
 
 
 def calculator_page(request):
-    return render(request, "solar_calculator/calculator_page.html")
+    return render(
+        request,
+        "solar_calculator/calculator_page.html",
+        {"usage_count": CalculatorUsageCounter.current_count()},
+    )
+
+
+@xframe_options_exempt
+def calculator_embed(request):
+    return render(request, "solar_calculator/calculator_embed.html")
 
 
 @xframe_options_exempt
@@ -146,6 +156,11 @@ def lead_api(request):
         extra={"lead": lead_payload, "bitrix_lead_id": bitrix_lead_id},
     )
     return Response({"success": True, "lead_id": bitrix_lead_id})
+
+
+@api_view(["POST"])
+def usage_api(request):
+    return Response({"success": True, "count": CalculatorUsageCounter.increment()})
 
 
 @api_view(["POST"])

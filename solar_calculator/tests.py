@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
+from .models import CalculatorUsageCounter
 from .services.calculator_engine import calculate
 
 
@@ -224,12 +225,47 @@ class CalculatorApiTests(TestCase):
         self.assertContains(response, '<meta name="robots" content="noindex,nofollow">')
         self.assertContains(response, 'id="modeTabs"')
         self.assertContains(response, reverse("solar_calculator:calculate"))
+        self.assertNotContains(response, "109200895")
+        self.assertNotContains(response, "calculatorUsageCounter")
         self.assertNotIn("X-Frame-Options", response.headers)
 
-    def test_calculator_page_renders_lead_url(self):
+    def test_calculator_page_renders_lead_url_metrika_and_usage_counter(self):
+        CalculatorUsageCounter.objects.create(key="solar_calculator", count=7)
         response = self.client.get(reverse("solar_calculator:page"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("solar_calculator:lead"))
+        self.assertContains(response, "109200895")
+        self.assertContains(response, "webvisor:true")
+        self.assertContains(response, "Калькулятором уже воспользовались")
+        self.assertContains(response, '<span id="calculatorUsageCount">7</span>')
+
+    def test_usage_api_increments_only_usage_counter(self):
+        response = self.client.post(
+            reverse("solar_calculator:usage"),
+            data={},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True, "count": 1})
+
+        response = self.client.post(
+            reverse("solar_calculator:usage"),
+            data={},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": True, "count": 2})
+
+    def test_calculate_api_does_not_increment_usage_counter_by_itself(self):
+        counter = CalculatorUsageCounter.objects.create(key="solar_calculator", count=5)
+        response = self.client.post(
+            reverse("solar_calculator:calculate"),
+            data={"mode": "consumption", "inputs": {"monthly_kwh": 350}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        counter.refresh_from_db()
+        self.assertEqual(counter.count, 5)
 
     @override_settings(BITRIX_WEBHOOK_URL="https://portal.example/rest/1/token/")
     def test_calculate_lead_api(self):
