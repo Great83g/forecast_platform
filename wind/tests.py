@@ -436,6 +436,8 @@ class WindForecastModuleTests(TestCase):
         self.assertContains(response, "manual-scope-select")
         self.assertContains(response, "manual-horizon-mode")
         self.assertContains(response, "Постфактум по старым данным")
+        self.assertContains(response, 'id="postfactum-forecast-panel"')
+        self.assertContains(response, 'data-postfactum-panel-version="2"')
         self.assertContains(response, 'name="horizon_mode" value="postfactum"')
 
 
