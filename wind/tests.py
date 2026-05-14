@@ -309,6 +309,41 @@ class WindForecastModuleTests(TestCase):
         self.assertEqual(response_15.context["points_count"], 2)
 
 
+    def test_postfactum_manual_forecast_uses_wind_history_without_coordinates(self):
+        import pandas as pd
+        from .models import WindForecast, WindForecastRun
+
+        self.client.force_login(self.user)
+        self.station.latitude = None
+        self.station.longitude = None
+        self.station.save(update_fields=["latitude", "longitude"])
+        for ts, speed in [("2026-05-13 00:15:00", 7.0), ("2026-05-13 01:20:00", 8.0)]:
+            WindRecord.objects.create(
+                station=self.station,
+                history_scope=WindRecord.HISTORY_SCOPE_MAIN,
+                timestamp=pd.Timestamp(ts).to_pydatetime(),
+                power_kw=100.0,
+                wind_speed_ms=speed,
+                air_temp=12.0,
+            )
+
+        response = self.client.get(
+            reverse("wind:station-forecast-run", args=[self.station.pk]),
+            {
+                "scope": "main",
+                "horizon_mode": "postfactum",
+                "postfactum_from": "2026-05-13",
+                "postfactum_to": "2026-05-13",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        run = WindForecastRun.objects.get(station=self.station, forecast_scope="main")
+        self.assertEqual(run.provider, "history_postfactum")
+        self.assertEqual(run.forecast_base_date.isoformat(), "2026-05-13")
+        self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="main", timestamp__date="2026-05-13").count(), 2)
+
+
 
     @patch("wind.views.send_report_email")
     @patch("wind.views.fetch_visual_crossing_hourly")

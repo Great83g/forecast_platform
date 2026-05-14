@@ -178,6 +178,53 @@ def _wind_power_kw_for_speed(station: Station, speed_ms: float | None) -> float:
 
 
 
+
+def _build_postfactum_wind_weather_df(station: Station, scope: str, date_from, date_to) -> pd.DataFrame:
+    history_scope = WindRecord.HISTORY_SCOPE_TEST if scope == WindForecast.SCOPE_TEST else WindRecord.HISTORY_SCOPE_MAIN
+    qs = (
+        WindRecord.objects.filter(
+            station=station,
+            history_scope=history_scope,
+            timestamp__date__gte=date_from,
+            timestamp__date__lte=date_to,
+        )
+        .annotate(ds=TruncHour("timestamp"))
+        .values("ds")
+        .annotate(
+            wind_speed=Avg("wind_speed_ms"),
+            air_temp=Avg("air_temp"),
+        )
+        .order_by("ds")
+    )
+    df = pd.DataFrame(list(qs))
+    if df.empty and history_scope != WindRecord.HISTORY_SCOPE_MAIN:
+        qs = (
+            WindRecord.objects.filter(
+                station=station,
+                history_scope=WindRecord.HISTORY_SCOPE_MAIN,
+                timestamp__date__gte=date_from,
+                timestamp__date__lte=date_to,
+            )
+            .annotate(ds=TruncHour("timestamp"))
+            .values("ds")
+            .annotate(
+                wind_speed=Avg("wind_speed_ms"),
+                air_temp=Avg("air_temp"),
+            )
+            .order_by("ds")
+        )
+        df = pd.DataFrame(list(qs))
+    if df.empty:
+        return pd.DataFrame(columns=["ds", "wind_speed", "air_temp", "cloudcover", "humidity", "precip"])
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    df["wind_speed"] = pd.to_numeric(df.get("wind_speed"), errors="coerce")
+    df["air_temp"] = pd.to_numeric(df.get("air_temp"), errors="coerce")
+    df = df.dropna(subset=["ds", "wind_speed"])
+    for col in ["cloudcover", "humidity", "precip"]:
+        df[col] = None
+    return df.sort_values("ds").reset_index(drop=True)
+
+
 def _normalize_recipients(value: str) -> list[str]:
     if not value:
         return []
@@ -688,6 +735,7 @@ def station_forecast_list(request, pk: int):
     }
     schedule_form = WindForecastScheduleForm(initial=initial)
     manual_horizon_mode = request.GET.get("horizon_mode") or initial.get("horizon_mode") or "legacy"
+    manual_horizon_choices = list(schedule_form.fields["horizon_mode"].choices) + [("postfactum", "Постфактум (по фактической истории)")]
 
     return render(
         request,
@@ -702,6 +750,7 @@ def station_forecast_list(request, pk: int):
             "count": len(forecasts),
             "emails": initial.get("emails", ""),
             "manual_horizon_mode": manual_horizon_mode,
+            "manual_horizon_choices": manual_horizon_choices,
         },
     )
 
@@ -716,29 +765,57 @@ def station_forecast_run(request, pk: int):
     auto_send = request.GET.get("auto_send") in {"1", "true", "on", "yes"}
     horizon_mode = request.GET.get("horizon_mode") or "legacy"
 
-    if station.latitude is None or station.longitude is None:
-        messages.error(request, "Для прогноза задайте координаты станции.")
-        return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
-
+    postfactum_from = _parse_date(request.GET.get("postfactum_from") or "")
+    postfactum_to = _parse_date(request.GET.get("postfactum_to") or "")
     target_dates = None
     fetch_days = days
-    if horizon_mode == "weekday_calendar":
-        offsets = _target_offsets_for_weekday_calendar(timezone.localtime())
-        if offsets:
-            target_dates = {(timezone.localtime() + pd.Timedelta(days=offset)).date() for offset in offsets}
-            fetch_days = max(offsets) + 1
+    weather_source = ""
+    errors: list[str] = []
 
-    weather_df, weather_source, errors = _fetch_weather_for_wind(station, fetch_days, providers)
-    if weather_df.empty:
-        messages.error(request, f"Не удалось получить погоду: {'; '.join(errors) or 'empty response'}")
-        return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+    if horizon_mode == "postfactum":
+        if postfactum_from is None and postfactum_to is not None:
+            postfactum_from = postfactum_to
+        if postfactum_to is None and postfactum_from is not None:
+            postfactum_to = postfactum_from
+        if postfactum_from is None or postfactum_to is None:
+            messages.error(request, "Для режима постфактум укажите дату или диапазон дат.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+        if postfactum_to.date() < postfactum_from.date():
+            messages.error(request, "Дата окончания постфактум-режима не может быть раньше даты начала.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
 
-    if target_dates:
-        base_weather_df = weather_df
-        ds = pd.to_datetime(weather_df.get("ds"), errors="coerce")
-        weather_df = weather_df.loc[ds.dt.date.isin(target_dates)].copy()
+        target_dates = {
+            (postfactum_from + pd.Timedelta(days=offset)).date()
+            for offset in range((postfactum_to.date() - postfactum_from.date()).days + 1)
+        }
+        days = max(len(target_dates), 1)
+        weather_df = _build_postfactum_wind_weather_df(station, scope, postfactum_from.date(), postfactum_to.date())
+        weather_source = "history_postfactum"
         if weather_df.empty:
-            weather_df = base_weather_df
+            messages.error(request, "Нет фактической ветровой истории для выбранных дат постфактум-режима.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+    else:
+        if station.latitude is None or station.longitude is None:
+            messages.error(request, "Для прогноза задайте координаты станции.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+        if horizon_mode == "weekday_calendar":
+            offsets = _target_offsets_for_weekday_calendar(timezone.localtime())
+            if offsets:
+                target_dates = {(timezone.localtime() + pd.Timedelta(days=offset)).date() for offset in offsets}
+                fetch_days = max(offsets) + 1
+
+        weather_df, weather_source, errors = _fetch_weather_for_wind(station, fetch_days, providers)
+        if weather_df.empty:
+            messages.error(request, f"Не удалось получить погоду: {'; '.join(errors) or 'empty response'}")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+        if target_dates:
+            base_weather_df = weather_df
+            ds = pd.to_datetime(weather_df.get("ds"), errors="coerce")
+            weather_df = weather_df.loc[ds.dt.date.isin(target_dates)].copy()
+            if weather_df.empty:
+                weather_df = base_weather_df
 
     objs = []
     for _, row in weather_df.iterrows():
@@ -759,7 +836,7 @@ def station_forecast_run(request, pk: int):
             )
         )
 
-    forecast_base_date = timezone.localdate()
+    forecast_base_date = min(target_dates) if target_dates else timezone.localdate()
     run = create_wind_forecast_run(
         station=station,
         forecast_scope=scope,
