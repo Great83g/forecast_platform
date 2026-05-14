@@ -15,6 +15,7 @@ from dashboard.services.forecast_engine import run_forecast_for_station
 from dashboard.services.forecast_reports import build_forecast_report, send_report_email
 from stations.models import Station
 from wind.services.forecasting import build_wind_forecast_report, fetch_weather_for_wind, wind_power_kw_for_speed
+from wind.services.forecast_runs import WindForecastPayload, create_wind_forecast_run
 
 
 logger = logging.getLogger(__name__)
@@ -87,8 +88,6 @@ def _target_offsets_for_weekday_calendar(now_dt) -> list[int]:
 
 
 def _run_wind_scheduled_forecast(schedule: ForecastSchedule, current: timezone.datetime) -> bool:
-    from wind.models import WindForecast
-
     station = schedule.station
     if station.latitude is None or station.longitude is None:
         logger.warning("Wind scheduled forecast skipped (no coords) station_id=%s", station.pk)
@@ -128,16 +127,13 @@ def _run_wind_scheduled_forecast(schedule: ForecastSchedule, current: timezone.d
             )
             weather_df = base_weather_df
 
-    WindForecast.objects.filter(station=station, forecast_scope="main").delete()
     rows = []
     for _, row in weather_df.iterrows():
         speed = pd.to_numeric(row.get("wind_speed"), errors="coerce")
         pred = wind_power_kw_for_speed(station, speed)
         rows.append(
-            WindForecast(
-                station=station,
-                forecast_scope="main",
-                timestamp=row.get("ds").to_pydatetime() if hasattr(row.get("ds"), "to_pydatetime") else row.get("ds"),
+            WindForecastPayload(
+                timestamp=row.get("ds"),
                 pred_heur=pred,
                 pred_final=pred,
                 weather_source=weather_source,
@@ -149,7 +145,21 @@ def _run_wind_scheduled_forecast(schedule: ForecastSchedule, current: timezone.d
                 precip_fc=float(row.get("precip")) if pd.notna(row.get("precip")) else None,
             )
         )
-    WindForecast.objects.bulk_create(rows, batch_size=1000)
+    run = create_wind_forecast_run(
+        station=station,
+        forecast_scope="main",
+        forecast_base_date=current.date(),
+        provider=weather_source,
+        horizon_days=schedule.days,
+        rows=rows,
+    )
+    logger.info(
+        "Wind scheduled forecast saved station_id=%s schedule_id=%s run_id=%s rows=%s",
+        station.pk,
+        schedule.pk,
+        run.pk,
+        len(rows),
+    )
 
     recipients_configured = bool((schedule.emails or "").strip())
     if recipients_configured:
@@ -159,6 +169,7 @@ def _run_wind_scheduled_forecast(schedule: ForecastSchedule, current: timezone.d
             days=days,
             weather_source=weather_source,
             recipients_raw=schedule.emails,
+            forecast_run=run,
         )
         sent_ok = _send_report_with_retries(report, [schedule.emails], station.name, days)
         if not sent_ok:

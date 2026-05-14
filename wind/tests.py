@@ -234,6 +234,81 @@ class WindForecastModuleTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="test").count(), 2)
 
+    @patch("wind.views.fetch_visual_crossing_hourly")
+    @patch("wind.views.fetch_open_meteo_hourly")
+    def test_manual_forecast_runs_preserve_previous_target_dates(self, om_mock, vc_mock):
+        import pandas as pd
+        from types import SimpleNamespace
+        from .models import WindForecast, WindForecastRun
+
+        self.client.force_login(self.user)
+        om_mock.return_value = SimpleNamespace(ok=False, source="open_meteo", df=pd.DataFrame(), error="disabled")
+        vc_mock.side_effect = [
+            SimpleNamespace(
+                ok=True,
+                source="visual_crossing",
+                df=pd.DataFrame(
+                    {
+                        "ds": pd.to_datetime(["2026-05-14 00:00:00", "2026-05-14 01:00:00"]),
+                        "air_temp": [12.0, 11.0],
+                        "wind_speed": [7.0, 8.0],
+                        "cloudcover": [20.0, 30.0],
+                        "humidity": [50.0, 55.0],
+                        "precip": [0.0, 0.1],
+                    }
+                ),
+                error=None,
+            ),
+            SimpleNamespace(
+                ok=True,
+                source="visual_crossing",
+                df=pd.DataFrame(
+                    {
+                        "ds": pd.to_datetime(["2026-05-15 00:00:00", "2026-05-15 01:00:00"]),
+                        "air_temp": [13.0, 12.0],
+                        "wind_speed": [9.0, 10.0],
+                        "cloudcover": [25.0, 35.0],
+                        "humidity": [51.0, 56.0],
+                        "precip": [0.0, 0.0],
+                    }
+                ),
+                error=None,
+            ),
+        ]
+
+        for _ in range(2):
+            response = self.client.get(
+                reverse("wind:station-forecast-run", args=[self.station.pk]),
+                {"days": "1", "scope": "main", "providers": ["visual_crossing"]},
+            )
+            self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(WindForecastRun.objects.filter(station=self.station, forecast_scope="main").count(), 2)
+        self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="main").count(), 4)
+        self.assertEqual(
+            WindForecast.objects.filter(station=self.station, forecast_scope="main", timestamp__date="2026-05-14").count(),
+            2,
+        )
+        self.assertEqual(
+            WindForecast.objects.filter(station=self.station, forecast_scope="main", timestamp__date="2026-05-15").count(),
+            2,
+        )
+
+        response_14 = self.client.get(
+            reverse("wind:station-detail", args=[self.station.pk]),
+            {"date_from": "14.05.2026", "date_to": "14.05.2026"},
+        )
+        response_15 = self.client.get(
+            reverse("wind:station-detail", args=[self.station.pk]),
+            {"date_from": "15.05.2026", "date_to": "15.05.2026"},
+        )
+
+        self.assertEqual(response_14.status_code, 200)
+        self.assertEqual(response_15.status_code, 200)
+        self.assertEqual(response_14.context["points_count"], 2)
+        self.assertEqual(response_15.context["points_count"], 2)
+
+
 
     @patch("wind.views.send_report_email")
     @patch("wind.views.fetch_visual_crossing_hourly")
@@ -328,12 +403,20 @@ class WindForecastModuleTests(TestCase):
 
 
     def test_forecast_export_returns_excel_for_tz_aware_timestamps(self):
-        from .models import WindForecast
+        from .models import WindForecast, WindForecastRun
         from django.utils import timezone
 
         self.client.force_login(self.user)
+        run = WindForecastRun.objects.create(
+            station=self.station,
+            forecast_scope="test",
+            forecast_base_date=timezone.localdate(),
+            provider="visual_crossing",
+            horizon_days=1,
+        )
         WindForecast.objects.create(
             station=self.station,
+            forecast_run=run,
             forecast_scope="test",
             timestamp=timezone.now(),
             pred_heur=100.0,
