@@ -12,6 +12,7 @@ from dashboard.services.vc_weather import fetch_visual_crossing_hourly
 from stations.models import Station
 
 from wind.models import WindForecast
+from wind.services.forecast_runs import dataframe_from_latest_wind_forecasts
 
 
 def normalize_recipients(value: str) -> list[str]:
@@ -74,22 +75,34 @@ def fetch_weather_for_wind(station: Station, days: int, providers: list[str]) ->
     return merged, "+".join(sorted(set(used_sources))), errors
 
 
-def build_wind_forecast_report(station: Station, scope: str, days: int, weather_source: str, recipients_raw: str = "") -> ForecastReport:
-    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
-    data = list(
-        qs.values(
-            "timestamp",
-            "pred_heur",
-            "pred_final",
-            "wind_speed_fc",
-            "air_temp_fc",
-            "cloudcover_fc",
-            "humidity_fc",
-            "precip_fc",
-            "weather_source",
+def build_wind_forecast_report(
+    station: Station,
+    scope: str,
+    days: int,
+    weather_source: str,
+    recipients_raw: str = "",
+    forecast_run=None,
+) -> ForecastReport:
+    if forecast_run is not None:
+        qs = forecast_run.rows.filter(station=station, forecast_scope=scope).order_by("timestamp")
+        df = pd.DataFrame(
+            list(
+                qs.values(
+                    "timestamp",
+                    "pred_heur",
+                    "pred_final",
+                    "wind_speed_fc",
+                    "air_temp_fc",
+                    "cloudcover_fc",
+                    "humidity_fc",
+                    "precip_fc",
+                    "weather_source",
+                )
+            )
         )
-    )
-    df = pd.DataFrame(data)
+    else:
+        qs = WindForecast.objects.filter(station=station, forecast_scope=scope).select_related("forecast_run")
+        df = dataframe_from_latest_wind_forecasts(qs)
     if not df.empty and "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
         try:

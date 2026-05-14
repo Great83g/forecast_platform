@@ -88,13 +88,15 @@
     <input type="date" name="to" value="{{ to }}" class="form-control form-control-sm">
   </div>
   <button class="btn btn-sm btn-outline-primary" type="submit">Фильтр</button>
-  <a class="btn btn-sm btn-success ms-auto" href="{% url 'wind:station-forecast-export' station.pk %}?scope={{ scope }}">Скачать Excel</a>
+  <a class="btn btn-sm btn-success ms-auto" href="{% url 'wind:station-forecast-export' station.pk %}?scope={{ scope }}{% if from %}&from={{ from }}{% endif %}{% if to %}&to={{ to }}{% endif %}">Скачать Excel</a>
 </form>
 
 <form method="post" action="{% url 'wind:station-forecast-clear' station.pk %}" class="mb-2">
   {% csrf_token %}
   <input type="hidden" name="scope" value="{{ scope }}">
-  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Очистить прогноз?');">Очистить прогноз</button>
+  <input type="hidden" name="from" value="{{ from }}">
+  <input type="hidden" name="to" value="{{ to }}">
+  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Очистить прогноз только для текущей станции{% if from or to %} и выбранного диапазона дат{% endif %}?');">Очистить прогноз</button>
 </form>
 
 <div class="text-muted small mb-2">Строк прогноза: <b>{{ count }}</b></div>
