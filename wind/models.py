@@ -51,6 +51,32 @@ class WindRecord(models.Model):
         return f"Wind history {self.station.name} [{self.history_scope}] @ {self.timestamp}"
 
 
+class WindForecastRun(models.Model):
+    SCOPE_MAIN = "main"
+    SCOPE_TEST = "test"
+    SCOPE_CHOICES = [
+        (SCOPE_MAIN, "Основная база"),
+        (SCOPE_TEST, "Тестовая база"),
+    ]
+
+    station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name="wind_forecast_runs")
+    forecast_scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default=SCOPE_MAIN)
+    created_at = models.DateTimeField(auto_now_add=True)
+    forecast_base_date = models.DateField()
+    provider = models.CharField(max_length=64, blank=True, default="")
+    horizon_days = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["station", "forecast_scope", "forecast_base_date"], name="wind_windru_station_43bcb5_idx"),
+            models.Index(fields=["station", "forecast_scope", "created_at"], name="wind_windru_station_49fbec_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Wind forecast run {self.station.name} [{self.forecast_scope}] {self.forecast_base_date} @ {self.created_at}"
+
+
 class WindForecast(models.Model):
     SCOPE_MAIN = "main"
     SCOPE_TEST = "test"
@@ -60,6 +86,11 @@ class WindForecast(models.Model):
     ]
 
     station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name="wind_forecasts")
+    forecast_run = models.ForeignKey(
+        WindForecastRun,
+        on_delete=models.CASCADE,
+        related_name="rows",
+    )
     timestamp = models.DateTimeField()
     forecast_scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default=SCOPE_MAIN)
 
@@ -81,8 +112,11 @@ class WindForecast(models.Model):
         indexes = [
             models.Index(fields=["station", "forecast_scope", "timestamp"], name="wind_windfo_station_09a39e_idx"),
             models.Index(fields=["station", "timestamp"], name="wind_windfo_station_cea399_idx"),
+            models.Index(fields=["forecast_run", "timestamp"], name="wind_windfo_forecas_ef59c2_idx"),
         ]
-        unique_together = ("station", "forecast_scope", "timestamp")
+        constraints = [
+            models.UniqueConstraint(fields=["forecast_run", "timestamp"], name="wind_forecast_run_timestamp_uniq"),
+        ]
 
     def __str__(self) -> str:
         return f"Wind forecast {self.station.name} [{self.forecast_scope}] @ {self.timestamp}"
