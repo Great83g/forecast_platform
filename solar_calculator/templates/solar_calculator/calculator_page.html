@@ -171,6 +171,10 @@
         <button class="btn btn-outline-secondary calc-btn" id="clearResult">Очистить</button>
       </div>
 
+      <div id="calculatorUsageCounter" class="field-card mt-3">
+        Калькулятором уже воспользовались: <b><span id="calculatorUsageCount">{{ usage_count|default:0 }}</span> раз</b>
+      </div>
+
       <div id="resultSection" class="result-section mt-4">
         <div id="recommendBox" class="recommend-box mb-3"></div>
         <div id="costBreakdownBlock" class="field-card mb-3" style="display:none;"></div>
@@ -770,6 +774,25 @@
     `;
   }
 
+  async function trackCalculatorUsage() {
+    try {
+      const response = await fetch('{% url "solar_calculator:usage" %}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': '{{ csrf_token }}',
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json();
+      if (response.ok && data.success && Number.isFinite(Number(data.count))) {
+        document.getElementById('calculatorUsageCount').textContent = data.count;
+      }
+    } catch (err) {
+      console.warn('Usage counter update failed', err);
+    }
+  }
+
   document.getElementById('runCalc').addEventListener('click', async () => {
     const mode = activeMode();
     const payload = { mode, inputs: collectInputs(mode) };
@@ -785,6 +808,9 @@
 
     const data = await response.json();
     renderResult(data);
+    if (response.ok) {
+      await trackCalculatorUsage();
+    }
   });
 
   document.getElementById('clearResult').addEventListener('click', () => {
@@ -906,5 +932,19 @@
   switchMode('consumption');
   updateSpecificYieldLabel();
 </script>
+
+<!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=109200895', 'ym');
+
+    ym(109200895, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/109200895" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Yandex.Metrika counter -->
 
 {% endblock %}
