@@ -35,6 +35,8 @@ echo "[wind-forecast-runs] Syntax checks"
 python3 -m py_compile \
   manage.py \
   backend/urls.py \
+  dashboard/services/open_meteo.py \
+  dashboard/services/vc_weather.py \
   wind/models.py \
   wind/views.py \
   wind/services/forecast_runs.py \

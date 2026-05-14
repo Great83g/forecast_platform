@@ -1,6 +1,44 @@
 # Деплой правок WindForecastRun / постфактум-прогноза
 
-Запускай с сервера одной командой:
+## Копируй на сервер сразу
+
+```bash
+cd ~/forecast_platform
+source venv/bin/activate
+set -euo pipefail
+
+git fetch --all --tags --prune
+git checkout main
+git reset --hard origin/main
+git log -1 --oneline
+
+rg -n "postfactum-forecast-panel|data-postfactum-panel-version" wind/templates/wind/station_forecast_list.html
+
+python3 -m py_compile \
+  manage.py \
+  backend/urls.py \
+  dashboard/services/open_meteo.py \
+  dashboard/services/vc_weather.py \
+  wind/models.py \
+  wind/views.py \
+  wind/services/forecast_runs.py \
+  wind/services/forecasting.py \
+  dashboard/services/forecast_scheduler.py \
+  wind/tests.py
+python3 -m compileall -q wind dashboard/services
+
+python3 manage.py migrate
+python3 manage.py collectstatic --noinput
+python3 manage.py test wind.tests.WindForecastModuleTests -v 2
+
+if [ -f /run/gunicorn.pid ]; then
+  sudo env GUNICORN_PID_FILE=/run/gunicorn.pid bash deploy/restart_portal.sh
+else
+  sudo env GUNICORN_PORT=8000 PREFER_DIRECT_GUNICORN_RELOAD=1 bash deploy/restart_portal.sh
+fi
+```
+
+## Короткий вариант через скрипт
 
 ```bash
 cd ~/forecast_platform
@@ -18,6 +56,8 @@ bash deploy/apply_wind_forecast_runs_update.sh
 5. Компилирует Python-файлы:
    - `manage.py`
    - `backend/urls.py`
+   - `dashboard/services/open_meteo.py`
+   - `dashboard/services/vc_weather.py`
    - `wind/models.py`
    - `wind/views.py`
    - `wind/services/forecast_runs.py`
@@ -47,6 +87,8 @@ rg -n "postfactum-forecast-panel|data-postfactum-panel-version" wind/templates/w
 python3 -m py_compile \
   manage.py \
   backend/urls.py \
+  dashboard/services/open_meteo.py \
+  dashboard/services/vc_weather.py \
   wind/models.py \
   wind/views.py \
   wind/services/forecast_runs.py \

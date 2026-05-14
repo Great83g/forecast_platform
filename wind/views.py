@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 from dashboard.forms import UploadHistoryForm
 from dashboard.models import ForecastSchedule
 from dashboard.services.open_meteo import fetch_open_meteo_hourly
-from dashboard.services.vc_weather import fetch_visual_crossing_hourly
+from dashboard.services.vc_weather import fetch_visual_crossing_hourly, fetch_visual_crossing_hourly_range
 from dashboard.services.forecast_reports import send_report_email
 from stations.models import Organization, OrganizationMember, Station
 
@@ -792,8 +792,27 @@ def station_forecast_run(request, pk: int):
         weather_df = _build_postfactum_wind_weather_df(station, scope, postfactum_from.date(), postfactum_to.date())
         weather_source = "history_postfactum"
         if weather_df.empty:
-            messages.error(request, "Нет фактической ветровой истории для выбранных дат постфактум-режима.")
-            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+            if station.latitude is None or station.longitude is None:
+                messages.error(
+                    request,
+                    "Нет фактической ветровой истории для выбранных дат, а для Visual Crossing нужны координаты станции.",
+                )
+                return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+            vc_result = fetch_visual_crossing_hourly_range(
+                float(station.latitude),
+                float(station.longitude),
+                postfactum_from.date(),
+                postfactum_to.date(),
+            )
+            if not vc_result.ok or vc_result.df.empty:
+                messages.error(
+                    request,
+                    f"Нет фактической истории, и Visual Crossing не вернул постфактум-данные: {vc_result.error or 'empty response'}",
+                )
+                return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+            weather_df = vc_result.df.copy()
+            weather_source = vc_result.source or "visual_crossing_postfactum"
     else:
         if station.latitude is None or station.longitude is None:
             messages.error(request, "Для прогноза задайте координаты станции.")

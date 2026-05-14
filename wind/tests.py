@@ -205,6 +205,33 @@ class WindForecastModuleTests(TestCase):
             timezone="Asia/Almaty",
         )
 
+    def test_visual_crossing_metric_wind_is_converted_to_ms(self):
+        from dashboard.services.vc_weather import _visual_crossing_hourly_df
+
+        df = _visual_crossing_hourly_df(
+            {
+                "days": [
+                    {
+                        "datetime": "2026-05-15",
+                        "hours": [
+                            {
+                                "datetime": "10:00:00",
+                                "windspeed": 36.0,
+                                "temp": 12.0,
+                                "cloudcover": 0.0,
+                                "humidity": 50.0,
+                                "precip": 0.0,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertAlmostEqual(float(df.iloc[0]["wind_speed"]), 10.0, places=3)
+
+
+
     @patch("wind.views.fetch_visual_crossing_hourly")
     @patch("wind.views.fetch_open_meteo_hourly")
     def test_forecast_run_creates_rows_for_scope(self, om_mock, vc_mock):
@@ -343,6 +370,48 @@ class WindForecastModuleTests(TestCase):
         self.assertEqual(run.forecast_base_date.isoformat(), "2026-05-13")
         self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="main", timestamp__date="2026-05-13").count(), 2)
 
+    @patch("wind.views.fetch_visual_crossing_hourly_range")
+    def test_postfactum_manual_forecast_falls_back_to_visual_crossing_without_history(self, vc_range_mock):
+        import pandas as pd
+        from types import SimpleNamespace
+        from .models import WindForecast, WindForecastRun
+
+        self.client.force_login(self.user)
+        vc_range_mock.return_value = SimpleNamespace(
+            ok=True,
+            source="visual_crossing_postfactum",
+            df=pd.DataFrame(
+                {
+                    "ds": pd.to_datetime(["2026-05-12 00:00:00", "2026-05-12 01:00:00"]),
+                    "air_temp": [12.0, 11.0],
+                    "wind_speed": [7.0, 8.0],
+                    "cloudcover": [20.0, 30.0],
+                    "humidity": [50.0, 55.0],
+                    "precip": [0.0, 0.0],
+                }
+            ),
+            error=None,
+        )
+
+        response = self.client.get(
+            reverse("wind:station-forecast-run", args=[self.station.pk]),
+            {
+                "scope": "main",
+                "horizon_mode": "postfactum",
+                "postfactum_from": "2026-05-12",
+                "postfactum_to": "2026-05-12",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        run = WindForecastRun.objects.get(station=self.station, forecast_scope="main")
+        self.assertEqual(run.provider, "visual_crossing_postfactum")
+        self.assertEqual(run.forecast_base_date.isoformat(), "2026-05-12")
+        self.assertEqual(WindForecast.objects.filter(station=self.station, forecast_scope="main", timestamp__date="2026-05-12").count(), 2)
+        vc_range_mock.assert_called_once()
+
+
+
 
 
     @patch("wind.views.send_report_email")
@@ -436,9 +505,9 @@ class WindForecastModuleTests(TestCase):
         self.assertContains(response, "manual-scope-select")
         self.assertContains(response, "manual-horizon-mode")
         self.assertContains(response, "Постфактум по старым данным")
-        self.assertContains(response, 'id="postfactum-forecast-panel"')
-        self.assertContains(response, 'data-postfactum-panel-version="2"')
-        self.assertContains(response, 'name="horizon_mode" value="postfactum"')
+        self.assertContains(response, 'id="postfactum-forecast-panel"', count=1)
+        self.assertContains(response, 'data-postfactum-panel-version="2"', count=1)
+        self.assertContains(response, 'name="horizon_mode" value="postfactum"', count=1)
 
 
     def test_forecast_export_returns_excel_for_tz_aware_timestamps(self):
