@@ -5,6 +5,50 @@
 {% block content %}
 <div class="container mt-4">
   <h3 class="mb-3">{{ station.name }} — <span data-i18n="train_title">обучение моделей</span></h3>
-  {% include "wind/_module_placeholder.html" %}
+
+  <div class="alert alert-info">
+    Ветровой модуль обучает параметры эвристической power-curve по загруженной истории: <b>wind_speed_ms</b> + <b>power_kw</b>.
+    Эти параметры сразу используются в ручном, постфактум и автоматическом прогнозе.
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="card-title">Текущая модель ветра</h5>
+      <div class="row g-2">
+        <div class="col-md-3"><div class="border rounded p-2"><div class="text-muted small">Cut-in</div><b>{{ profile.cut_in_speed_ms }}</b> м/с</div></div>
+        <div class="col-md-3"><div class="border rounded p-2"><div class="text-muted small">Rated speed</div><b>{{ profile.rated_speed_ms }}</b> м/с</div></div>
+        <div class="col-md-3"><div class="border rounded p-2"><div class="text-muted small">Cut-out</div><b>{{ profile.cut_out_speed_ms }}</b> м/с</div></div>
+        <div class="col-md-3"><div class="border rounded p-2"><div class="text-muted small">Мощность</div><b>{{ station.capacity_ac_kw }}</b> кВт</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="card-title">Обучить по истории</h5>
+      <div class="mb-2">
+        Строк истории: <b>{{ total_rows }}</b>, валидных для обучения: <b>{{ valid_rows }}</b>.
+      </div>
+      <form method="post" class="d-flex flex-wrap gap-2 align-items-end">
+        {% csrf_token %}
+        <div>
+          <label class="form-label mb-0 small">База истории</label>
+          <select name="history_scope" class="form-select form-select-sm" style="width:180px;">
+            <option value="main" {% if history_scope == 'main' %}selected{% endif %}>Основная</option>
+            <option value="test" {% if history_scope == 'test' %}selected{% endif %}>Тестовая</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-warning btn-sm">Обучить модель ветра</button>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'wind:station-upload' station.pk %}?history_scope={{ history_scope }}">Загрузить историю</a>
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'wind:station-forecast-list' station.pk %}?scope={{ history_scope }}">К прогнозу</a>
+      </form>
+      <div class="text-muted small mt-2">
+        Минимум для обучения: 5 строк с заполненными <code>wind_speed_ms</code> и <code>power_kw</code>.
+      </div>
+      {% if last_result %}
+        <div class="mt-3 alert {% if last_result.ok %}alert-success{% else %}alert-danger{% endif %}">{{ last_result.message }}</div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}

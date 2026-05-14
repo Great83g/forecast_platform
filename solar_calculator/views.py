@@ -84,6 +84,11 @@ def calculator_embed(request):
     return render(request, "solar_calculator/calculator_embed.html")
 
 
+@xframe_options_exempt
+def calculator_embed(request):
+    return render(request, "solar_calculator/calculator_embed.html")
+
+
 def seo_solar_panels_kazakhstan(request):
     return render(request, "solar_calculator/seo_solar_panels_kazakhstan.html", {"h1": "Солнечные панели в Казахстане"})
 

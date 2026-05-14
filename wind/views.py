@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from io import BytesIO
 from typing import Optional
@@ -19,12 +20,20 @@ from urllib.parse import urlencode
 from dashboard.forms import UploadHistoryForm
 from dashboard.models import ForecastSchedule
 from dashboard.services.open_meteo import fetch_open_meteo_hourly
-from dashboard.services.vc_weather import fetch_visual_crossing_hourly
+from dashboard.services.vc_weather import fetch_visual_crossing_hourly, fetch_visual_crossing_hourly_range
 from dashboard.services.forecast_reports import send_report_email
 from stations.models import Organization, OrganizationMember, Station
 
 from .forms import WindForecastScheduleForm, WindStationForm, WindStationProfileForm
-from .models import WindForecast, WindRecord
+from .models import WindForecast, WindRecord, WindStationProfile
+from .services.forecast_runs import (
+    WindForecastPayload,
+    create_wind_forecast_run,
+    dataframe_from_latest_wind_forecasts,
+    latest_wind_forecast_rows,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def _wind_station_queryset_for_user(user):
@@ -93,6 +102,38 @@ def _build_forecast_plan_map(rows, timestamp_key: str) -> dict:
     return plan_map
 
 
+def _latest_forecast_value_rows(forecast_qs, *, single_day: bool) -> list[dict]:
+    if single_day:
+        buckets: dict[object, dict[str, list[float]]] = {}
+        for row in latest_wind_forecast_rows(forecast_qs):
+            bucket = row.timestamp.replace(minute=0, second=0, microsecond=0)
+            values = buckets.setdefault(bucket, {"pred_final": [], "pred_heur": [], "wind_speed_fc": []})
+            if row.pred_final is not None:
+                values["pred_final"].append(float(row.pred_final))
+            if row.pred_heur is not None:
+                values["pred_heur"].append(float(row.pred_heur))
+            if row.wind_speed_fc is not None:
+                values["wind_speed_fc"].append(float(row.wind_speed_fc))
+        return [
+            {
+                "bucket": bucket,
+                "pred_final": (sum(values["pred_final"]) / len(values["pred_final"])) if values["pred_final"] else None,
+                "pred_heur": (sum(values["pred_heur"]) / len(values["pred_heur"])) if values["pred_heur"] else None,
+                "wind_speed_fc": (sum(values["wind_speed_fc"]) / len(values["wind_speed_fc"])) if values["wind_speed_fc"] else None,
+            }
+            for bucket, values in sorted(buckets.items())
+        ]
+    return [
+        {
+            "timestamp": row.timestamp,
+            "pred_final": row.pred_final,
+            "pred_heur": row.pred_heur,
+            "wind_speed_fc": row.wind_speed_fc,
+        }
+        for row in latest_wind_forecast_rows(forecast_qs)
+    ]
+
+
 
 
 def _excel_safe_datetime(series: pd.Series) -> pd.Series:
@@ -137,30 +178,89 @@ def _wind_power_kw_for_speed(station: Station, speed_ms: float | None) -> float:
 
 
 
+
+def _build_postfactum_wind_weather_df(station: Station, scope: str, date_from, date_to) -> pd.DataFrame:
+    history_scope = WindRecord.HISTORY_SCOPE_TEST if scope == WindForecast.SCOPE_TEST else WindRecord.HISTORY_SCOPE_MAIN
+    qs = (
+        WindRecord.objects.filter(
+            station=station,
+            history_scope=history_scope,
+            timestamp__date__gte=date_from,
+            timestamp__date__lte=date_to,
+        )
+        .annotate(ds=TruncHour("timestamp"))
+        .values("ds")
+        .annotate(
+            wind_speed=Avg("wind_speed_ms"),
+            air_temp=Avg("air_temp"),
+        )
+        .order_by("ds")
+    )
+    df = pd.DataFrame(list(qs))
+    if df.empty and history_scope != WindRecord.HISTORY_SCOPE_MAIN:
+        qs = (
+            WindRecord.objects.filter(
+                station=station,
+                history_scope=WindRecord.HISTORY_SCOPE_MAIN,
+                timestamp__date__gte=date_from,
+                timestamp__date__lte=date_to,
+            )
+            .annotate(ds=TruncHour("timestamp"))
+            .values("ds")
+            .annotate(
+                wind_speed=Avg("wind_speed_ms"),
+                air_temp=Avg("air_temp"),
+            )
+            .order_by("ds")
+        )
+        df = pd.DataFrame(list(qs))
+    if df.empty:
+        return pd.DataFrame(columns=["ds", "wind_speed", "air_temp", "cloudcover", "humidity", "precip"])
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    df["wind_speed"] = pd.to_numeric(df.get("wind_speed"), errors="coerce")
+    df["air_temp"] = pd.to_numeric(df.get("air_temp"), errors="coerce")
+    df = df.dropna(subset=["ds", "wind_speed"])
+    for col in ["cloudcover", "humidity", "precip"]:
+        df[col] = None
+    return df.sort_values("ds").reset_index(drop=True)
+
+
 def _normalize_recipients(value: str) -> list[str]:
     if not value:
         return []
     return [p.strip() for p in value.replace(";", ",").split(",") if p.strip()]
 
 
-def _build_wind_forecast_report(station: Station, scope: str, days: int, weather_source: str, recipients_raw: str = ""):
+def _build_wind_forecast_report(
+    station: Station,
+    scope: str,
+    days: int,
+    weather_source: str,
+    recipients_raw: str = "",
+    forecast_run=None,
+):
     from dashboard.models import ForecastReport
 
-    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
-    data = list(
-        qs.values(
-            "timestamp",
-            "pred_heur",
-            "pred_final",
-            "wind_speed_fc",
-            "air_temp_fc",
-            "cloudcover_fc",
-            "humidity_fc",
-            "precip_fc",
-            "weather_source",
+    if forecast_run is not None:
+        qs = forecast_run.rows.filter(station=station, forecast_scope=scope).order_by("timestamp")
+        df = pd.DataFrame(
+            list(
+                qs.values(
+                    "timestamp",
+                    "pred_heur",
+                    "pred_final",
+                    "wind_speed_fc",
+                    "air_temp_fc",
+                    "cloudcover_fc",
+                    "humidity_fc",
+                    "precip_fc",
+                    "weather_source",
+                )
+            )
         )
-    )
-    df = pd.DataFrame(data)
+    else:
+        qs = WindForecast.objects.filter(station=station, forecast_scope=scope).select_related("forecast_run")
+        df = dataframe_from_latest_wind_forecasts(qs)
     if not df.empty and "timestamp" in df.columns:
         df["timestamp"] = _excel_safe_datetime(df["timestamp"])
         for col in ["pred_heur", "pred_final"]:
@@ -335,7 +435,7 @@ def station_detail(request, pk: int):
     dt_to = _aware_datetime(_parse_date(date_to), end_of_day=True)
 
     history_qs = WindRecord.objects.filter(station=station, history_scope=WindRecord.HISTORY_SCOPE_MAIN)
-    forecast_qs = WindForecast.objects.filter(station=station, forecast_scope=WindForecast.SCOPE_MAIN)
+    forecast_qs = WindForecast.objects.filter(station=station, forecast_scope=WindForecast.SCOPE_MAIN).select_related("forecast_run")
 
     if dt_from:
         history_qs = history_qs.filter(timestamp__gte=dt_from)
@@ -356,16 +456,7 @@ def station_detail(request, pk: int):
             )
             .order_by("bucket")
         )
-        forecast_rows = (
-            forecast_qs.annotate(bucket=TruncHour("timestamp"))
-            .values("bucket")
-            .annotate(
-                pred_final=Avg("pred_final"),
-                pred_heur=Avg("pred_heur"),
-                wind_speed_fc=Avg("wind_speed_fc"),
-            )
-            .order_by("bucket")
-        )
+        forecast_rows = _latest_forecast_value_rows(forecast_qs, single_day=True)
         history_map = {
             row["bucket"]: float(row["power_kw"])
             for row in history_rows
@@ -387,11 +478,7 @@ def station_detail(request, pk: int):
             power_kw=Avg("power_kw"),
             wind_speed_ms=Avg("wind_speed_ms"),
         ).order_by("timestamp")
-        forecast_rows = forecast_qs.values("timestamp").annotate(
-            pred_final=Avg("pred_final"),
-            pred_heur=Avg("pred_heur"),
-            wind_speed_fc=Avg("wind_speed_fc"),
-        ).order_by("timestamp")
+        forecast_rows = _latest_forecast_value_rows(forecast_qs, single_day=False)
         history_map = {
             row["timestamp"]: float(row["power_kw"])
             for row in history_rows
@@ -629,12 +716,12 @@ def station_forecast_list(request, pk: int):
     dt_from = _parse_date(from_s)
     dt_to = _parse_date(to_s)
 
-    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
+    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).select_related("forecast_run")
     if dt_from:
         qs = qs.filter(timestamp__date__gte=dt_from.date())
     if dt_to:
         qs = qs.filter(timestamp__date__lte=dt_to.date())
-    forecasts = list(qs)
+    forecasts = latest_wind_forecast_rows(qs)
 
     schedule = ForecastSchedule.objects.filter(station=station).first()
     initial = {
@@ -648,6 +735,7 @@ def station_forecast_list(request, pk: int):
     }
     schedule_form = WindForecastScheduleForm(initial=initial)
     manual_horizon_mode = request.GET.get("horizon_mode") or initial.get("horizon_mode") or "legacy"
+    manual_horizon_choices = list(schedule_form.fields["horizon_mode"].choices)
 
     return render(
         request,
@@ -662,6 +750,7 @@ def station_forecast_list(request, pk: int):
             "count": len(forecasts),
             "emails": initial.get("emails", ""),
             "manual_horizon_mode": manual_horizon_mode,
+            "manual_horizon_choices": manual_horizon_choices,
         },
     )
 
@@ -676,41 +765,84 @@ def station_forecast_run(request, pk: int):
     auto_send = request.GET.get("auto_send") in {"1", "true", "on", "yes"}
     horizon_mode = request.GET.get("horizon_mode") or "legacy"
 
-    if station.latitude is None or station.longitude is None:
-        messages.error(request, "Для прогноза задайте координаты станции.")
-        return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
-
+    postfactum_from = _parse_date(request.GET.get("postfactum_from") or "")
+    postfactum_to = _parse_date(request.GET.get("postfactum_to") or "")
     target_dates = None
     fetch_days = days
-    if horizon_mode == "weekday_calendar":
-        offsets = _target_offsets_for_weekday_calendar(timezone.localtime())
-        if offsets:
-            target_dates = {(timezone.localtime() + pd.Timedelta(days=offset)).date() for offset in offsets}
-            fetch_days = max(offsets) + 1
+    weather_source = ""
+    errors: list[str] = []
 
-    weather_df, weather_source, errors = _fetch_weather_for_wind(station, fetch_days, providers)
-    if weather_df.empty:
-        messages.error(request, f"Не удалось получить погоду: {'; '.join(errors) or 'empty response'}")
-        return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+    if horizon_mode == "postfactum":
+        if postfactum_from is None and postfactum_to is not None:
+            postfactum_from = postfactum_to
+        if postfactum_to is None and postfactum_from is not None:
+            postfactum_to = postfactum_from
+        if postfactum_from is None or postfactum_to is None:
+            messages.error(request, "Для режима постфактум укажите дату или диапазон дат.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+        if postfactum_to.date() < postfactum_from.date():
+            messages.error(request, "Дата окончания постфактум-режима не может быть раньше даты начала.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
 
-    if target_dates:
-        base_weather_df = weather_df
-        ds = pd.to_datetime(weather_df.get("ds"), errors="coerce")
-        weather_df = weather_df.loc[ds.dt.date.isin(target_dates)].copy()
+        target_dates = {
+            (postfactum_from + pd.Timedelta(days=offset)).date()
+            for offset in range((postfactum_to.date() - postfactum_from.date()).days + 1)
+        }
+        days = max(len(target_dates), 1)
+        weather_df = _build_postfactum_wind_weather_df(station, scope, postfactum_from.date(), postfactum_to.date())
+        weather_source = "history_postfactum"
         if weather_df.empty:
-            weather_df = base_weather_df
+            if station.latitude is None or station.longitude is None:
+                messages.error(
+                    request,
+                    "Нет фактической ветровой истории для выбранных дат, а для Visual Crossing нужны координаты станции.",
+                )
+                return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
 
-    WindForecast.objects.filter(station=station, forecast_scope=scope).delete()
+            vc_result = fetch_visual_crossing_hourly_range(
+                float(station.latitude),
+                float(station.longitude),
+                postfactum_from.date(),
+                postfactum_to.date(),
+            )
+            if not vc_result.ok or vc_result.df.empty:
+                messages.error(
+                    request,
+                    f"Нет фактической истории, и Visual Crossing не вернул постфактум-данные: {vc_result.error or 'empty response'}",
+                )
+                return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+            weather_df = vc_result.df.copy()
+            weather_source = vc_result.source or "visual_crossing_postfactum"
+    else:
+        if station.latitude is None or station.longitude is None:
+            messages.error(request, "Для прогноза задайте координаты станции.")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+        if horizon_mode == "weekday_calendar":
+            offsets = _target_offsets_for_weekday_calendar(timezone.localtime())
+            if offsets:
+                target_dates = {(timezone.localtime() + pd.Timedelta(days=offset)).date() for offset in offsets}
+                fetch_days = max(offsets) + 1
+
+        weather_df, weather_source, errors = _fetch_weather_for_wind(station, fetch_days, providers)
+        if weather_df.empty:
+            messages.error(request, f"Не удалось получить погоду: {'; '.join(errors) or 'empty response'}")
+            return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
+
+        if target_dates:
+            base_weather_df = weather_df
+            ds = pd.to_datetime(weather_df.get("ds"), errors="coerce")
+            weather_df = weather_df.loc[ds.dt.date.isin(target_dates)].copy()
+            if weather_df.empty:
+                weather_df = base_weather_df
 
     objs = []
     for _, row in weather_df.iterrows():
         speed = pd.to_numeric(row.get("wind_speed"), errors="coerce")
         pred = _wind_power_kw_for_speed(station, speed)
         objs.append(
-            WindForecast(
-                station=station,
-                forecast_scope=scope,
-                timestamp=row.get("ds").to_pydatetime() if hasattr(row.get("ds"), "to_pydatetime") else row.get("ds"),
+            WindForecastPayload(
+                timestamp=row.get("ds"),
                 pred_heur=pred,
                 pred_final=pred,
                 weather_source=weather_source,
@@ -723,11 +855,26 @@ def station_forecast_run(request, pk: int):
             )
         )
 
-    WindForecast.objects.bulk_create(objs, batch_size=1000)
+    forecast_base_date = min(target_dates) if target_dates else timezone.localdate()
+    run = create_wind_forecast_run(
+        station=station,
+        forecast_scope=scope,
+        forecast_base_date=forecast_base_date,
+        provider=weather_source,
+        horizon_days=days,
+        rows=objs,
+    )
 
-    msg = f"Ветровой прогноз построен: {len(objs)} строк, source={weather_source}, scope={scope}, mode={horizon_mode}"
+    msg = f"Ветровой прогноз построен: {len(objs)} строк, run={run.pk}, source={weather_source}, scope={scope}, mode={horizon_mode}"
     try:
-        report = _build_wind_forecast_report(station, scope=scope, days=days, weather_source=weather_source, recipients_raw=emails_raw)
+        report = _build_wind_forecast_report(
+            station,
+            scope=scope,
+            days=days,
+            weather_source=weather_source,
+            recipients_raw=emails_raw,
+            forecast_run=run,
+        )
         msg += f". Отчёт: {report.file.name}"
         if auto_send and emails_raw:
             sent = send_report_email(report, _normalize_recipients(emails_raw), station.name, days)
@@ -769,8 +916,30 @@ def station_forecast_schedule_update(request, pk: int):
 def station_forecast_clear(request, pk: int):
     station = _get_wind_station_or_404(request.user, pk)
     scope = _normalize_forecast_scope(request.POST.get("scope") or request.GET.get("scope") or "main")
-    deleted, _ = WindForecast.objects.filter(station=station, forecast_scope=scope).delete()
-    messages.success(request, f"Прогноз очищен: удалено {deleted} строк (scope={scope}).")
+    from_s = (request.POST.get("from") or request.GET.get("from") or "").strip()
+    to_s = (request.POST.get("to") or request.GET.get("to") or "").strip()
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
+
+    qs = WindForecast.objects.filter(station=station, forecast_scope=scope)
+    if dt_from:
+        qs = qs.filter(timestamp__date__gte=dt_from.date())
+    if dt_to:
+        qs = qs.filter(timestamp__date__lte=dt_to.date())
+
+    logger.warning(
+        "Deleting wind forecast rows station_id=%s scope=%s from=%s to=%s rows=%s",
+        station.pk,
+        scope,
+        from_s or None,
+        to_s or None,
+        qs.count(),
+    )
+    deleted, _ = qs.delete()
+    if dt_from or dt_to:
+        messages.success(request, f"Прогноз очищен: удалено {deleted} строк (scope={scope}, по фильтру дат).")
+    else:
+        messages.success(request, f"Прогноз текущей станции очищен: удалено {deleted} строк (scope={scope}).")
     return redirect(f"{reverse('wind:station-forecast-list', kwargs={'pk': station.pk})}?scope={scope}")
 
 
@@ -779,22 +948,16 @@ def station_forecast_export(request, pk: int):
     station = _get_wind_station_or_404(request.user, pk)
     scope = _normalize_forecast_scope(request.GET.get("scope") or "main")
 
-    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).order_by("timestamp")
-    data = list(
-        qs.values(
-            "timestamp",
-            "pred_heur",
-            "pred_final",
-            "weather_source",
-            "air_temp_fc",
-            "wind_speed_fc",
-            "wind_direction_fc",
-            "cloudcover_fc",
-            "humidity_fc",
-            "precip_fc",
-        )
-    )
-    df = pd.DataFrame(data)
+    qs = WindForecast.objects.filter(station=station, forecast_scope=scope).select_related("forecast_run")
+    from_s = request.GET.get("from") or ""
+    to_s = request.GET.get("to") or ""
+    dt_from = _parse_date(from_s)
+    dt_to = _parse_date(to_s)
+    if dt_from:
+        qs = qs.filter(timestamp__date__gte=dt_from.date())
+    if dt_to:
+        qs = qs.filter(timestamp__date__lte=dt_to.date())
+    df = dataframe_from_latest_wind_forecasts(qs)
 
     if not df.empty and "timestamp" in df.columns:
         df["timestamp"] = _excel_safe_datetime(df["timestamp"])
@@ -812,7 +975,104 @@ def station_forecast_export(request, pk: int):
     return resp
 
 
+def _train_wind_profile_from_history(station: Station, history_scope: str) -> dict:
+    profile, _ = WindStationProfile.objects.get_or_create(station=station)
+    qs = WindRecord.objects.filter(
+        station=station,
+        history_scope=history_scope,
+        wind_speed_ms__isnull=False,
+        power_kw__isnull=False,
+    ).order_by("timestamp")
+    df = pd.DataFrame(list(qs.values("wind_speed_ms", "power_kw")))
+    total_rows = int(WindRecord.objects.filter(station=station, history_scope=history_scope).count())
+    if df.empty:
+        return {
+            "ok": False,
+            "total_rows": total_rows,
+            "valid_rows": 0,
+            "message": "Нет строк с wind_speed_ms и power_kw для обучения.",
+            "profile": profile,
+        }
+
+    df["wind_speed_ms"] = pd.to_numeric(df["wind_speed_ms"], errors="coerce")
+    df["power_kw"] = pd.to_numeric(df["power_kw"], errors="coerce")
+    df = df.dropna(subset=["wind_speed_ms", "power_kw"])
+    df = df[(df["wind_speed_ms"] >= 0) & (df["power_kw"] >= 0)]
+    valid_rows = int(len(df))
+    if valid_rows < 5:
+        return {
+            "ok": False,
+            "total_rows": total_rows,
+            "valid_rows": valid_rows,
+            "message": "Для обучения нужно минимум 5 валидных строк с wind_speed_ms и power_kw.",
+            "profile": profile,
+        }
+
+    capacity_kw = float(getattr(station, "capacity_ac_kw", 0.0) or 0.0)
+    if capacity_kw <= 0:
+        capacity_kw = max(float(df["power_kw"].quantile(0.98) or 0.0), 1.0)
+
+    positive = df[df["power_kw"] >= capacity_kw * 0.01]
+    high_power = df[df["power_kw"] >= capacity_kw * 0.90]
+
+    cut_in = float(positive["wind_speed_ms"].quantile(0.10)) if not positive.empty else float(profile.cut_in_speed_ms)
+    if not high_power.empty:
+        rated = float(high_power["wind_speed_ms"].quantile(0.25))
+    else:
+        rated = float(df.loc[df["power_kw"].idxmax(), "wind_speed_ms"])
+
+    cut_in = min(max(cut_in, 0.1), 10.0)
+    rated = min(max(rated, cut_in + 0.5), 30.0)
+    cut_out = max(float(profile.cut_out_speed_ms or 25.0), rated + 1.0)
+
+    profile.cut_in_speed_ms = round(cut_in, 2)
+    profile.rated_speed_ms = round(rated, 2)
+    profile.cut_out_speed_ms = round(cut_out, 2)
+    profile.save(update_fields=["cut_in_speed_ms", "rated_speed_ms", "cut_out_speed_ms"])
+
+    return {
+        "ok": True,
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "message": (
+            f"Профиль обучен: cut-in={profile.cut_in_speed_ms} м/с, "
+            f"rated={profile.rated_speed_ms} м/с, cut-out={profile.cut_out_speed_ms} м/с."
+        ),
+        "profile": profile,
+    }
+
+
+
 @login_required
 def station_train(request, pk: int):
     station = _get_wind_station_or_404(request.user, pk)
-    return render(request, "wind/station_train.html", {"station": station})
+    history_scope = _normalize_history_scope(request.POST.get("history_scope") or request.GET.get("history_scope") or "main")
+    profile, _ = WindStationProfile.objects.get_or_create(station=station)
+
+    stats_qs = WindRecord.objects.filter(station=station, history_scope=history_scope)
+    total_rows = stats_qs.count()
+    valid_rows = stats_qs.filter(wind_speed_ms__isnull=False, power_kw__isnull=False).count()
+    last_result = None
+
+    if request.method == "POST":
+        last_result = _train_wind_profile_from_history(station, history_scope)
+        profile = last_result["profile"]
+        total_rows = last_result["total_rows"]
+        valid_rows = last_result["valid_rows"]
+        if last_result["ok"]:
+            messages.success(request, last_result["message"])
+        else:
+            messages.error(request, last_result["message"])
+
+    return render(
+        request,
+        "wind/station_train.html",
+        {
+            "station": station,
+            "history_scope": history_scope,
+            "profile": profile,
+            "total_rows": total_rows,
+            "valid_rows": valid_rows,
+            "last_result": last_result,
+        },
+    )
