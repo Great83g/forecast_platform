@@ -62,6 +62,38 @@
       </div>
       <button type="submit" class="btn btn-primary btn-sm">Построить прогноз</button>
     </form>
+
+    <hr class="my-3">
+    <h6 class="mb-2">Постфактум по старым данным</h6>
+    <div class="text-muted small mb-2">Создаёт прогноз за уже прошедшие даты из фактической истории ветра станции. Координаты и погодные провайдеры не нужны.</div>
+    <form method="get" action="{% url 'wind:station-forecast-run' station.pk %}" class="d-flex flex-wrap gap-2 align-items-end border rounded p-2 bg-light">
+      <input type="hidden" name="horizon_mode" value="postfactum">
+      <input type="hidden" name="days" value="1">
+      <div>
+        <label class="form-label mb-0 small">База</label>
+        <select class="form-select form-select-sm" name="scope" style="width:160px;">
+          <option value="main" {% if scope == 'main' %}selected{% endif %}>Основная</option>
+          <option value="test" {% if scope == 'test' %}selected{% endif %}>Тестовая</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label mb-0 small">Постфактум с даты</label>
+        <input type="date" class="form-control form-control-sm" name="postfactum_from" required style="width:150px;">
+      </div>
+      <div>
+        <label class="form-label mb-0 small">Постфактум по дату</label>
+        <input type="date" class="form-control form-control-sm" name="postfactum_to" required style="width:150px;">
+      </div>
+      <div>
+        <label class="form-label mb-0 small">Email</label>
+        <input type="text" class="form-control form-control-sm" name="emails" value="{{ emails }}" placeholder="mail1@example.com" style="width:280px;">
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="auto_send" value="1" id="postfactum_auto_send">
+        <label class="form-check-label" for="postfactum_auto_send">Авто-отправка email</label>
+      </div>
+      <button type="submit" class="btn btn-warning btn-sm">Постфактум: построить</button>
+    </form>
   </div>
 </div>
 
@@ -161,6 +193,9 @@
           "Email": "Email",
           "Авто-отправка email": "Email авто-жіберу",
           "Построить прогноз": "Болжам құру",
+          "Постфактум по старым данным": "Ескі деректер бойынша постфактум",
+          "Создаёт прогноз за уже прошедшие даты из фактической истории ветра станции. Координаты и погодные провайдеры не нужны.": "Станцияның нақты жел тарихынан өткен күндерге болжам жасайды. Координаттар мен ауа райы провайдерлері қажет емес.",
+          "Постфактум: построить": "Постфактум: құру",
           "База автопрогноза": "Автоболжам базасы",
           "Основная (фиксировано)": "Негізгі (тұрақты)",
           "Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.": "Email міндетті емес: автоболжам онсыз да орындалады; email болмаса есеп жіберілмейді.",
@@ -188,6 +223,9 @@
           "Email": "Email",
           "Авто-отправка email": "Auto-send email",
           "Построить прогноз": "Run forecast",
+          "Постфактум по старым данным": "Post-factum from old data",
+          "Создаёт прогноз за уже прошедшие даты из фактической истории ветра станции. Координаты и погодные провайдеры не нужны.": "Creates a forecast for past dates from the station's actual wind history. Coordinates and weather providers are not required.",
+          "Постфактум: построить": "Post-factum: run",
           "База автопрогноза": "Auto-forecast database",
           "Основная (фиксировано)": "Main (fixed)",
           "Email необязателен: автопрогноз выполняется и без него; без email отправка отчёта пропускается.": "Email is optional: auto-forecast runs without it; report sending is skipped if email is empty.",

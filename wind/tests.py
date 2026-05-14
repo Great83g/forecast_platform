@@ -435,6 +435,8 @@ class WindForecastModuleTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "manual-scope-select")
         self.assertContains(response, "manual-horizon-mode")
+        self.assertContains(response, "Постфактум по старым данным")
+        self.assertContains(response, 'name="horizon_mode" value="postfactum"')
 
 
     def test_forecast_export_returns_excel_for_tz_aware_timestamps(self):

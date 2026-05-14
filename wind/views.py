@@ -735,7 +735,7 @@ def station_forecast_list(request, pk: int):
     }
     schedule_form = WindForecastScheduleForm(initial=initial)
     manual_horizon_mode = request.GET.get("horizon_mode") or initial.get("horizon_mode") or "legacy"
-    manual_horizon_choices = list(schedule_form.fields["horizon_mode"].choices) + [("postfactum", "Постфактум (по фактической истории)")]
+    manual_horizon_choices = list(schedule_form.fields["horizon_mode"].choices)
 
     return render(
         request,
