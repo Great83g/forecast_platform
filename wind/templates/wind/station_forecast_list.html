@@ -36,11 +36,19 @@
           {% endfor %}
         </select>
       </div>
-      <div class="form-check">
+      <div class="manual-postfactum-field">
+        <label class="form-label mb-0 small">Постфактум с даты</label>
+        <input type="date" class="form-control form-control-sm" name="postfactum_from" style="width:150px;">
+      </div>
+      <div class="manual-postfactum-field">
+        <label class="form-label mb-0 small">Постфактум по дату</label>
+        <input type="date" class="form-control form-control-sm" name="postfactum_to" style="width:150px;">
+      </div>
+      <div class="form-check manual-provider-field">
         <input class="form-check-input" type="checkbox" name="providers" value="visual_crossing" id="pv" checked>
         <label class="form-check-label" for="pv">Visual Crossing</label>
       </div>
-      <div class="form-check">
+      <div class="form-check manual-provider-field">
         <input class="form-check-input" type="checkbox" name="providers" value="open_meteo" id="po" checked>
         <label class="form-check-label" for="po">Open‑Meteo</label>
       </div>
@@ -251,6 +259,21 @@
           if (map[text]) option.textContent = map[text];
         });
       }
+    }
+
+    var horizonSelect = document.getElementById("manual-horizon-mode");
+    function syncPostfactumMode() {
+      var isPostfactum = horizonSelect && horizonSelect.value === "postfactum";
+      document.querySelectorAll(".manual-postfactum-field").forEach(function (node) {
+        node.style.display = isPostfactum ? "block" : "none";
+      });
+      document.querySelectorAll(".manual-provider-field").forEach(function (node) {
+        node.style.display = isPostfactum ? "none" : "block";
+      });
+    }
+    if (horizonSelect) {
+      horizonSelect.addEventListener("change", syncPostfactumMode);
+      syncPostfactumMode();
     }
 
     var select = document.getElementById("manual-scope-select");
