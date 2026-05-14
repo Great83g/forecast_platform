@@ -204,6 +204,52 @@ class WindForecastModuleTests(TestCase):
             longitude=67.5,
             timezone="Asia/Almaty",
         )
+    @patch("dashboard.services.vc_weather._fetch_visual_crossing_timeline")
+    def test_visual_crossing_one_day_forecast_requests_tomorrow_only(self, fetch_mock):
+        from datetime import timedelta
+        import pandas as pd
+        from types import SimpleNamespace
+        from django.utils import timezone
+        from dashboard.services.vc_weather import fetch_visual_crossing_hourly
+
+        fetch_mock.return_value = SimpleNamespace(ok=True, source="visual_crossing", df=pd.DataFrame(), error=None)
+
+        fetch_visual_crossing_hourly(48.0, 67.5, 1)
+
+        args, kwargs = fetch_mock.call_args
+        today = timezone.localdate()
+        self.assertEqual(args[2], today + timedelta(days=1))
+        self.assertEqual(args[3], today + timedelta(days=1))
+        self.assertEqual(kwargs["source"], "visual_crossing")
+
+
+
+    def test_visual_crossing_metric_wind_is_converted_to_ms(self):
+        from dashboard.services.vc_weather import _visual_crossing_hourly_df
+
+        df = _visual_crossing_hourly_df(
+            {
+                "days": [
+                    {
+                        "datetime": "2026-05-15",
+                        "hours": [
+                            {
+                                "datetime": "10:00:00",
+                                "windspeed": 36.0,
+                                "temp": 12.0,
+                                "cloudcover": 0.0,
+                                "humidity": 50.0,
+                                "precip": 0.0,
+                            }
+                        ],
+                    }
+                ]
+            }
+        )
+
+        self.assertAlmostEqual(float(df.iloc[0]["wind_speed"]), 10.0, places=3)
+
+
 
     def test_visual_crossing_metric_wind_is_converted_to_ms(self):
         from dashboard.services.vc_weather import _visual_crossing_hourly_df

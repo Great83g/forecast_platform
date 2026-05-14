@@ -44,6 +44,8 @@ fi
 cd ~/forecast_platform
 source venv/bin/activate
 bash deploy/apply_wind_forecast_runs_update.sh
+# если по привычке набрал без h, тоже работает:
+# bash deploy/apply_wind_forecast_runs_update.s
 ```
 
 Скрипт делает полный безопасный путь:

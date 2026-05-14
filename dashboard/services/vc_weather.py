@@ -103,8 +103,10 @@ def fetch_visual_crossing_hourly(lat: float, lon: float, days: int) -> WeatherRe
     Возвращает почасовой прогноз Visual Crossing на N дней вперёд в датафрейме:
     ds, irradiation, air_temp, wind_speed, cloudcover, humidity, precip
     """
-    start = _now_local()
-    end = start + timedelta(days=days)
+    days = max(int(days), 1)
+    # Forecast UI semantics: 1 day means tomorrow only, not today + tomorrow.
+    start = _now_local() + timedelta(days=1)
+    end = start + timedelta(days=days - 1)
     return _fetch_visual_crossing_timeline(lat, lon, start.date(), end.date(), source="visual_crossing")
 
 
