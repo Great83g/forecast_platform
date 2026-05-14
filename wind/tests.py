@@ -508,6 +508,8 @@ class WindForecastModuleTests(TestCase):
         self.assertContains(response, 'id="postfactum-forecast-panel"', count=1)
         self.assertContains(response, 'data-postfactum-panel-version="2"', count=1)
         self.assertContains(response, 'name="horizon_mode" value="postfactum"', count=1)
+        self.assertContains(response, "Удалить прогноз с даты")
+        self.assertContains(response, "Удалить прогноз по дату")
 
 
     def test_forecast_export_returns_excel_for_tz_aware_timestamps(self):

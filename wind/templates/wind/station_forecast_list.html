@@ -166,12 +166,19 @@
   <a class="btn btn-sm btn-success ms-auto" href="{% url 'wind:station-forecast-export' station.pk %}?scope={{ scope }}{% if from %}&from={{ from }}{% endif %}{% if to %}&to={{ to }}{% endif %}">Скачать Excel</a>
 </form>
 
-<form method="post" action="{% url 'wind:station-forecast-clear' station.pk %}" class="mb-2">
+<form method="post" action="{% url 'wind:station-forecast-clear' station.pk %}" class="d-flex flex-wrap gap-2 align-items-end mb-2 border border-danger rounded p-2 bg-white">
   {% csrf_token %}
   <input type="hidden" name="scope" value="{{ scope }}">
-  <input type="hidden" name="from" value="{{ from }}">
-  <input type="hidden" name="to" value="{{ to }}">
-  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Очистить прогноз только для текущей станции{% if from or to %} и выбранного диапазона дат{% endif %}?');">Очистить прогноз</button>
+  <div>
+    <label class="form-label mb-0 small">Удалить прогноз с даты</label>
+    <input type="date" name="from" value="{{ from }}" class="form-control form-control-sm">
+  </div>
+  <div>
+    <label class="form-label mb-0 small">Удалить прогноз по дату</label>
+    <input type="date" name="to" value="{{ to }}" class="form-control form-control-sm">
+  </div>
+  <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Удалить прогноз только для текущей станции{% if from or to %} и указанного диапазона дат{% else %} по всем датам выбранной базы{% endif %}?');">Удалить прогноз</button>
+  <div class="text-muted small">Если даты пустые — удалится весь прогноз текущей станции в базе “{% if scope == 'test' %}Тестовая{% else %}Основная{% endif %}”.</div>
 </form>
 
 <div class="text-muted small mb-2">Строк прогноза: <b>{{ count }}</b></div>
@@ -241,6 +248,9 @@
           "Фильтр": "Сүзгі",
           "Скачать Excel": "Excel жүктеу",
           "Очистить прогноз": "Болжамды тазарту",
+          "Удалить прогноз": "Болжамды жою",
+          "Удалить прогноз с даты": "Болжамды күннен жою",
+          "Удалить прогноз по дату": "Болжамды күнге дейін жою",
           "Строк прогноза": "Болжам жолдары",
           "Дата/время": "Күн/уақыт",
           "Нет прогноза": "Болжам жоқ",
@@ -272,6 +282,9 @@
           "Фильтр": "Filter",
           "Скачать Excel": "Download Excel",
           "Очистить прогноз": "Clear forecast",
+          "Удалить прогноз": "Delete forecast",
+          "Удалить прогноз с даты": "Delete forecast from",
+          "Удалить прогноз по дату": "Delete forecast to",
           "Строк прогноза": "Forecast rows",
           "Дата/время": "Date/time",
           "Нет прогноза": "No forecast",
@@ -298,19 +311,19 @@
       }
     }
 
-    var horizonSelect = document.getElementById("manual-horizon-mode");
-    function syncPostfactumMode() {
-      var isPostfactum = horizonSelect && horizonSelect.value === "postfactum";
-      document.querySelectorAll(".manual-postfactum-field").forEach(function (node) {
-        node.style.display = isPostfactum ? "block" : "none";
+    var firstPostfactumPanel = document.getElementById("postfactum-forecast-panel");
+    if (firstPostfactumPanel) {
+      document.querySelectorAll("h6,h5").forEach(function (heading) {
+        var text = (heading.textContent || "").trim();
+        if (text !== "Постфактум по старым данным" || heading.closest("#postfactum-forecast-panel")) return;
+        var prev = heading.previousElementSibling;
+        var note = heading.nextElementSibling;
+        var form = note ? note.nextElementSibling : null;
+        if (prev && prev.tagName === "HR") prev.remove();
+        if (form && form.tagName === "FORM") form.remove();
+        if (note) note.remove();
+        heading.remove();
       });
-      document.querySelectorAll(".manual-provider-field").forEach(function (node) {
-        node.style.display = isPostfactum ? "none" : "block";
-      });
-    }
-    if (horizonSelect) {
-      horizonSelect.addEventListener("change", syncPostfactumMode);
-      syncPostfactumMode();
     }
 
     var select = document.getElementById("manual-scope-select");
