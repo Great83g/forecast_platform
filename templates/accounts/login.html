@@ -89,26 +89,25 @@
 
     .lang-switcher {
       display: inline-flex;
-      gap: 0.4rem;
-      margin-left: 0.9rem;
+      margin-left: 0.65rem;
     }
 
-    .lang-btn {
+    .lang-select {
+      min-width: 68px;
       border: 1px solid rgba(168, 197, 255, 0.35);
-      background: rgba(12, 34, 86, 0.55);
-      color: #dce9ff;
-      font-size: 0.72rem;
+      background: rgba(12, 34, 86, 0.72);
+      color: #ffffff;
+      font-size: 0.78rem;
       font-weight: 700;
       letter-spacing: 0.04em;
-      padding: 0.22rem 0.45rem;
-      border-radius: 4px;
+      padding: 0.34rem 1.75rem 0.34rem 0.55rem;
+      border-radius: 7px;
       cursor: pointer;
       line-height: 1.1;
     }
 
-    .lang-btn.is-active {
-      background: rgba(53, 127, 255, 0.7);
-      border-color: rgba(171, 203, 255, 0.74);
+    .lang-select option {
+      background: #071638;
       color: #ffffff;
     }
 
@@ -408,16 +407,15 @@
       }
 
       .mobile-lang-switcher {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 0.45rem;
+        display: block;
         margin-top: 0.55rem;
         padding-top: 0.75rem;
         border-top: 1px solid rgba(168, 197, 255, 0.18);
       }
 
-      .mobile-lang-switcher .lang-btn {
-        min-height: 34px;
+      .mobile-lang-switcher .lang-select {
+        width: 100%;
+        min-height: 38px;
       }
     }
   </style>
@@ -437,9 +435,11 @@
           <li><a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a></li>
         </ul>
         <div class="lang-switcher desktop-lang-switcher" aria-label="Выбор языка">
-          <button type="button" class="lang-btn" data-lang="ru">RU</button>
-          <button type="button" class="lang-btn" data-lang="kz">KZ</button>
-          <button type="button" class="lang-btn" data-lang="en">EN</button>
+          <select class="lang-select" aria-label="Выбор языка">
+            <option value="ru" selected>RU</option>
+            <option value="en">EN</option>
+            <option value="kz">KZ</option>
+          </select>
         </div>
         <button class="mobile-menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobileHeroMenu">☰</button>
         <nav class="mobile-menu-panel" id="mobileHeroMenu" aria-label="Мобильное меню">
@@ -449,9 +449,11 @@
           <a href="{% url 'solar_calculator:page' %}" data-i18n="menu_calculator">Калькулятор</a>
           <a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a>
           <div class="mobile-lang-switcher" aria-label="Выбор языка">
-            <button type="button" class="lang-btn" data-lang="ru">RU</button>
-            <button type="button" class="lang-btn" data-lang="kz">KZ</button>
-            <button type="button" class="lang-btn" data-lang="en">EN</button>
+            <select class="lang-select" aria-label="Выбор языка">
+              <option value="ru" selected>RU</option>
+              <option value="en">EN</option>
+              <option value="kz">KZ</option>
+            </select>
           </div>
         </nav>
       </header>
@@ -663,7 +665,7 @@
         }
       };
 
-      const buttons = document.querySelectorAll(".lang-btn");
+      const languageSelects = document.querySelectorAll(".lang-select");
       const translatable = document.querySelectorAll("[data-i18n]");
       const ariaTranslatable = document.querySelectorAll("[data-i18n-aria-label]");
 
@@ -684,8 +686,8 @@
         });
 
         document.title = dict.page_title;
-        buttons.forEach((button) => {
-          button.classList.toggle("is-active", button.dataset.lang === langCode);
+        languageSelects.forEach((select) => {
+          select.value = langCode;
         });
         localStorage.setItem("preferredLang", langCode);
       }
@@ -694,8 +696,13 @@
       const initialLang = (preferredLang && i18n[preferredLang]) ? preferredLang : "ru";
       applyLanguage(initialLang);
 
-      buttons.forEach((button) => {
-        button.addEventListener("click", () => applyLanguage(button.dataset.lang));
+      languageSelects.forEach((select) => {
+        select.addEventListener("change", () => {
+          applyLanguage(select.value);
+          if (select.closest("#mobileHeroMenu")) {
+            closeMobileMenu();
+          }
+        });
       });
 
       const mobileMenuToggle = document.querySelector(".mobile-menu-toggle");
@@ -717,7 +724,7 @@
 
         mobileMenuPanel.addEventListener("click", (event) => {
           event.stopPropagation();
-          if (event.target.closest("a, button")) {
+          if (event.target.closest("a")) {
             closeMobileMenu();
           }
         });
