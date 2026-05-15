@@ -88,6 +88,9 @@ XGB_EXPECTED_FEATURES = [
     "month_cos",
     "sun_elev_deg",
     "low_sun_flag",
+    "sunrise_hour_flag",
+    "solar_ramp_factor",
+    "irradiation_x_ramp",
 ]
 
 PR_FOR_EXPECTED = 0.90
@@ -96,6 +99,8 @@ FORECAST_IRRADIATION_NOISE_WM2_DEFAULT = 35.0
 FORECAST_MORNING_IRR_BOOST_DEFAULT = 1.08
 FORECAST_MORNING_IRR_BOOST_MAX = 1.35
 FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT = 0.92
+FORECAST_EARLY_MORNING_CAP_UPLIFT_DEFAULT = 1.10
+FORECAST_EARLY_MORNING_CAP_MIN_SAMPLES_DEFAULT = 5
 
 AUTO_SNOWDEPTH_M_THRESHOLD = 0.02
 AUTO_TEMP_MAX_FOR_SNOW = 2.0
@@ -140,6 +145,24 @@ def _forecast_clear_sky_floor_ratio() -> float:
     except (TypeError, ValueError):
         value = FORECAST_CLEAR_SKY_FLOOR_RATIO_DEFAULT
     return float(np.clip(value, 0.0, 1.0))
+
+
+def _forecast_early_morning_cap_uplift() -> float:
+    raw = getattr(settings, "FORECAST_EARLY_MORNING_CAP_UPLIFT", FORECAST_EARLY_MORNING_CAP_UPLIFT_DEFAULT)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_EARLY_MORNING_CAP_UPLIFT_DEFAULT
+    return float(np.clip(value, 1.0, 1.5))
+
+
+def _forecast_early_morning_cap_min_samples() -> int:
+    raw = getattr(settings, "FORECAST_EARLY_MORNING_CAP_MIN_SAMPLES", FORECAST_EARLY_MORNING_CAP_MIN_SAMPLES_DEFAULT)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = FORECAST_EARLY_MORNING_CAP_MIN_SAMPLES_DEFAULT
+    return max(1, value)
 
 
 def _describe_np_model(model: object) -> str:
@@ -507,9 +530,16 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     noise_floor = _forecast_irradiation_noise_floor_wm2()
     out.loc[out["Irradiation"] < noise_floor, "Irradiation"] = 0.0
 
+    # Мягкий прогнозный boost оставляем только для 06:00/09:00.
+    # 07:00/08:00 больше не усиливаем: именно эти часы склонны к завышению.
     morning_boost = _forecast_morning_irradiation_boost()
-    morning_mask = out["hour"].isin([6, 7, 8, 9]) & (out["Irradiation"] > 0)
+    morning_mask = out["hour"].isin([6, 9]) & (out["Irradiation"] > 0)
     out.loc[morning_mask, "Irradiation"] = out.loc[morning_mask, "Irradiation"] * morning_boost
+
+    out["sunrise_hour_flag"] = out["hour"].between(6, 8).astype(int)
+    ramp_map = {6: 0.35, 7: 0.65, 8: 0.90}
+    out["solar_ramp_factor"] = out["hour"].map(ramp_map).fillna(1.0).astype(float)
+    out["irradiation_x_ramp"] = out["Irradiation"] * out["solar_ramp_factor"]
 
     out["hour_sin"] = np.sin(2 * np.pi * out["hour"] / 24.0)
     out["hour_cos"] = np.cos(2 * np.pi * out["hour"] / 24.0)
@@ -521,7 +551,7 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
 
     out["is_clear"] = ((out["Irradiation"] > 200) & (out["Air_Temp"] > 0)).astype(int)
 
-    out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 39)).astype(int)
+    out["morning_peak_boost"] = ((out["hour"] == 6) & (out["Irradiation"] > 80)).astype(int)
     out["evening_penalty"] = ((out["hour"] == 19) & (out["Irradiation"] > 39)).astype(int)
     out["overdrive_flag"] = ((out["Irradiation"] > 950) & (out["Air_Temp"] > 30)).astype(int)
     out["midday_penalty"] = ((out["hour"].isin([12, 13, 14]))).astype(int)
@@ -758,6 +788,9 @@ def _predict_np(
         "overdrive_flag",
         "midday_penalty",
         "y_expected_log",
+        "sunrise_hour_flag",
+        "solar_ramp_factor",
+        "irradiation_x_ramp",
     ]
 
     allowed_regressors = None
@@ -945,6 +978,62 @@ def _target_offsets_for_weekday_calendar(now_dt) -> List[int]:
     if weekday in {0, 1, 2, 3}:  # Mon-Thu
         return [2]
     return []
+
+
+def _historical_early_morning_caps_mw(st: Station, hours: Tuple[int, ...] = (7, 8)) -> Dict[int, float]:
+    """
+    Возвращает мягкие верхние ограничения для раннего утра по истории станции.
+
+    Кап строится только для 07:00/08:00, по 95-му перцентилю фактической
+    мощности с небольшим uplift. Если истории по часу мало, ограничение не
+    применяется.
+    """
+    min_samples = _forecast_early_morning_cap_min_samples()
+    uplift = _forecast_early_morning_cap_uplift()
+    qs = SolarRecord.objects.filter(
+        station=st,
+        history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+        timestamp__hour__in=list(hours),
+        power_kw__isnull=False,
+    ).values("timestamp", "power_kw")
+    rows = list(qs)
+    if not rows:
+        return {}
+
+    hist = pd.DataFrame(rows)
+    hist["hour"] = pd.to_datetime(hist["timestamp"]).dt.hour.astype(int)
+    hist["power_mw"] = (pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0).clip(lower=0.0)
+
+    caps: Dict[int, float] = {}
+    for hour in hours:
+        values = hist.loc[hist["hour"] == hour, "power_mw"].dropna()
+        if len(values) < min_samples:
+            continue
+        cap = float(values.quantile(0.95) * uplift)
+        if np.isfinite(cap) and cap > 0:
+            caps[int(hour)] = cap
+    return caps
+
+
+def _apply_early_morning_history_cap(
+    y_mw: np.ndarray,
+    feat: pd.DataFrame,
+    st: Station,
+    capacity_mw: float,
+) -> Tuple[np.ndarray, Dict[int, float]]:
+    caps = _historical_early_morning_caps_mw(st)
+    if not caps:
+        return np.asarray(y_mw, dtype=float), caps
+
+    out = np.asarray(y_mw, dtype=float).copy()
+    hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
+    for hour, cap in caps.items():
+        safe_cap = float(np.clip(cap, 0.0, capacity_mw))
+        if safe_cap <= 0:
+            continue
+        mask = hours == int(hour)
+        out[mask] = np.minimum(out[mask], safe_cap)
+    return out, caps
 
 
 @transaction.atomic
@@ -1331,6 +1420,10 @@ def run_forecast_for_station(
     y_xgb = np.clip(y_xgb * winter_factor, 0, capacity_mw)
     y_heur = np.clip(y_heur * winter_factor, 0, capacity_mw)
     y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
+
+    y_final, early_morning_caps = _apply_early_morning_history_cap(y_final, feat, st, capacity_mw)
+    if early_morning_caps:
+        logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
 
     guardrail_df = pd.DataFrame(
         {

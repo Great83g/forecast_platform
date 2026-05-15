@@ -199,6 +199,7 @@ def add_common_features(df: pd.DataFrame, cap_mw: float, ds_col: str = "ds") -> 
       hour, month, hour_sin, month_sin,
       is_clear, morning_peak_boost, evening_penalty,
       overdrive_flag, midday_penalty, is_morning_active,
+      sunrise_hour_flag, solar_ramp_factor, irradiation_x_ramp,
       y_expected_log
     """
     df = df.copy()
@@ -213,7 +214,17 @@ def add_common_features(df: pd.DataFrame, cap_mw: float, ds_col: str = "ds") -> 
     df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
 
     df["is_clear"] = ((df["Irradiation"] > 200) & (df["Air_Temp"] > 0)).astype(int)
-    df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 39)).astype(int)
+
+    # Мягкие утренние признаки: вместо агрессивного точечного буста
+    # даём модели форму плавного разгона генерации в 06-08.
+    df["sunrise_hour_flag"] = df["hour"].between(6, 8).astype(int)
+    ramp_map = {6: 0.35, 7: 0.65, 8: 0.90}
+    df["solar_ramp_factor"] = df["hour"].map(ramp_map).fillna(1.0).astype(float)
+    df["irradiation_x_ramp"] = df["Irradiation"] * df["solar_ramp_factor"]
+
+    # Старый morning_peak_boost оставляем для совместимости структуры признаков,
+    # но больше не включаем его для 07:00/08:00 и не расширяем утро вверх.
+    df["morning_peak_boost"] = ((df["hour"] == 6) & (df["Irradiation"] > 80)).astype(int)
     df["evening_penalty"] = ((df["hour"] == 19) & (df["Irradiation"] > 39)).astype(int)
     df["overdrive_flag"] = ((df["Irradiation"] > 950) & (df["Air_Temp"] > 30)).astype(int)
     df["midday_penalty"] = ((df["hour"] >= 12) & (df["hour"] <= 14)).astype(int)
@@ -281,6 +292,9 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         "month_cos",
         "sun_elev_deg",
         "low_sun_flag",
+        "sunrise_hour_flag",
+        "solar_ramp_factor",
+        "irradiation_x_ramp",
     ]
 
     for col in X_cols:
@@ -395,6 +409,9 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "is_morning_active",
             "sun_elev_deg",
             "low_sun_flag",
+            "sunrise_hour_flag",
+            "solar_ramp_factor",
+            "irradiation_x_ramp",
         ]
         for col in reg_cols:
             m.add_future_regressor(col, normalize="minmax")

@@ -6,6 +6,7 @@ from django.db.models import Max
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+import numpy as np
 import pandas as pd
 import tempfile
 from pathlib import Path
@@ -19,6 +20,8 @@ from dashboard.services.forecast_engine import (
     _target_offsets_for_weekday_calendar,
     _postprocess_xgb_prediction,
     _xgb_is_systematically_low,
+    _compute_features,
+    _apply_early_morning_history_cap,
     WeatherFetchResult,
     run_forecast_for_station,
 )
@@ -311,6 +314,72 @@ def build_custom_history_dataframe(station):
         ]
     )
 
+
+
+class ForecastEngineMorningFeatureTests(TestCase):
+    def test_compute_features_adds_soft_morning_ramp_and_does_not_boost_0700(self):
+        df = pd.DataFrame(
+            [
+                {"ds": pd.Timestamp("2026-06-01 07:00:00"), "irradiation": 100.0, "air_temp": 15.0, "wind_speed": 1.0},
+                {"ds": pd.Timestamp("2026-06-01 10:00:00"), "irradiation": 500.0, "air_temp": 20.0, "wind_speed": 1.0},
+            ]
+        )
+
+        out = _compute_features(df, capacity_mw=10.0, lat_deg=47.86)
+
+        self.assertEqual(int(out.iloc[0]["sunrise_hour_flag"]), 1)
+        self.assertAlmostEqual(float(out.iloc[0]["solar_ramp_factor"]), 0.65)
+        self.assertAlmostEqual(float(out.iloc[0]["Irradiation"]), 100.0)
+        self.assertAlmostEqual(float(out.iloc[0]["irradiation_x_ramp"]), 65.0)
+        self.assertEqual(int(out.iloc[0]["morning_peak_boost"]), 0)
+        self.assertEqual(int(out.iloc[1]["sunrise_hour_flag"]), 0)
+        self.assertAlmostEqual(float(out.iloc[1]["solar_ramp_factor"]), 1.0)
+
+    def test_early_morning_history_cap_only_limits_0700_and_0800(self):
+        user = User.objects.create_user(username="morning-cap", password="pass")
+        org = Organization.objects.create(name="Morning Cap Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Morning Cap Station",
+            capacity_mw=10.0,
+            capacity_ac_kw=10000,
+            capacity_dc_kw=11000,
+        )
+        for day in range(1, 7):
+            SolarRecord.objects.create(
+                station=station,
+                timestamp=timezone.datetime(2026, 6, day, 7, 0, tzinfo=timezone.get_current_timezone()),
+                history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+                power_kw=1000.0,
+                irradiation=100.0,
+            )
+            SolarRecord.objects.create(
+                station=station,
+                timestamp=timezone.datetime(2026, 6, day, 8, 0, tzinfo=timezone.get_current_timezone()),
+                history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+                power_kw=2000.0,
+                irradiation=200.0,
+            )
+
+        feat = pd.DataFrame(
+            {
+                "ds": [
+                    pd.Timestamp("2026-06-10 07:00:00"),
+                    pd.Timestamp("2026-06-10 08:00:00"),
+                    pd.Timestamp("2026-06-10 10:00:00"),
+                ]
+            }
+        )
+
+        with override_settings(FORECAST_EARLY_MORNING_CAP_UPLIFT=1.10, FORECAST_EARLY_MORNING_CAP_MIN_SAMPLES=5):
+            capped, caps = _apply_early_morning_history_cap(
+                np.array([3.0, 3.0, 3.0]), feat, station, capacity_mw=10.0
+            )
+
+        self.assertAlmostEqual(capped[0], 1.1, places=6)
+        self.assertAlmostEqual(capped[1], 2.2, places=6)
+        self.assertAlmostEqual(capped[2], 3.0, places=6)
+        self.assertEqual(set(caps.keys()), {7, 8})
 
 
 class ForecastEngineXgbPostprocessTests(TestCase):
