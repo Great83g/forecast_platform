@@ -63,9 +63,30 @@
     .hero-menu {
       list-style: none;
       display: flex;
-      gap: 0.9rem;
+      align-items: center;
+      gap: 0.65rem;
       margin: 0;
       padding: 0;
+      min-width: 0;
+    }
+
+    .mobile-menu-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 38px;
+      border: 1px solid rgba(168, 197, 255, 0.35);
+      border-radius: 8px;
+      background: rgba(12, 34, 86, 0.58);
+      color: #ffffff;
+      font-size: 1.35rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .mobile-menu-panel {
+      display: none;
     }
 
     .mobile-menu-toggle {
@@ -114,7 +135,8 @@
     .hero-menu a {
       color: rgba(229, 237, 255, 0.92);
       text-decoration: none;
-      font-size: 0.94rem;
+      font-size: 0.88rem;
+      white-space: nowrap;
       transition: color 0.2s ease, opacity 0.2s ease;
     }
 
@@ -359,7 +381,7 @@
       }
     }
 
-    @media (max-width: 767.98px) {
+    @media (max-width: 1280px) {
       .hero-topbar {
         position: relative;
         align-items: center;
