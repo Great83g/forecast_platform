@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Платформа прогнозирования солнечной и ветровой генерации | InTech-Forecast{% endblock %}
 {% block meta_description %}AI-платформа прогнозирования солнечной и ветровой генерации для СЭС и ВЭС. Прогноз мощности, аналитика, мониторинг и энергетические модели для объектов ВИЭ в Казахстане.{% endblock %}
 {% block body_class %}auth-page-body{% endblock %}
@@ -201,6 +202,7 @@
       height: 100%;
       object-fit: cover;
       display: block;
+      z-index: 0;
     }
 
     .right-pane {
@@ -450,8 +452,8 @@
     </div>
 
     <div class="right-pane" aria-label="Видео анимация прогноза" data-i18n-aria-label="video_aria">
-      <video id="loginHeroVideo" autoplay muted loop playsinline poster="{{ login_hero_poster_url }}">
-        <source src="{{ login_hero_video_url }}" type="video/mp4">
+      <video id="loginHeroVideo" autoplay muted loop playsinline preload="auto" aria-hidden="true">
+        <source src="{% static 'dashboard/img/login-hero.mp4' %}" type="video/mp4">
       </video>
     </div>
   </section>
@@ -608,22 +610,6 @@
       buttons.forEach((button) => {
         button.addEventListener("click", () => applyLanguage(button.dataset.lang));
       });
-
-      const heroVideo = document.getElementById("loginHeroVideo");
-      if (heroVideo) {
-        heroVideo.addEventListener("error", () => {
-          heroVideo.style.display = "none";
-          const posterUrl = heroVideo.getAttribute("poster");
-          if (posterUrl) {
-            const pane = heroVideo.closest(".right-pane");
-            if (pane) {
-              pane.style.backgroundImage = "linear-gradient(90deg, rgba(9, 20, 53, 0.35), rgba(4, 10, 24, 0.5)), url('" + posterUrl + "')";
-              pane.style.backgroundSize = "cover";
-              pane.style.backgroundPosition = "center";
-            }
-          }
-        });
-      }
     })();
   </script>
 {% endblock %}
