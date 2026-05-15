@@ -68,6 +68,25 @@
       padding: 0;
     }
 
+    .mobile-menu-toggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 38px;
+      border: 1px solid rgba(168, 197, 255, 0.35);
+      border-radius: 8px;
+      background: rgba(12, 34, 86, 0.58);
+      color: #ffffff;
+      font-size: 1.35rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .mobile-menu-panel {
+      display: none;
+    }
+
     .lang-switcher {
       display: inline-flex;
       gap: 0.4rem;
@@ -343,12 +362,61 @@
 
     @media (max-width: 767.98px) {
       .hero-topbar {
-        align-items: flex-start;
-        flex-direction: column;
+        position: relative;
+        align-items: center;
       }
 
       .hero-menu {
-        flex-wrap: wrap;
+        display: none;
+      }
+
+      .mobile-menu-toggle {
+        display: inline-flex;
+        flex: 0 0 auto;
+      }
+
+      .mobile-menu-panel {
+        position: absolute;
+        top: calc(100% + 0.75rem);
+        right: 0;
+        z-index: 20;
+        width: min(280px, calc(100vw - 2rem));
+        border: 1px solid rgba(168, 197, 255, 0.32);
+        border-radius: 14px;
+        background: rgba(7, 18, 46, 0.96);
+        box-shadow: 0 22px 48px rgba(2, 8, 22, 0.42);
+        padding: 0.8rem;
+      }
+
+      .mobile-menu-panel.is-open {
+        display: block;
+      }
+
+      .mobile-menu-panel a {
+        display: block;
+        padding: 0.72rem 0.8rem;
+        border-radius: 9px;
+        color: rgba(234, 241, 255, 0.96);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .mobile-menu-panel a:hover {
+        background: rgba(55, 126, 255, 0.18);
+        color: #ffffff;
+      }
+
+      .mobile-lang-switcher {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.45rem;
+        margin-top: 0.55rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid rgba(168, 197, 255, 0.18);
+      }
+
+      .mobile-lang-switcher .lang-btn {
+        min-height: 34px;
       }
     }
   </style>
@@ -361,12 +429,25 @@
           <span>InTech-Forecast</span>
         </a>
         <ul class="hero-menu">
-          <li><a href="{% url 'dashboard:station-list' %}">Станции</a></li>
-          <li><a href="{% url 'dashboard:about-company' %}">О компании</a></li>
-          <li><a href="{% url 'dashboard:about-company' %}#contacts">Контакты</a></li>
+          <li><a href="{% url 'dashboard:station-list' %}" data-i18n="menu_stations">Станции</a></li>
+          <li><a href="{% url 'dashboard:about-company' %}" data-i18n="menu_about">О компании</a></li>
+          <li><a href="{% url 'dashboard:about-company' %}#contacts" data-i18n="menu_contacts">Контакты</a></li>
           <li><a href="{% url 'solar_calculator:page' %}" data-i18n="menu_calculator">Калькулятор</a></li>
-          <li><a href="{% url 'register' %}">Регистрация</a></li>
+          <li><a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a></li>
         </ul>
+        <button class="mobile-menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobileHeroMenu">☰</button>
+        <nav class="mobile-menu-panel" id="mobileHeroMenu" aria-label="Мобильное меню">
+          <a href="{% url 'dashboard:station-list' %}" data-i18n="menu_stations">Станции</a>
+          <a href="{% url 'dashboard:about-company' %}" data-i18n="menu_about">О компании</a>
+          <a href="{% url 'dashboard:about-company' %}#contacts" data-i18n="menu_contacts">Контакты</a>
+          <a href="{% url 'solar_calculator:page' %}" data-i18n="menu_calculator">Калькулятор</a>
+          <a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a>
+          <div class="mobile-lang-switcher" aria-label="Выбор языка">
+            <button type="button" class="lang-btn" data-lang="ru">RU</button>
+            <button type="button" class="lang-btn" data-lang="kz">KZ</button>
+            <button type="button" class="lang-btn" data-lang="en">EN</button>
+          </div>
+        </nav>
       </header>
 
       <div class="left-copy">
@@ -610,6 +691,37 @@
       buttons.forEach((button) => {
         button.addEventListener("click", () => applyLanguage(button.dataset.lang));
       });
+
+      const mobileMenuToggle = document.querySelector(".mobile-menu-toggle");
+      const mobileMenuPanel = document.getElementById("mobileHeroMenu");
+
+      function closeMobileMenu() {
+        if (!mobileMenuPanel || !mobileMenuToggle) return;
+        mobileMenuPanel.classList.remove("is-open");
+        mobileMenuToggle.setAttribute("aria-expanded", "false");
+      }
+
+      if (mobileMenuToggle && mobileMenuPanel) {
+        mobileMenuToggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const willOpen = !mobileMenuPanel.classList.contains("is-open");
+          mobileMenuPanel.classList.toggle("is-open", willOpen);
+          mobileMenuToggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        });
+
+        mobileMenuPanel.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (event.target.closest("a, button")) {
+            closeMobileMenu();
+          }
+        });
+
+        document.addEventListener("click", (event) => {
+          if (!mobileMenuPanel.contains(event.target) && !mobileMenuToggle.contains(event.target)) {
+            closeMobileMenu();
+          }
+        });
+      }
     })();
   </script>
 {% endblock %}
