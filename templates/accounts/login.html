@@ -366,7 +366,8 @@
         align-items: center;
       }
 
-      .hero-menu {
+      .hero-menu,
+      .desktop-lang-switcher {
         display: none;
       }
 
@@ -435,6 +436,11 @@
           <li><a href="{% url 'solar_calculator:page' %}" data-i18n="menu_calculator">Калькулятор</a></li>
           <li><a href="{% url 'register' %}" data-i18n="menu_register">Регистрация</a></li>
         </ul>
+        <div class="lang-switcher desktop-lang-switcher" aria-label="Выбор языка">
+          <button type="button" class="lang-btn" data-lang="ru">RU</button>
+          <button type="button" class="lang-btn" data-lang="kz">KZ</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
         <button class="mobile-menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobileHeroMenu">☰</button>
         <nav class="mobile-menu-panel" id="mobileHeroMenu" aria-label="Мобильное меню">
           <a href="{% url 'dashboard:station-list' %}" data-i18n="menu_stations">Станции</a>
