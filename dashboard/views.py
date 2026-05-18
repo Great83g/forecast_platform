@@ -327,27 +327,91 @@ def _start_station_training_subprocess(station_id: int) -> tuple[bool, str]:
 # stations
 # ----------------------------
 def about_company(request):
-    company_description = (
+    lang = (
+        request.GET.get("lang")
+        or request.GET.get("language")
+        or request.COOKIES.get("django_language")
+        or request.COOKIES.get("language")
+        or request.COOKIES.get("lang")
+        or getattr(request, "LANGUAGE_CODE", "")
+        or "ru"
+    )[:2].lower()
+    if lang == "kz":
+        lang = "kk"
+
+    def tr(ru: str, kk: str | None = None, en: str | None = None) -> str:
+        if lang == "kk" and kk:
+            return kk
+        if lang == "en" and en:
+            return en
+        return ru
+
+    company_name = tr(
+        'ТОО «Центр Зелёных Технологий»',
+        '«Жасыл Технологиялар Орталығы» ЖШС',
+        'Center of Green Technologies LLP',
+    )
+    company_description = tr(
         'ТОО «Центр Зелёных Технологий» — казахстанская компания, которая развивает '
-        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.'
+        'проекты в сфере возобновляемой энергетики и создаёт инновационные IT-решения.',
+        '«Жасыл Технологиялар Орталығы» ЖШС — жаңартылатын энергетика саласындағы '
+        'жобаларды дамытып, инновациялық IT-шешімдер жасайтын қазақстандық компания.',
+        'Center of Green Technologies LLP is a Kazakhstani company developing renewable '
+        'energy projects and innovative IT solutions.',
     )
     company_points = [
-        'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
-        'С 2022 года является резидентом Astana Hub.',
-        'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
-        'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
-        'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
-        'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
-        'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
-        'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
-        'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
+        tr(
+            'Проект реализован в 2022 году при поддержке АО «QazInnovations».',
+            'Жоба 2022 жылы «QazInnovations» АҚ қолдауымен іске асырылды.',
+            'The project was implemented in 2022 with the support of QazInnovations JSC.',
+        ),
+        tr(
+            'С 2022 года является резидентом Astana Hub.',
+            '2022 жылдан бастап Astana Hub резиденті.',
+            'The company has been an Astana Hub resident since 2022.',
+        ),
+        tr(
+            'В 2023 году признан лучшим стартапом в области энергоэффективности по версии конкурса KAZENERGY.',
+            '2023 жылы KAZENERGY конкурсы бойынша энергия тиімділігі саласындағы үздік стартап деп танылды.',
+            'In 2023, it was named the best startup in energy efficiency by the KAZENERGY competition.',
+        ),
+        tr(
+            'В 2024 году успешно прошёл программу масштабирования Astana Hub «Scalerator».',
+            '2024 жылы Astana Hub «Scalerator» масштабтау бағдарламасынан сәтті өтті.',
+            'In 2024, it successfully completed the Astana Hub “Scalerator” scaling program.',
+        ),
+        tr(
+            'С 2025 года входит в реестр приоритетных «зелёных» проектов Международного центра зелёных технологий и инвестиционных проектов.',
+            '2025 жылдан бастап Халықаралық жасыл технологиялар және инвестициялық жобалар орталығының басым «жасыл» жобалар тізіліміне кіреді.',
+            'Since 2025, it has been included in the register of priority green projects of the International Green Technologies and Investment Projects Center.',
+        ),
+        tr(
+            'В 2025 году стал участником международного акселератора IFC She Wins Climate.',
+            '2025 жылы IFC She Wins Climate халықаралық акселераторының қатысушысы болды.',
+            'In 2025, it joined the IFC She Wins Climate international accelerator.',
+        ),
+        tr(
+            'В 2025 году стал победителем международного климатического конкурса «Зелёная Евразия».',
+            '2025 жылы «Жасыл Еуразия» халықаралық климаттық конкурсының жеңімпазы атанды.',
+            'In 2025, it won the Green Eurasia international climate competition.',
+        ),
+        tr(
+            'В 2026 году вошёл в число участников программы «C3 Climate Accelerator».',
+            '2026 жылы «C3 Climate Accelerator» бағдарламасының қатысушылары қатарына енді.',
+            'In 2026, it joined the C3 Climate Accelerator program.',
+        ),
+        tr(
+            'В 2026 году вошёл в топ-5 стартапов из Казахстана, отобранных для программы UN Women.',
+            '2026 жылы UN Women бағдарламасына іріктелген Қазақстаннан шыққан топ-5 стартаптың қатарына кірді.',
+            'In 2026, it entered the top 5 startups from Kazakhstan selected for the UN Women program.',
+        ),
     ]
     contacts = {
-        'country': 'Республика Казахстан',
+        'country': tr('Республика Казахстан', 'Қазақстан Республикасы', 'Republic of Kazakhstan'),
         'postal_code': '050051',
-        'city': 'г. Алматы',
-        'business_center': 'БЦ «Коктем-Гранд»',
-        'street': 'пр. Достык 210 (блок А), офис № 83',
+        'city': tr('г. Алматы', 'Алматы қ.', 'Almaty'),
+        'business_center': tr('БЦ «Коктем-Гранд»', '«Көктем-Гранд» БО', 'Koktem-Grand Business Center'),
+        'street': tr('пр. Достык 210 (блок А), офис № 83', 'Достық даңғылы 210 (А блогы), № 83 кеңсе', '210 Dostyk Ave. (Block A), office No. 83'),
         'email': 'info@tgs-energy.kz',
         'phone': '8 701 409 08 10',
     }
@@ -355,8 +419,34 @@ def about_company(request):
         request,
         'dashboard/about_company.html',
         {
+            'company_name': company_name,
+            'company_subtitle': tr(
+                'Развитие проектов в сфере ВИЭ и инновационных IT-решений',
+                'ЖЭК және инновациялық IT-шешімдер саласындағы жобаларды дамыту',
+                'Developing renewable energy projects and innovative IT solutions',
+            ),
+            'email_button_label': tr('Написать на e-mail', 'E-mail жазу', 'Send an email'),
+            'phone_button_label': tr('Позвонить', 'Қоңырау шалу', 'Call'),
+            'about_title': tr('О компании', 'Компания туралы', 'About the company'),
             'company_description': company_description,
+            'company_accent_text': tr(
+                'Казахстанская компания, развивающая инновационные решения в сфере зелёных технологий',
+                'Жасыл технологиялар саласындағы инновациялық шешімдерді дамытатын қазақстандық компания',
+                'A Kazakhstani company developing innovative solutions in green technologies',
+            ),
+            'contact_us_label': tr('Связаться с нами', 'Бізбен байланысу', 'Contact us'),
+            'achievements_label': tr('Достижения', 'Жетістіктер', 'Achievements'),
+            'company_points_title': tr('Ключевые этапы развития', 'Дамудың негізгі кезеңдері', 'Key development milestones'),
             'company_points': company_points,
+            'contacts_label': tr('Контакты', 'Байланыс', 'Contacts'),
+            'contacts_title': tr('Свяжитесь с нами', 'Бізбен байланысыңыз', 'Get in touch'),
+            'address_label': tr('Адрес', 'Мекенжай', 'Address'),
+            'phone_label': tr('Телефон', 'Телефон', 'Phone'),
+            'company_note': tr(
+                'Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.',
+                'Жаңартылатын энергетика және энергияны болжау саласындағы жобаларды талқылауға дайынбыз.',
+                'We are ready to discuss projects in renewable energy and energy forecasting.',
+            ),
             'contacts': contacts,
         },
     )

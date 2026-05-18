@@ -5,11 +5,11 @@
   <div class="company-topbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
     <div>
       <div class="section-label mb-2">{{ company_name }}</div>
-      <div class="company-subtitle">Развитие проектов в сфере ВИЭ и инновационных IT-решений</div>
+      <div class="company-subtitle">{{ company_subtitle }}</div>
     </div>
     <div class="company-topbar__actions d-flex flex-wrap gap-2">
-      <a href="mailto:{{ contacts.email }}" class="btn btn-outline-primary">Написать на e-mail</a>
-      <a href="tel:+77014090810" class="btn btn-primary">Позвонить</a>
+      <a href="mailto:{{ contacts.email }}" class="btn btn-outline-primary">{{ email_button_label }}</a>
+      <a href="tel:+77014090810" class="btn btn-primary">{{ phone_button_label }}</a>
     </div>
   </div>
   <div class="company-hero card border-0 shadow-sm overflow-hidden mb-4">
@@ -17,14 +17,14 @@
       <div class="row g-4 align-items-center">
         <div class="col-lg-8">
           <span class="company-badge">{{ company_name }}</span>
-          <h1 class="company-title mt-3 mb-3">О компании</h1>
+          <h1 class="company-title mt-3 mb-3">{{ about_title }}</h1>
           <p class="company-lead mb-0">{{ company_description }}</p>
         </div>
         <div class="col-lg-4">
           <div class="company-accent-card ms-lg-auto">
-            <div class="company-accent-card__label">О компании</div>
-            <div class="company-accent-card__value">Казахстанская компания, развивающая инновационные решения в сфере зелёных технологий</div>
-            <a href="#contacts" class="btn btn-light btn-sm mt-3">Связаться с нами</a>
+            <div class="company-accent-card__label">{{ about_title }}</div>
+            <div class="company-accent-card__value">{{ company_accent_text }}</div>
+            <a href="#contacts" class="btn btn-light btn-sm mt-3">{{ contact_us_label }}</a>
           </div>
         </div>
       </div>
@@ -35,7 +35,7 @@
     <div class="col-xl-8">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body p-4 p-lg-5">
-          <div class="section-label mb-2">Достижения</div>
+          <div class="section-label mb-2">{{ achievements_label }}</div>
           <h2 class="section-title mb-4">{{ company_points_title }}</h2>
           <div class="company-feature-list">
             {% for point in company_points %}
@@ -52,11 +52,11 @@
     <div class="col-xl-4">
       <div id="contacts" class="card border-0 shadow-sm h-100 company-contacts-card">
         <div class="card-body p-4 p-lg-5 d-flex flex-column">
-          <div class="section-label mb-2">Контакты</div>
-          <h2 class="section-title mb-4">Свяжитесь с нами</h2>
+          <div class="section-label mb-2">{{ contacts_label }}</div>
+          <h2 class="section-title mb-4">{{ contacts_title }}</h2>
 
           <div class="contact-block mb-3">
-            <div class="contact-label">Адрес</div>
+            <div class="contact-label">{{ address_label }}</div>
             <div class="contact-value">
               {{ contacts.country }}<br>
               {{ contacts.postal_code }}, {{ contacts.city }}<br>
@@ -71,12 +71,12 @@
           </div>
 
           <div class="contact-block mb-4">
-            <div class="contact-label">Телефон</div>
+            <div class="contact-label">{{ phone_label }}</div>
             <a class="contact-link" href="tel:+77014090810">{{ contacts.phone }}</a>
           </div>
 
           <div class="company-note mt-auto">
-            Готовы обсудить проекты в области возобновляемой энергетики и энергопрогнозирования.
+            {{ company_note }}
           </div>
         </div>
       </div>
