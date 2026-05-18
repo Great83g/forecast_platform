@@ -254,13 +254,13 @@ def _single_axis_tracker_profile_factor(feat: pd.DataFrame) -> np.ndarray:
         | ((hours >= 15) & (hours <= 19))
     )
     edge_strength = np.clip((45.0 - sun_elev) / 45.0, 0.0, 1.0)
-    factor[shoulder_mask] *= 1.0 + 0.22 * edge_strength[shoulder_mask]
+    factor[shoulder_mask] *= 1.0 + 0.16 * edge_strength[shoulder_mask]
 
     midday_mask = daylight & (hours >= 11) & (hours <= 14)
     high_sun_strength = np.clip((sun_elev - 35.0) / 35.0, 0.0, 1.0)
-    factor[midday_mask] *= 1.0 - 0.12 * high_sun_strength[midday_mask]
+    factor[midday_mask] *= 1.0 - 0.08 * high_sun_strength[midday_mask]
 
-    return np.clip(factor, 0.0, 1.28)
+    return np.clip(factor, 0.0, 1.18)
 
 
 def _apply_single_axis_tracker_postprocessing(
