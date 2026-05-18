@@ -285,7 +285,24 @@ def _apply_single_axis_tracker_postprocessing(
     safe_cap_mw = float(
         np.clip(hist_cap_mw if hist_cap_mw is not None else ac_cap_mw, 0.0, ac_cap_mw)
     )
-    corrected = np.clip(np.asarray(y_mw, dtype=float) * factor, 0.0, safe_cap_mw)
+
+    base = np.asarray(y_mw, dtype=float)
+    reshaped = base * factor
+    irradiation = pd.to_numeric(feat["Irradiation"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    sun_elev = (
+        pd.to_numeric(feat.get("sun_elev_deg", pd.Series(0.0, index=feat.index)), errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    daylight = (irradiation > 0.0) & (sun_elev > 0.0)
+
+    # A tracker station should not be represented only by the fixed-tilt output
+    # multiplied by a tiny factor. Blend in a tracker-shaped irradiance reference
+    # so shoulders and the midday flattening are visible without retraining.
+    tracker_reference = ac_cap_mw * (irradiation / 1000.0) * _station_pr_default(st) * factor
+    corrected = reshaped.copy()
+    corrected[daylight] = 0.65 * reshaped[daylight] + 0.35 * tracker_reference[daylight]
+    corrected = np.clip(corrected, 0.0, safe_cap_mw)
     return corrected, {"ac_cap_mw": float(ac_cap_mw), "safe_cap_mw": safe_cap_mw}
 
 
@@ -1178,6 +1195,12 @@ def run_forecast_for_station(
     now = timezone.localtime(timezone.now())
     data_shift_hours = _station_data_shift_hours(st)
 
+    # Keep tracker diagnostics defined for every execution path. This prevents
+    # NameError in the final result if conflict resolution or a non-tracker path
+    # skips the tracker branch below.
+    tracker_caps: Dict[str, float] = {}
+    tracker_postprocessing_applied = False
+
     requested_target_dates = {d for d in (target_dates or []) if isinstance(d, date)}
     target_dates: Optional[set[date]] = requested_target_dates or None
     effective_days = max(int(days or 1), 1)
@@ -1547,6 +1570,7 @@ def run_forecast_for_station(
 
     if _is_single_axis_tracker(st):
         y_final, tracker_caps = _apply_single_axis_tracker_postprocessing(y_final, feat, st, capacity_mw)
+        tracker_postprocessing_applied = True
         logger.info(
             "[FORECAST] station %s single-axis tracker post-processing applied: %s",
             st.pk,
