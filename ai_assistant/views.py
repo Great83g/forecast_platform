@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from difflib import SequenceMatcher
 from datetime import timedelta
 from typing import Optional
 
@@ -44,8 +45,116 @@ def _station_queryset_for_user(user):
     return Station.objects.filter(org_id__in=org_ids.union(member_org_ids), station_kind=Station.KIND_SOLAR).distinct()
 
 
+_CYRILLIC_TO_LATIN = str.maketrans(
+    {
+        "а": "a",
+        "б": "b",
+        "в": "v",
+        "г": "g",
+        "д": "d",
+        "е": "e",
+        "ё": "e",
+        "ж": "zh",
+        "з": "z",
+        "и": "i",
+        "й": "i",
+        "к": "k",
+        "л": "l",
+        "м": "m",
+        "н": "n",
+        "о": "o",
+        "п": "p",
+        "р": "r",
+        "с": "s",
+        "т": "t",
+        "у": "u",
+        "ф": "f",
+        "х": "kh",
+        "ц": "ts",
+        "ч": "ch",
+        "ш": "sh",
+        "щ": "sch",
+        "ъ": "",
+        "ы": "y",
+        "ь": "",
+        "э": "e",
+        "ю": "yu",
+        "я": "ya",
+    }
+)
+
+_STATION_STOP_WORDS = {
+    "ao",
+    "id",
+    "mw",
+    "mvt",
+    "pv",
+    "ses",
+    "solar",
+    "station",
+    "stantsiya",
+    "too",
+    "ао",
+    "мвт",
+    "сес",
+    "сэс",
+    "станция",
+    "тоо",
+}
+
+
 def _normalize_text(text: str) -> str:
     return " ".join(text.lower().replace("ё", "е").split())
+
+
+def _station_search_text(text: str) -> str:
+    normalized = _normalize_text(text).replace(",", ".")
+    latin = normalized.translate(_CYRILLIC_TO_LATIN)
+    latin = re.sub(r"\b(?:сес|сэс|ses)\b", " ses ", latin)
+    latin = re.sub(r"[^a-z0-9.]+", " ", latin)
+    return " ".join(latin.split())
+
+
+def _station_search_tokens(text: str) -> list[str]:
+    return [token for token in _station_search_text(text).split() if len(token) > 1]
+
+
+def _important_station_tokens(station: Station) -> list[str]:
+    return [
+        token
+        for token in _station_search_tokens(station.name)
+        if token not in _STATION_STOP_WORDS and not token.replace(".", "", 1).isdigit()
+    ]
+
+
+def _token_similarity(left: str, right: str) -> float:
+    if left == right:
+        return 1.0
+    if left in right or right in left:
+        return 0.92
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def _station_name_score(station: Station, query_tokens: list[str], query_search_text: str) -> float:
+    station_search_text = _station_search_text(station.name)
+    if station_search_text and station_search_text in query_search_text:
+        return 1.0
+
+    station_tokens = _important_station_tokens(station)
+    if not station_tokens or not query_tokens:
+        return 0.0
+
+    best_token_scores = [
+        max(_token_similarity(station_token, query_token) for query_token in query_tokens)
+        for station_token in station_tokens
+    ]
+    matched_scores = [score for score in best_token_scores if score >= 0.78]
+    if not matched_scores:
+        return 0.0
+
+    # One distinctive station token is enough for names like "СЭС Балхаш 50 МВт"
+    # when the user says "ses balhash" or just "балхаш".
+    return max(matched_scores)
 
 
 def _detect_intent(text: str) -> Optional[str]:
@@ -88,21 +197,31 @@ def _resolve_station(text: str, user) -> Optional[Station]:
                 return station
 
     normalized = _normalize_text(text)
+    query_search_text = _station_search_text(text)
+    query_tokens = _station_search_tokens(text)
     for station in stations:
-        if _normalize_text(station.name) in normalized:
+        if _normalize_text(station.name) in normalized or _station_search_text(station.name) in query_search_text:
             return station
 
     decimal_values = re.findall(r"\d+(?:[\.,]\d+)?", text)
     for raw_value in decimal_values:
         value = raw_value.replace(",", ".")
         for station in stations:
-            if value in _normalize_text(station.name):
+            if value in _station_search_text(station.name):
                 return station
             try:
                 if abs(float(value) - float(station.capacity_mw)) < 0.01:
                     return station
             except (TypeError, ValueError):
                 continue
+
+    scored_stations = [
+        (_station_name_score(station, query_tokens, query_search_text), station)
+        for station in stations
+    ]
+    best_score, best_station = max(scored_stations, key=lambda item: item[0])
+    if best_score >= 0.78:
+        return best_station
 
     return stations[0]
 
