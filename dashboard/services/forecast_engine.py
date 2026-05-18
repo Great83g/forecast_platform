@@ -165,6 +165,256 @@ def _forecast_early_morning_cap_min_samples() -> int:
     return max(1, value)
 
 
+def _is_single_axis_tracker(st: Station) -> bool:
+    mount_type = str(getattr(st, "mount_type", Station.MOUNT_FIXED) or Station.MOUNT_FIXED)
+    mount_type = mount_type.strip().lower().replace("-", "_")
+    return mount_type == Station.MOUNT_SINGLE_AXIS_TRACKER
+
+
+def _station_ac_nameplate_mw(st: Station, fallback_mw: float) -> float:
+    for field_name in ("capacity_ac_kw", "capacity_kw"):
+        raw_value = getattr(st, field_name, None)
+        if raw_value:
+            try:
+                value_mw = float(raw_value) / 1000.0
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(value_mw) and value_mw > 0:
+                return value_mw
+
+    raw_value = getattr(st, "capacity_ac_mw", None)
+    if raw_value:
+        try:
+            value_mw = float(raw_value)
+        except (TypeError, ValueError):
+            value_mw = 0.0
+        if np.isfinite(value_mw) and value_mw > 0:
+            return value_mw
+
+    return float(fallback_mw)
+
+
+def _station_pr_default(st: Station) -> float:
+    try:
+        value = float(getattr(st, "pr_default", PR_FOR_EXPECTED) or PR_FOR_EXPECTED)
+    except (TypeError, ValueError):
+        value = PR_FOR_EXPECTED
+    return float(np.clip(value, 0.10, 1.00))
+
+
+def _historical_tracker_output_cap_mw(st: Station, ac_cap_mw: float) -> Optional[float]:
+    """
+    Safe tracker cap from station history.
+
+    For tracker stations we keep the AC nameplate as the hard ceiling and, when
+    enough actual output exists, also respect the station-specific p95/p99 peak
+    envelope. A small uplift avoids cutting normal near-record points while still
+    blocking post-processing spikes.
+    """
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+        )
+        .order_by("-timestamp")
+        .values_list("power_kw", flat=True)[:24 * 180]
+    )
+    if len(rows) < 24:
+        return float(ac_cap_mw)
+
+    values_mw = (pd.to_numeric(pd.Series(rows), errors="coerce") / 1000.0).dropna()
+    values_mw = values_mw[(values_mw >= 0.0) & np.isfinite(values_mw)]
+    if len(values_mw) < 24:
+        return float(ac_cap_mw)
+
+    p95 = float(values_mw.quantile(0.95))
+    p99 = float(values_mw.quantile(0.99))
+    if not np.isfinite(p95) or not np.isfinite(p99) or p99 <= 0:
+        return float(ac_cap_mw)
+
+    historical_cap = max(p95 * 1.08, p99 * 1.02)
+    return float(np.clip(historical_cap, 0.0, ac_cap_mw))
+
+
+def _historical_tracker_hourly_profile_mw(st: Station, ac_cap_mw: float) -> Dict[int, Dict[str, float]]:
+    """Return clear-day hourly median/p75/p95 AC output profile for tracker shaping."""
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+        )
+        .exclude(irradiation__isnull=True)
+        .order_by("-timestamp")
+        .values("timestamp", "power_kw", "irradiation")[:24 * 365]
+    )
+    if len(rows) < 24:
+        return {}
+
+    hist = pd.DataFrame(rows)
+    hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
+    hist["hour"] = hist["timestamp"].dt.hour.astype("Int64")
+    hist["date"] = hist["timestamp"].dt.date
+    hist["power_mw"] = (
+        pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0
+    ).clip(0.0, ac_cap_mw)
+    hist["irradiation"] = pd.to_numeric(hist["irradiation"], errors="coerce")
+    hist = hist.dropna(subset=["hour", "date", "power_mw", "irradiation"])
+    if len(hist) < 24:
+        return {}
+
+    clear_window = hist[hist["hour"].between(8, 15)]
+    if clear_window.empty:
+        return {}
+
+    day_stats = clear_window.groupby("date").agg(
+        rows=("power_mw", "count"),
+        mean_irr=("irradiation", "mean"),
+        max_irr=("irradiation", "max"),
+    )
+    clear_dates = set(
+        day_stats.loc[
+            (day_stats["rows"] >= 4)
+            & (day_stats["mean_irr"] >= 450.0)
+            & (day_stats["max_irr"] >= 650.0)
+        ].index
+    )
+
+    if clear_dates:
+        clear_hist = hist[
+            hist["date"].isin(clear_dates)
+            & hist["hour"].between(6, 19)
+            & (hist["irradiation"] >= 80.0)
+        ].copy()
+    else:
+        clear_hist = hist[hist["hour"].between(6, 19) & (hist["irradiation"] >= 500.0)].copy()
+
+    if len(clear_hist) < 12:
+        return {}
+
+    profile: Dict[int, Dict[str, float]] = {}
+    for hour, values in clear_hist.groupby("hour")["power_mw"]:
+        values = values.dropna()
+        if len(values) < 2:
+            continue
+        profile[int(hour)] = {
+            "median": float(values.quantile(0.50)),
+            "p75": float(values.quantile(0.75)),
+            "p95": float(values.quantile(0.95)),
+            "samples": float(len(values)),
+        }
+    return profile
+
+
+def _single_axis_tracker_profile_factor(feat: pd.DataFrame) -> np.ndarray:
+    hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
+    irradiation = pd.to_numeric(feat["Irradiation"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    sun_elev = (
+        pd.to_numeric(feat.get("sun_elev_deg", pd.Series(0.0, index=feat.index)), errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+
+    daylight = (irradiation > 0.0) & (sun_elev > 0.0)
+    factor = np.ones(len(feat), dtype=float)
+
+    # Single-axis trackers usually broaden the daily profile: less pronounced
+    # fixed-tilt noon peak, stronger shoulders for the same GHI.
+    shoulder_mask = daylight & (
+        ((hours >= 6) & (hours <= 10))
+        | ((hours >= 15) & (hours <= 19))
+    )
+    edge_strength = np.clip((45.0 - sun_elev) / 45.0, 0.0, 1.0)
+    factor[shoulder_mask] *= 1.0 + 0.22 * edge_strength[shoulder_mask]
+
+    midday_mask = daylight & (hours >= 11) & (hours <= 14)
+    high_sun_strength = np.clip((sun_elev - 35.0) / 35.0, 0.0, 1.0)
+    factor[midday_mask] *= 1.0 - 0.12 * high_sun_strength[midday_mask]
+
+    return np.clip(factor, 0.0, 1.28)
+
+
+def _apply_single_axis_tracker_postprocessing(
+    y_mw: np.ndarray,
+    feat: pd.DataFrame,
+    st: Station,
+    capacity_mw: float,
+) -> Tuple[np.ndarray, Dict[str, float]]:
+    """Apply a conservative post-processing-only tracker correction.
+
+    This intentionally does not change trained model inputs or the fixed-tilt
+    path. The first rollout only reshapes the already-computed profile for
+    single-axis tracker stations and clips by AC capacity plus historical p95/p99.
+    """
+    factor = _single_axis_tracker_profile_factor(feat)
+    feat["tracker_profile_factor"] = factor
+    feat["tracker_shoulder_boost"] = np.maximum(factor - 1.0, 0.0)
+    feat["tracker_midday_flatten"] = np.maximum(1.0 - factor, 0.0)
+
+    ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
+    hist_cap_mw = _historical_tracker_output_cap_mw(st, ac_cap_mw)
+    safe_cap_mw = float(
+        np.clip(hist_cap_mw if hist_cap_mw is not None else ac_cap_mw, 0.0, ac_cap_mw)
+    )
+
+    base = np.asarray(y_mw, dtype=float)
+    reshaped = base * factor
+    hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
+    irradiation = pd.to_numeric(feat["Irradiation"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    sun_elev = (
+        pd.to_numeric(feat.get("sun_elev_deg", pd.Series(0.0, index=feat.index)), errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    daylight = (irradiation > 0.0) & (sun_elev > 0.0)
+
+    # A tracker station should not be represented only by the fixed-tilt output
+    # multiplied by a tiny factor. Blend in a tracker-shaped reference built from
+    # both irradiance and the station's own clear-day hourly median/p75/p95 shape.
+    irradiance_reference = (
+        ac_cap_mw * (irradiation / 1000.0) * _station_pr_default(st) * factor
+    )
+    hourly_profile = _historical_tracker_hourly_profile_mw(st, ac_cap_mw)
+    historical_reference = np.full(len(feat), np.nan, dtype=float)
+    for i, hour in enumerate(hours):
+        stats = hourly_profile.get(int(hour))
+        if not stats:
+            continue
+        historical_reference[i] = 0.35 * stats["median"] + 0.65 * stats["p75"]
+
+    tracker_reference = irradiance_reference.copy()
+    hist_mask = np.isfinite(historical_reference)
+    tracker_reference[hist_mask] = (
+        0.35 * irradiance_reference[hist_mask]
+        + 0.65 * historical_reference[hist_mask]
+    )
+
+    plateau_mask = (
+        daylight
+        & (irradiation >= 500.0)
+        & np.isin(hours, np.arange(8, 16))
+        & hist_mask
+    )
+    tracker_reference[plateau_mask] = np.maximum(
+        tracker_reference[plateau_mask],
+        historical_reference[plateau_mask],
+    )
+
+    feat["tracker_reference_mw"] = tracker_reference
+    feat["tracker_historical_reference_mw"] = historical_reference
+
+    corrected = reshaped.copy()
+    corrected[daylight] = 0.35 * reshaped[daylight] + 0.65 * tracker_reference[daylight]
+    corrected = np.clip(corrected, 0.0, safe_cap_mw)
+    return corrected, {
+        "ac_cap_mw": float(ac_cap_mw),
+        "safe_cap_mw": safe_cap_mw,
+        "historical_profile_hours": float(len(hourly_profile)),
+        "plateau_hours_applied": float(np.count_nonzero(plateau_mask)),
+    }
+
+
 def _describe_np_model(model: object) -> str:
     if model is None:
         return "model=None"
@@ -1054,6 +1304,12 @@ def run_forecast_for_station(
     now = timezone.localtime(timezone.now())
     data_shift_hours = _station_data_shift_hours(st)
 
+    # Keep tracker diagnostics defined for every execution path. This prevents
+    # NameError in the final result if conflict resolution or a non-tracker path
+    # skips the tracker branch below.
+    tracker_caps: Dict[str, float] = {}
+    tracker_postprocessing_applied = False
+
     requested_target_dates = {d for d in (target_dates or []) if isinstance(d, date)}
     target_dates: Optional[set[date]] = requested_target_dates or None
     effective_days = max(int(days or 1), 1)
@@ -1421,9 +1677,18 @@ def run_forecast_for_station(
     y_heur = np.clip(y_heur * winter_factor, 0, capacity_mw)
     y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
 
-    y_final, early_morning_caps = _apply_early_morning_history_cap(y_final, feat, st, capacity_mw)
-    if early_morning_caps:
-        logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
+    if _is_single_axis_tracker(st):
+        y_final, tracker_caps = _apply_single_axis_tracker_postprocessing(y_final, feat, st, capacity_mw)
+        tracker_postprocessing_applied = True
+        logger.info(
+            "[FORECAST] station %s single-axis tracker post-processing applied: %s",
+            st.pk,
+            tracker_caps,
+        )
+    else:
+        y_final, early_morning_caps = _apply_early_morning_history_cap(y_final, feat, st, capacity_mw)
+        if early_morning_caps:
+            logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
 
     guardrail_df = pd.DataFrame(
         {
@@ -1531,4 +1796,7 @@ def run_forecast_for_station(
         "horizon_mode": horizon_mode,
         "target_dates": sorted(str(d) for d in (target_dates or [])),
         "forecast_scope": forecast_scope,
+        "mount_type": getattr(st, "mount_type", Station.MOUNT_FIXED),
+        "tracker_postprocessing_applied": tracker_postprocessing_applied,
+        "tracker_caps": tracker_caps,
     }

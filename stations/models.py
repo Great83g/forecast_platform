@@ -157,9 +157,19 @@ class Station(models.Model):
         (KIND_WIND, "Ветровая"),
     ]
 
+    MOUNT_FIXED = "fixed"
+    MOUNT_SINGLE_AXIS_TRACKER = "single_axis_tracker"
+    MOUNT_DUAL_AXIS_TRACKER = "dual_axis_tracker"
+    MOUNT_TYPE_CHOICES = [
+        (MOUNT_FIXED, "Фиксированный наклон"),
+        (MOUNT_SINGLE_AXIS_TRACKER, "Одноосевой трекер"),
+        (MOUNT_DUAL_AXIS_TRACKER, "Двухосевой трекер"),
+    ]
+
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="stations")
     name = models.CharField(max_length=200)
     station_kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_SOLAR, db_index=True)
+    mount_type = models.CharField(max_length=32, choices=MOUNT_TYPE_CHOICES, default=MOUNT_FIXED)
 
     # Старое поле оставляем для совместимости с текущим кодом
     capacity_mw = models.FloatField(default=1.0)
