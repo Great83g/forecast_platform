@@ -42,6 +42,7 @@ class StationForm(forms.ModelForm):
             # === Паспорт станции (MVP) ===
             "capacity_dc_kw",
             "capacity_ac_kw",
+            "mount_type",
             "pr_default",
             "tilt_deg",
             "azimuth_deg",
@@ -72,6 +73,7 @@ class StationForm(forms.ModelForm):
 
         self.fields["capacity_dc_kw"].label = "DC мощность (кВт)"
         self.fields["capacity_ac_kw"].label = "AC мощность (кВт)"
+        self.fields["mount_type"].label = "Тип конструкции"
         self.fields["pr_default"].label = "PR (0–1)"
         self.fields["tilt_deg"].label = "Наклон (°)"
         self.fields["azimuth_deg"].label = "Азимут (°), юг = 180"
@@ -125,6 +127,7 @@ class StationForm(forms.ModelForm):
             self.fields["tilt_deg"].initial = 30.0
             self.fields["azimuth_deg"].initial = 180.0
             self.fields["losses_total_pct"].initial = 10.0
+            self.fields["mount_type"].initial = Station.MOUNT_FIXED
             self.fields["timezone"].initial = "Asia/Almaty"
             self.fields["data_shift_hours"].initial = 0
             self.fields["auto_history_folder"].initial = "/mnt/share"
