@@ -41,6 +41,10 @@
           "Сдвиг данных (часы)": "Деректер ығысуы (сағат)",
           "DC мощность (кВт)": "DC қуаты (кВт)",
           "AC мощность (кВт)": "AC қуаты (кВт)",
+          "Тип конструкции": "Конструкция түрі",
+          "Фиксированный наклон": "Бекітілген еңіс",
+          "Одноосевой трекер": "Бір осьті трекер",
+          "Двухосевой трекер": "Екі осьті трекер",
           "Наклон (°)": "Еңкею (°)",
           "Азимут (°), юг = 180": "Азимут (°), оңтүстік = 180",
           "Потери (%)": "Жоғалтулар (%)",
@@ -67,6 +71,10 @@
           "Сдвиг данных (часы)": "Data shift (hours)",
           "DC мощность (кВт)": "DC capacity (kW)",
           "AC мощность (кВт)": "AC capacity (kW)",
+          "Тип конструкции": "Mount type",
+          "Фиксированный наклон": "Fixed tilt",
+          "Одноосевой трекер": "Single-axis tracker",
+          "Двухосевой трекер": "Dual-axis tracker",
           "Наклон (°)": "Tilt (°)",
           "Азимут (°), юг = 180": "Azimuth (°), south = 180",
           "Потери (%)": "Losses (%)",
@@ -96,7 +104,7 @@
           .replace(/:$/, "");
       }
 
-      document.querySelectorAll("label, .helptext").forEach(function (node) {
+      document.querySelectorAll("label, .helptext, option").forEach(function (node) {
         var original = node.textContent || "";
         var normalized = normalize(original);
         if (dict[normalized]) {
