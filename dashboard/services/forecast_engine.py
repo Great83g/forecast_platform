@@ -192,6 +192,14 @@ def _station_ac_nameplate_mw(st: Station, fallback_mw: float) -> float:
     return float(fallback_mw)
 
 
+def _station_pr_default(st: Station) -> float:
+    try:
+        value = float(getattr(st, "pr_default", PR_FOR_EXPECTED) or PR_FOR_EXPECTED)
+    except (TypeError, ValueError):
+        value = PR_FOR_EXPECTED
+    return float(np.clip(value, 0.10, 1.00))
+
+
 def _historical_tracker_output_cap_mw(st: Station, ac_cap_mw: float) -> Optional[float]:
     """
     Safe tracker cap from station history.
@@ -1655,4 +1663,7 @@ def run_forecast_for_station(
         "horizon_mode": horizon_mode,
         "target_dates": sorted(str(d) for d in (target_dates or [])),
         "forecast_scope": forecast_scope,
+        "mount_type": getattr(st, "mount_type", Station.MOUNT_FIXED),
+        "tracker_postprocessing_applied": tracker_postprocessing_applied,
+        "tracker_caps": tracker_caps,
     }
