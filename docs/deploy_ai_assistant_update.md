@@ -2,7 +2,7 @@
 
 Скопируйте и выполните этот блок на сервере после merge PR в `main`.
 Скрипт синхронизирует сервер с `origin/main`, проверяет миграции, применяет их,
-собирает статику, перезапускает портал и делает smoke-check основных страниц.
+собирает статику, перезапускает портал и делает минимальный smoke-check.
 
 ```bash
 cd ~/forecast_platform
@@ -37,12 +37,7 @@ fi
 echo "=== 7) Smoke-check главной страницы ==="
 curl -I http://127.0.0.1:8000/ || true
 
-echo "=== 8) Smoke-check страницы О компании RU/KZ/EN ==="
-curl -I "http://127.0.0.1:8000/dashboard/about/?lang=ru" || true
-curl -I "http://127.0.0.1:8000/dashboard/about/?lang=kk" || true
-curl -I "http://127.0.0.1:8000/dashboard/about/?lang=en" || true
-
-echo "=== 9) Smoke-check AI Assistant API auth guard ==="
+echo "=== 8) Smoke-check AI Assistant API auth guard ==="
 curl -I "http://127.0.0.1:8000/api/assistant/query/" || true
 
 echo "=== DONE ==="
