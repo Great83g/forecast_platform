@@ -166,7 +166,9 @@ def _forecast_early_morning_cap_min_samples() -> int:
 
 
 def _is_single_axis_tracker(st: Station) -> bool:
-    return getattr(st, "mount_type", Station.MOUNT_FIXED) == Station.MOUNT_SINGLE_AXIS_TRACKER
+    mount_type = str(getattr(st, "mount_type", Station.MOUNT_FIXED) or Station.MOUNT_FIXED)
+    mount_type = mount_type.strip().lower().replace("-", "_")
+    return mount_type == Station.MOUNT_SINGLE_AXIS_TRACKER
 
 
 def _station_ac_nameplate_mw(st: Station, fallback_mw: float) -> float:
@@ -235,6 +237,76 @@ def _historical_tracker_output_cap_mw(st: Station, ac_cap_mw: float) -> Optional
     return float(np.clip(historical_cap, 0.0, ac_cap_mw))
 
 
+def _historical_tracker_hourly_profile_mw(st: Station, ac_cap_mw: float) -> Dict[int, Dict[str, float]]:
+    """Return clear-day hourly median/p75/p95 AC output profile for tracker shaping."""
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+        )
+        .exclude(irradiation__isnull=True)
+        .order_by("-timestamp")
+        .values("timestamp", "power_kw", "irradiation")[:24 * 365]
+    )
+    if len(rows) < 24:
+        return {}
+
+    hist = pd.DataFrame(rows)
+    hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
+    hist["hour"] = hist["timestamp"].dt.hour.astype("Int64")
+    hist["date"] = hist["timestamp"].dt.date
+    hist["power_mw"] = (
+        pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0
+    ).clip(0.0, ac_cap_mw)
+    hist["irradiation"] = pd.to_numeric(hist["irradiation"], errors="coerce")
+    hist = hist.dropna(subset=["hour", "date", "power_mw", "irradiation"])
+    if len(hist) < 24:
+        return {}
+
+    clear_window = hist[hist["hour"].between(8, 15)]
+    if clear_window.empty:
+        return {}
+
+    day_stats = clear_window.groupby("date").agg(
+        rows=("power_mw", "count"),
+        mean_irr=("irradiation", "mean"),
+        max_irr=("irradiation", "max"),
+    )
+    clear_dates = set(
+        day_stats.loc[
+            (day_stats["rows"] >= 4)
+            & (day_stats["mean_irr"] >= 450.0)
+            & (day_stats["max_irr"] >= 650.0)
+        ].index
+    )
+
+    if clear_dates:
+        clear_hist = hist[
+            hist["date"].isin(clear_dates)
+            & hist["hour"].between(6, 19)
+            & (hist["irradiation"] >= 80.0)
+        ].copy()
+    else:
+        clear_hist = hist[hist["hour"].between(6, 19) & (hist["irradiation"] >= 500.0)].copy()
+
+    if len(clear_hist) < 12:
+        return {}
+
+    profile: Dict[int, Dict[str, float]] = {}
+    for hour, values in clear_hist.groupby("hour")["power_mw"]:
+        values = values.dropna()
+        if len(values) < 2:
+            continue
+        profile[int(hour)] = {
+            "median": float(values.quantile(0.50)),
+            "p75": float(values.quantile(0.75)),
+            "p95": float(values.quantile(0.95)),
+            "samples": float(len(values)),
+        }
+    return profile
+
+
 def _single_axis_tracker_profile_factor(feat: pd.DataFrame) -> np.ndarray:
     hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
     irradiation = pd.to_numeric(feat["Irradiation"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
@@ -288,6 +360,7 @@ def _apply_single_axis_tracker_postprocessing(
 
     base = np.asarray(y_mw, dtype=float)
     reshaped = base * factor
+    hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
     irradiation = pd.to_numeric(feat["Irradiation"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
     sun_elev = (
         pd.to_numeric(feat.get("sun_elev_deg", pd.Series(0.0, index=feat.index)), errors="coerce")
@@ -297,13 +370,49 @@ def _apply_single_axis_tracker_postprocessing(
     daylight = (irradiation > 0.0) & (sun_elev > 0.0)
 
     # A tracker station should not be represented only by the fixed-tilt output
-    # multiplied by a tiny factor. Blend in a tracker-shaped irradiance reference
-    # so shoulders and the midday flattening are visible without retraining.
-    tracker_reference = ac_cap_mw * (irradiation / 1000.0) * _station_pr_default(st) * factor
+    # multiplied by a tiny factor. Blend in a tracker-shaped reference built from
+    # both irradiance and the station's own clear-day hourly median/p75/p95 shape.
+    irradiance_reference = (
+        ac_cap_mw * (irradiation / 1000.0) * _station_pr_default(st) * factor
+    )
+    hourly_profile = _historical_tracker_hourly_profile_mw(st, ac_cap_mw)
+    historical_reference = np.full(len(feat), np.nan, dtype=float)
+    for i, hour in enumerate(hours):
+        stats = hourly_profile.get(int(hour))
+        if not stats:
+            continue
+        historical_reference[i] = 0.35 * stats["median"] + 0.65 * stats["p75"]
+
+    tracker_reference = irradiance_reference.copy()
+    hist_mask = np.isfinite(historical_reference)
+    tracker_reference[hist_mask] = (
+        0.35 * irradiance_reference[hist_mask]
+        + 0.65 * historical_reference[hist_mask]
+    )
+
+    plateau_mask = (
+        daylight
+        & (irradiation >= 500.0)
+        & np.isin(hours, np.arange(8, 16))
+        & hist_mask
+    )
+    tracker_reference[plateau_mask] = np.maximum(
+        tracker_reference[plateau_mask],
+        historical_reference[plateau_mask],
+    )
+
+    feat["tracker_reference_mw"] = tracker_reference
+    feat["tracker_historical_reference_mw"] = historical_reference
+
     corrected = reshaped.copy()
-    corrected[daylight] = 0.65 * reshaped[daylight] + 0.35 * tracker_reference[daylight]
+    corrected[daylight] = 0.35 * reshaped[daylight] + 0.65 * tracker_reference[daylight]
     corrected = np.clip(corrected, 0.0, safe_cap_mw)
-    return corrected, {"ac_cap_mw": float(ac_cap_mw), "safe_cap_mw": safe_cap_mw}
+    return corrected, {
+        "ac_cap_mw": float(ac_cap_mw),
+        "safe_cap_mw": safe_cap_mw,
+        "historical_profile_hours": float(len(hourly_profile)),
+        "plateau_hours_applied": float(np.count_nonzero(plateau_mask)),
+    }
 
 
 def _describe_np_model(model: object) -> str:

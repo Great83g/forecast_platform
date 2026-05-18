@@ -954,9 +954,11 @@ class StationMountTypeTests(TestCase):
     def test_single_axis_tracker_detection_is_opt_in_only(self):
         fixed = SimpleNamespace(mount_type=Station.MOUNT_FIXED)
         tracker = SimpleNamespace(mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER)
+        tracker_with_dash = SimpleNamespace(mount_type="single-axis-tracker")
 
         self.assertFalse(_is_single_axis_tracker(fixed))
         self.assertTrue(_is_single_axis_tracker(tracker))
+        self.assertTrue(_is_single_axis_tracker(tracker_with_dash))
 
 
 class SingleAxisTrackerPostProcessingTests(TestCase):
@@ -973,6 +975,19 @@ class SingleAxisTrackerPostProcessingTests(TestCase):
         )
 
     def test_tracker_profile_boosts_shoulders_flattens_midday_and_caps(self):
+        tz = timezone.get_current_timezone()
+        for day in range(1, 5):
+            for hour in range(7, 18):
+                plateau = 8 <= hour <= 15
+                SolarRecord.objects.create(
+                    station=self.station,
+                    timestamp=timezone.datetime(2026, 5, day, hour, 0, tzinfo=tz),
+                    history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+                    irradiation=760.0 if plateau else 420.0,
+                    air_temp=24.0,
+                    power_kw=680.0 if plateau else 430.0,
+                )
+
         feat = pd.DataFrame(
             {
                 "ds": pd.to_datetime([
@@ -980,21 +995,29 @@ class SingleAxisTrackerPostProcessingTests(TestCase):
                     "2026-06-01 12:00:00",
                     "2026-06-01 17:00:00",
                 ]),
-                "Irradiation": [500.0, 900.0, 500.0],
+                "Irradiation": [650.0, 900.0, 500.0],
                 "sun_elev_deg": [18.0, 65.0, 20.0],
             }
         )
         y = np.array([0.40, 0.80, 0.40])
 
-        corrected, caps = _apply_single_axis_tracker_postprocessing(y, feat, self.station, capacity_mw=1.5)
+        corrected, caps = _apply_single_axis_tracker_postprocessing(
+            y,
+            feat,
+            self.station,
+            capacity_mw=1.5,
+        )
 
-        self.assertGreater(corrected[0], y[0])
+        self.assertGreater(corrected[0], 0.55)
         self.assertLess(corrected[1], y[1])
         self.assertGreater(corrected[2], y[2])
         self.assertLessEqual(float(corrected.max()), 1.0)
         self.assertEqual(caps["ac_cap_mw"], 1.0)
-        self.assertEqual(caps["safe_cap_mw"], 1.0)
+        self.assertLessEqual(caps["safe_cap_mw"], 1.0)
+        self.assertGreaterEqual(caps["historical_profile_hours"], 8.0)
+        self.assertGreaterEqual(caps["plateau_hours_applied"], 2.0)
         self.assertIn("tracker_profile_factor", feat.columns)
+        self.assertIn("tracker_reference_mw", feat.columns)
 
 
 class StationAutoHistoryStandardFileTests(TestCase):
