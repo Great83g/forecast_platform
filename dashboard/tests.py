@@ -22,6 +22,8 @@ from dashboard.services.forecast_engine import (
     _xgb_is_systematically_low,
     _compute_features,
     _apply_early_morning_history_cap,
+    _apply_single_axis_tracker_postprocessing,
+    _is_single_axis_tracker,
     WeatherFetchResult,
     run_forecast_for_station,
 )
@@ -925,6 +927,74 @@ class StationAutoHistoryMergeSameDateTests(TestCase):
         self.assertEqual(len(out), 1)
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 130.0)
 
+
+
+
+
+class StationMountTypeTests(TestCase):
+    def test_station_mount_type_defaults_to_fixed_and_form_exposes_label(self):
+        user = User.objects.create_user(username="mount-form", password="pass")
+        org = Organization.objects.create(name="Mount Org", owner=user)
+        station = Station.objects.create(org=org, name="Fixed SES")
+
+        self.assertEqual(station.mount_type, Station.MOUNT_FIXED)
+
+        form = StationForm(instance=station, user=user)
+        self.assertIn("mount_type", form.fields)
+        self.assertEqual(form.fields["mount_type"].label, "Тип конструкции")
+        self.assertEqual(
+            list(form.fields["mount_type"].choices),
+            [
+                (Station.MOUNT_FIXED, "Фиксированный наклон"),
+                (Station.MOUNT_SINGLE_AXIS_TRACKER, "Одноосевой трекер"),
+                (Station.MOUNT_DUAL_AXIS_TRACKER, "Двухосевой трекер"),
+            ],
+        )
+
+    def test_single_axis_tracker_detection_is_opt_in_only(self):
+        fixed = SimpleNamespace(mount_type=Station.MOUNT_FIXED)
+        tracker = SimpleNamespace(mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER)
+
+        self.assertFalse(_is_single_axis_tracker(fixed))
+        self.assertTrue(_is_single_axis_tracker(tracker))
+
+
+class SingleAxisTrackerPostProcessingTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="tracker", password="pass")
+        org = Organization.objects.create(name="Tracker Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Tracker SES",
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
+            capacity_mw=1.0,
+            capacity_ac_kw=1000,
+            capacity_dc_kw=1100,
+        )
+
+    def test_tracker_profile_boosts_shoulders_flattens_midday_and_caps(self):
+        feat = pd.DataFrame(
+            {
+                "ds": pd.to_datetime([
+                    "2026-06-01 08:00:00",
+                    "2026-06-01 12:00:00",
+                    "2026-06-01 17:00:00",
+                ]),
+                "Irradiation": [500.0, 900.0, 500.0],
+                "sun_elev_deg": [18.0, 65.0, 20.0],
+            }
+        )
+        y = np.array([0.40, 0.80, 0.40])
+
+        corrected, caps = _apply_single_axis_tracker_postprocessing(y, feat, self.station, capacity_mw=1.5)
+
+        self.assertGreater(corrected[0], y[0])
+        self.assertLess(corrected[1], y[1])
+        self.assertGreater(corrected[2], y[2])
+        self.assertLessEqual(float(corrected.max()), 1.0)
+        self.assertEqual(caps["ac_cap_mw"], 1.0)
+        self.assertEqual(caps["safe_cap_mw"], 1.0)
+        self.assertIn("tracker_profile_factor", feat.columns)
 
 
 class StationAutoHistoryStandardFileTests(TestCase):
