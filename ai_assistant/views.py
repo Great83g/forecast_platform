@@ -30,6 +30,7 @@ INTENT_GET_PLANFACT_PERIOD = "get_planfact_period"
 INTENT_OPEN_TOMORROW_FORECAST = "open_tomorrow_forecast"
 INTENT_OPEN_PLANFACT_TODAY = "open_planfact_today"
 INTENT_OPEN_PLANFACT_YESTERDAY = "open_planfact_yesterday"
+INTENT_OPEN_PLANFACT_PERIOD = "open_planfact_period"
 
 READ_INTENTS = {
     INTENT_GET_YESTERDAY_GENERATION,
@@ -44,6 +45,7 @@ NAVIGATION_INTENTS = {
     INTENT_OPEN_TOMORROW_FORECAST,
     INTENT_OPEN_PLANFACT_TODAY,
     INTENT_OPEN_PLANFACT_YESTERDAY,
+    INTENT_OPEN_PLANFACT_PERIOD,
 }
 
 
@@ -191,6 +193,8 @@ def _detect_intent(text: str) -> Optional[str]:
         return INTENT_OPEN_TOMORROW_FORECAST
     if wants_open and mentions_planfact and mentions_yesterday:
         return INTENT_OPEN_PLANFACT_YESTERDAY
+    if wants_open and mentions_planfact and _has_period_hint(normalized):
+        return INTENT_OPEN_PLANFACT_PERIOD
     if wants_open and mentions_planfact:
         return INTENT_OPEN_PLANFACT_TODAY
     if mentions_forecast and mentions_tomorrow:
@@ -367,15 +371,23 @@ def assistant_query(request):
                 answer = _answer_for_read_intent(intent, station.pk)
             action = None
         elif intent in NAVIGATION_INTENTS:
-            action = services.build_navigation_action(intent, station.pk)
-            if intent == INTENT_OPEN_TOMORROW_FORECAST:
-                target_date = timezone.localdate() + timedelta(days=1)
-                answer = f"Открываю прогноз на завтра ({target_date:%d.%m.%Y}) по {station.name}."
-            elif intent == INTENT_OPEN_PLANFACT_YESTERDAY:
-                target_date = timezone.localdate() - timedelta(days=1)
-                answer = f"Открываю план/факт за вчера ({target_date:%d.%m.%Y}) по {station.name}."
+            if intent == INTENT_OPEN_PLANFACT_PERIOD:
+                period = parse_period(text)
+                action = {
+                    "type": "navigate",
+                    "url": f"/dashboard/station/{station.pk}/?date_from={period.date_from.isoformat()}&date_to={period.date_to.isoformat()}",
+                }
+                answer = f"Открываю план/факт за период {period.label} по {station.name}."
             else:
-                answer = f"Открываю план/факт за сегодня ({timezone.localdate():%d.%m.%Y}) по {station.name}."
+                action = services.build_navigation_action(intent, station.pk)
+                if intent == INTENT_OPEN_TOMORROW_FORECAST:
+                    target_date = timezone.localdate() + timedelta(days=1)
+                    answer = f"Открываю прогноз на завтра ({target_date:%d.%m.%Y}) по {station.name}."
+                elif intent == INTENT_OPEN_PLANFACT_YESTERDAY:
+                    target_date = timezone.localdate() - timedelta(days=1)
+                    answer = f"Открываю план/факт за вчера ({target_date:%d.%m.%Y}) по {station.name}."
+                else:
+                    answer = f"Открываю план/факт за сегодня ({timezone.localdate():%d.%m.%Y}) по {station.name}."
         else:
             return JsonResponse({"answer": "Этот intent не разрешен на первом этапе.", "action": None}, status=400)
 
