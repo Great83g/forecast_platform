@@ -99,10 +99,16 @@ def _derive_power_from_energy(df: pd.DataFrame) -> pd.DataFrame:
     out["power_kw"] = pd.NA
 
     if "energy_kwh" in out.columns:
-        delta_kwh = out["energy_kwh"].diff()
-        delta_hours = out["ds"].diff().dt.total_seconds() / 3600.0
+        # считаем приращения только внутри одного календарного дня,
+        # чтобы не тащить ночной перенос между днями
+        day_key = out["ds"].dt.date
+        delta_kwh = out.groupby(day_key)["energy_kwh"].diff()
+        delta_hours = out.groupby(day_key)["ds"].diff().dt.total_seconds() / 3600.0
         derived_kw = delta_kwh / delta_hours
-        out.loc[(delta_hours > 0) & (delta_kwh >= 0), "power_kw"] = derived_kw
+
+        max_valid_kw = POWER_UPPER_BAD_MW * 1000.0
+        valid_mask = (delta_hours > 0) & (delta_kwh >= 0) & (derived_kw <= max_valid_kw)
+        out.loc[valid_mask, "power_kw"] = derived_kw
 
     fallback_kw = out.get("power_mw") * 1000.0
     out["power_kw"] = pd.to_numeric(out["power_kw"], errors="coerce")
