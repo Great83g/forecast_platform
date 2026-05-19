@@ -62,7 +62,7 @@ def parse_period(text: str) -> ParsedPeriod:
         date_from = today.replace(day=1)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
 
-    if "за прошлый месяц" in normalized:
+    if "за прошлый месяц" in normalized or "за предыдущий месяц" in normalized or "предыдущий месяц" in normalized:
         first_this_month = today.replace(day=1)
         last_prev_month = first_this_month - timedelta(days=1)
         first_prev_month = last_prev_month.replace(day=1)
