@@ -844,6 +844,7 @@
       <button class="btn btn-primary" type="button" id="aiAssistantSend">Спросить</button>
     </div>
     <div class="ai-assistant-answer" id="aiAssistantAnswer">Готов отвечать по выработке, прогнозу и план/факту.</div>
+    <div class="ai-assistant-choices mt-2" id="aiAssistantChoices"></div>
   </div>
 </div>
 <style>
@@ -895,6 +896,11 @@
     background: #fff3cd;
     color: #664d03;
   }
+  .ai-assistant-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
 </style>
 <script>
   (function () {
@@ -904,7 +910,8 @@
     var send = document.getElementById('aiAssistantSend');
     var mic = document.getElementById('aiAssistantMic');
     var answer = document.getElementById('aiAssistantAnswer');
-    if (!toggle || !panel || !input || !send || !mic || !answer) return;
+    var choices = document.getElementById('aiAssistantChoices');
+    if (!toggle || !panel || !input || !send || !mic || !answer || !choices) return;
 
     function getCookie(name) {
       var match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]+)'));
@@ -914,6 +921,23 @@
     function setAnswer(text, isError) {
       answer.textContent = text;
       answer.classList.toggle('is-error', Boolean(isError));
+      choices.innerHTML = '';
+    }
+
+    function renderChoices(items) {
+      choices.innerHTML = '';
+      if (!Array.isArray(items) || !items.length) return;
+      items.forEach(function (item) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline-secondary btn-sm';
+        btn.textContent = item.name || ('Станция #' + item.id);
+        btn.addEventListener('click', function () {
+          input.value = (input.value || '') + ' station ' + item.id;
+          submitQuestion();
+        });
+        choices.appendChild(btn);
+      });
     }
 
     function submitQuestion() {
@@ -941,6 +965,7 @@
         })
         .then(function (data) {
           setAnswer(data.answer || 'Готово.', false);
+          renderChoices(data.choices);
           if (data.action && data.action.type === 'navigate' && data.action.url) {
             window.location.href = data.action.url;
           }

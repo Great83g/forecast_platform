@@ -54,13 +54,19 @@ def parse_period(text: str) -> ParsedPeriod:
     if "сегодня" in normalized:
         return ParsedPeriod(today, today, f"{today:%d.%m.%Y}")
 
-    if "за неделю" in normalized:
+    if "за последние 7" in normalized or "последние 7 дней" in normalized or "за неделю" in normalized:
         date_from = today - timedelta(days=6)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
 
-    if "за месяц" in normalized:
+    if "с начала месяца" in normalized or "за месяц" in normalized:
         date_from = today.replace(day=1)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
+
+    if "за прошлый месяц" in normalized:
+        first_this_month = today.replace(day=1)
+        last_prev_month = first_this_month - timedelta(days=1)
+        first_prev_month = last_prev_month.replace(day=1)
+        return ParsedPeriod(first_prev_month, last_prev_month, f"{first_prev_month:%d.%m.%Y}–{last_prev_month:%d.%m.%Y}")
 
     range_match = re.search(r"с\s*(\d{1,2})\s*по\s*(\d{1,2})\s*([а-я]+)", normalized)
     if range_match:

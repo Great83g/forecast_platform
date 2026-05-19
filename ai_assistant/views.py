@@ -31,6 +31,7 @@ INTENT_OPEN_TOMORROW_FORECAST = "open_tomorrow_forecast"
 INTENT_OPEN_PLANFACT_TODAY = "open_planfact_today"
 INTENT_OPEN_PLANFACT_YESTERDAY = "open_planfact_yesterday"
 INTENT_OPEN_PLANFACT_PERIOD = "open_planfact_period"
+INTENT_OPEN_FORECAST_PERIOD = "open_forecast_period"
 
 READ_INTENTS = {
     INTENT_GET_YESTERDAY_GENERATION,
@@ -46,6 +47,7 @@ NAVIGATION_INTENTS = {
     INTENT_OPEN_PLANFACT_TODAY,
     INTENT_OPEN_PLANFACT_YESTERDAY,
     INTENT_OPEN_PLANFACT_PERIOD,
+    INTENT_OPEN_FORECAST_PERIOD,
 }
 
 
@@ -170,7 +172,7 @@ def _station_name_score(station: Station, query_tokens: list[str], query_search_
 
 
 def _has_period_hint(normalized: str) -> bool:
-    if any(phrase in normalized for phrase in ("за неделю", "за месяц", "с ", " по ")):
+    if any(phrase in normalized for phrase in ("за неделю", "за месяц", "за прошлый месяц", "за последние 7", "с начала месяца", "с ", " по ")):
         if "сегодня" not in normalized and "вчера" not in normalized and "завтра" not in normalized:
             return True
     if re.search(r"\b\d{1,2}[./]\d{1,2}(?:[./]\d{4})?\b", normalized):
@@ -191,6 +193,8 @@ def _detect_intent(text: str) -> Optional[str]:
 
     if wants_open and mentions_forecast and mentions_tomorrow:
         return INTENT_OPEN_TOMORROW_FORECAST
+    if wants_open and mentions_forecast and _has_period_hint(normalized):
+        return INTENT_OPEN_FORECAST_PERIOD
     if wants_open and mentions_planfact and mentions_yesterday:
         return INTENT_OPEN_PLANFACT_YESTERDAY
     if wants_open and mentions_planfact and _has_period_hint(normalized):
@@ -360,7 +364,8 @@ def assistant_query(request):
                 status=400,
             )
         if station_resolution.needs_clarification:
-            return JsonResponse({"answer": "Уточните станцию: у вас несколько станций, а в вопросе не удалось однозначно определить нужную.", "action": None}, status=400)
+            choices = [{"id": st.pk, "name": st.name} for st in _station_queryset_for_user(request.user).order_by("sort_order", "id")[:8]]
+            return JsonResponse({"answer": "Уточните станцию: у вас несколько станций, а в вопросе не удалось однозначно определить нужную.", "action": None, "choices": choices}, status=400)
         if station is None:
             return JsonResponse({"answer": "Не найдена доступная солнечная станция для вашего пользователя.", "action": None}, status=404)
 
@@ -378,6 +383,13 @@ def assistant_query(request):
                     "url": f"/dashboard/station/{station.pk}/?date_from={period.date_from.isoformat()}&date_to={period.date_to.isoformat()}",
                 }
                 answer = f"Открываю план/факт за период {period.label} по {station.name}."
+            elif intent == INTENT_OPEN_FORECAST_PERIOD:
+                period = parse_period(text)
+                action = {
+                    "type": "navigate",
+                    "url": f"/dashboard/station/{station.pk}/forecast/list/?from={period.date_from.isoformat()}&to={period.date_to.isoformat()}&scope=main",
+                }
+                answer = f"Открываю прогноз за период {period.label} по {station.name}."
             else:
                 action = services.build_navigation_action(intent, station.pk)
                 if intent == INTENT_OPEN_TOMORROW_FORECAST:
