@@ -165,6 +165,18 @@ def _station_name_score(station: Station, query_tokens: list[str], query_search_
     return max(matched_scores)
 
 
+
+
+def _has_period_hint(normalized: str) -> bool:
+    if any(phrase in normalized for phrase in ("за неделю", "за месяц", "с ", " по ")):
+        if "сегодня" not in normalized and "вчера" not in normalized and "завтра" not in normalized:
+            return True
+    if re.search(r"\b\d{1,2}[./]\d{1,2}(?:[./]\d{4})?\b", normalized):
+        return True
+    if re.search(r"\b\d{1,2}\s+[а-я]+\b", normalized):
+        return True
+    return False
+
 def _detect_intent(text: str) -> Optional[str]:
     normalized = _normalize_text(text)
     wants_open = any(word in normalized for word in ("открой", "открыть", "перейди", "покажи страницу", "перейти"))
@@ -185,8 +197,10 @@ def _detect_intent(text: str) -> Optional[str]:
         return INTENT_GET_TOMORROW_FORECAST
     if mentions_planfact and mentions_yesterday:
         return INTENT_GET_YESTERDAY_PLANFACT
-    if mentions_planfact and (mentions_today or not mentions_yesterday):
+    if mentions_planfact and mentions_today and not _has_period_hint(normalized):
         return INTENT_GET_TODAY_PLANFACT
+    if mentions_planfact and _has_period_hint(normalized):
+        return INTENT_GET_PLANFACT_PERIOD
     if mentions_generation and mentions_yesterday:
         return INTENT_GET_YESTERDAY_GENERATION
     if mentions_generation:
