@@ -30,6 +30,7 @@ urlpatterns = [
 
     # API
     path("api/accounts/", include("accounts.urls")),
+    path("api/assistant/", include(("ai_assistant.urls", "ai_assistant"), namespace="ai_assistant")),
     path("api/", include("stations.urls")),
 
     # solar calculator module

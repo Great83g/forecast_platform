@@ -828,6 +828,195 @@
     bindLangButtons();
   })();
 </script>
+
+{% if user.is_authenticated %}
+<div class="ai-assistant-widget" aria-live="polite">
+  <button class="ai-assistant-toggle" type="button" id="aiAssistantToggle" aria-controls="aiAssistantPanel" aria-expanded="false" title="AI ассистент">🤖</button>
+  <div class="ai-assistant-panel" id="aiAssistantPanel" hidden>
+    <div class="ai-assistant-header">
+      <strong>AI ассистент</strong>
+      <span class="text-muted small">только чтение</span>
+    </div>
+    <label class="form-label small mb-1" for="aiAssistantText">Вопрос</label>
+    <div class="input-group input-group-sm mb-2">
+      <input class="form-control" id="aiAssistantText" type="text" placeholder="Сколько вчера была выработка по станции 1.2?">
+      <button class="btn btn-outline-secondary" type="button" id="aiAssistantMic" title="Голосовой ввод">🎙️</button>
+      <button class="btn btn-primary" type="button" id="aiAssistantSend">Спросить</button>
+    </div>
+    <div class="ai-assistant-answer" id="aiAssistantAnswer">Готов отвечать по выработке, прогнозу и план/факту.</div>
+    <div class="ai-assistant-choices mt-2" id="aiAssistantChoices"></div>
+  </div>
+</div>
+<style>
+  .ai-assistant-widget {
+    bottom: 20px;
+    position: fixed;
+    right: 20px;
+    z-index: 1050;
+  }
+  .ai-assistant-toggle {
+    align-items: center;
+    background: #0d6efd;
+    border: 0;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    color: #fff;
+    display: inline-flex;
+    font-size: 24px;
+    height: 56px;
+    justify-content: center;
+    width: 56px;
+  }
+  .ai-assistant-panel {
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 14px;
+    bottom: 68px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+    padding: 14px;
+    position: absolute;
+    right: 0;
+    width: min(380px, calc(100vw - 32px));
+  }
+  .ai-assistant-header {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .ai-assistant-answer {
+    background: #f8f9fa;
+    border-radius: 10px;
+    color: #212529;
+    font-size: 0.92rem;
+    min-height: 48px;
+    padding: 10px;
+  }
+  .ai-assistant-answer.is-error {
+    background: #fff3cd;
+    color: #664d03;
+  }
+  .ai-assistant-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+</style>
+<script>
+  (function () {
+    var toggle = document.getElementById('aiAssistantToggle');
+    var panel = document.getElementById('aiAssistantPanel');
+    var input = document.getElementById('aiAssistantText');
+    var send = document.getElementById('aiAssistantSend');
+    var mic = document.getElementById('aiAssistantMic');
+    var answer = document.getElementById('aiAssistantAnswer');
+    var choices = document.getElementById('aiAssistantChoices');
+    if (!toggle || !panel || !input || !send || !mic || !answer || !choices) return;
+
+    function getCookie(name) {
+      var match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]+)'));
+      return match ? decodeURIComponent(match[2]) : '';
+    }
+
+    function setAnswer(text, isError) {
+      answer.textContent = text;
+      answer.classList.toggle('is-error', Boolean(isError));
+      choices.innerHTML = '';
+    }
+
+    function renderChoices(items) {
+      choices.innerHTML = '';
+      if (!Array.isArray(items) || !items.length) return;
+      items.forEach(function (item) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline-secondary btn-sm';
+        btn.textContent = item.name || ('Станция #' + item.id);
+        btn.addEventListener('click', function () {
+          input.value = (input.value || '') + ' station ' + item.id;
+          submitQuestion();
+        });
+        choices.appendChild(btn);
+      });
+    }
+
+    function submitQuestion() {
+      var text = input.value.trim();
+      if (!text) {
+        setAnswer('Введите вопрос для ассистента.', true);
+        return;
+      }
+      send.disabled = true;
+      setAnswer('Думаю…', false);
+      fetch('/api/assistant/query/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({text: text})
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok) throw data;
+            return data;
+          });
+        })
+        .then(function (data) {
+          setAnswer(data.answer || 'Готово.', false);
+          renderChoices(data.choices);
+          if (data.action && data.action.type === 'navigate' && data.action.url) {
+            window.location.href = data.action.url;
+          }
+        })
+        .catch(function (error) {
+          setAnswer((error && error.answer) || 'Не удалось получить ответ ассистента.', true);
+        })
+        .finally(function () {
+          send.disabled = false;
+        });
+    }
+
+    toggle.addEventListener('click', function () {
+      var willOpen = panel.hasAttribute('hidden');
+      panel.toggleAttribute('hidden', !willOpen);
+      toggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      if (willOpen) input.focus();
+    });
+    send.addEventListener('click', submitQuestion);
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') submitQuestion();
+    });
+
+    var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      mic.disabled = true;
+      mic.title = 'Web Speech API не поддерживается этим браузером';
+      return;
+    }
+    var recognition = new SpeechRecognition();
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    mic.addEventListener('click', function () {
+      setAnswer('Слушаю…', false);
+      recognition.start();
+    });
+    recognition.addEventListener('result', function (event) {
+      var transcript = event.results && event.results[0] && event.results[0][0]
+        ? event.results[0][0].transcript
+        : '';
+      input.value = transcript;
+      if (transcript) submitQuestion();
+    });
+    recognition.addEventListener('error', function () {
+      setAnswer('Не удалось распознать голос. Попробуйте текстом.', true);
+    });
+  })();
+</script>
+{% endif %}
+
 {% block extra_scripts %}{% endblock %}
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
