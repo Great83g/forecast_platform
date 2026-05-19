@@ -5,6 +5,7 @@ import logging
 import re
 from difflib import SequenceMatcher
 from datetime import timedelta
+from dataclasses import dataclass
 from typing import Optional
 
 from django.contrib.auth.decorators import login_required
@@ -15,6 +16,7 @@ from django.views.decorators.http import require_POST
 from stations.models import Organization, OrganizationMember, Station
 
 from . import services
+from .date_parser import parse_period
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,9 @@ INTENT_GET_YESTERDAY_GENERATION = "get_yesterday_generation"
 INTENT_GET_TOMORROW_FORECAST = "get_tomorrow_forecast"
 INTENT_GET_TODAY_PLANFACT = "get_today_planfact"
 INTENT_GET_YESTERDAY_PLANFACT = "get_yesterday_planfact"
+INTENT_GET_GENERATION_PERIOD = "get_generation_period"
+INTENT_GET_FORECAST_PERIOD = "get_forecast_period"
+INTENT_GET_PLANFACT_PERIOD = "get_planfact_period"
 INTENT_OPEN_TOMORROW_FORECAST = "open_tomorrow_forecast"
 INTENT_OPEN_PLANFACT_TODAY = "open_planfact_today"
 INTENT_OPEN_PLANFACT_YESTERDAY = "open_planfact_yesterday"
@@ -31,6 +36,9 @@ READ_INTENTS = {
     INTENT_GET_TOMORROW_FORECAST,
     INTENT_GET_TODAY_PLANFACT,
     INTENT_GET_YESTERDAY_PLANFACT,
+    INTENT_GET_GENERATION_PERIOD,
+    INTENT_GET_FORECAST_PERIOD,
+    INTENT_GET_PLANFACT_PERIOD,
 }
 NAVIGATION_INTENTS = {
     INTENT_OPEN_TOMORROW_FORECAST,
@@ -181,37 +189,51 @@ def _detect_intent(text: str) -> Optional[str]:
         return INTENT_GET_TODAY_PLANFACT
     if mentions_generation and mentions_yesterday:
         return INTENT_GET_YESTERDAY_GENERATION
+    if mentions_generation:
+        return INTENT_GET_GENERATION_PERIOD
+    if mentions_forecast:
+        return INTENT_GET_FORECAST_PERIOD
+    if mentions_planfact:
+        return INTENT_GET_PLANFACT_PERIOD
     return None
 
 
-def _resolve_station(text: str, user) -> Optional[Station]:
+
+
+@dataclass(frozen=True)
+class StationResolution:
+    station: Optional[Station]
+    needs_clarification: bool
+
+
+def _resolve_station(text: str, user) -> StationResolution:
     stations = list(_station_queryset_for_user(user).order_by("sort_order", "id"))
     if not stations:
-        return None
+        return StationResolution(station=None, needs_clarification=False)
 
     explicit_id = re.search(r"(?:станци(?:я|и|ю)|station|id)\s*#?\s*(\d+)(?![\.,]\d)", text, flags=re.IGNORECASE)
     if explicit_id:
         station_id = int(explicit_id.group(1))
         for station in stations:
             if station.pk == station_id:
-                return station
+                return StationResolution(station=station, needs_clarification=False)
 
     normalized = _normalize_text(text)
     query_search_text = _station_search_text(text)
     query_tokens = _station_search_tokens(text)
     for station in stations:
         if _normalize_text(station.name) in normalized or _station_search_text(station.name) in query_search_text:
-            return station
+            return StationResolution(station=station, needs_clarification=False)
 
     decimal_values = re.findall(r"\d+(?:[\.,]\d+)?", text)
     for raw_value in decimal_values:
         value = raw_value.replace(",", ".")
         for station in stations:
             if value in _station_search_text(station.name):
-                return station
+                return StationResolution(station=station, needs_clarification=False)
             try:
                 if abs(float(value) - float(station.capacity_mw)) < 0.01:
-                    return station
+                    return StationResolution(station=station, needs_clarification=False)
             except (TypeError, ValueError):
                 continue
 
@@ -221,9 +243,11 @@ def _resolve_station(text: str, user) -> Optional[Station]:
     ]
     best_score, best_station = max(scored_stations, key=lambda item: item[0])
     if best_score >= 0.78:
-        return best_station
+        return StationResolution(station=best_station, needs_clarification=False)
 
-    return stations[0]
+    if len(stations) == 1:
+        return StationResolution(station=stations[0], needs_clarification=False)
+    return StationResolution(station=None, needs_clarification=True)
 
 
 def _format_kwh(value: float) -> str:
@@ -235,6 +259,27 @@ def _format_percent(value: Optional[float]) -> str:
         return "н/д"
     return f"{value:.1f}%"
 
+
+
+
+def _answer_for_period_intent(intent: str, station_id: int, text: str) -> str:
+    period = parse_period(text)
+    if intent == INTENT_GET_GENERATION_PERIOD:
+        result = services.get_generation_for_period(station_id, period.date_from, period.date_to)
+        if result.points_count == 0:
+            return f"За период {period.label} нет данных выработки по {result.station_name}."
+        return f"Выработка за период {period.label} по {result.station_name}: {_format_kwh(result.energy_kwh)} кВт·ч (точек: {result.points_count})."
+    if intent == INTENT_GET_FORECAST_PERIOD:
+        result = services.get_forecast_for_period(station_id, period.date_from, period.date_to)
+        if result.points_count == 0:
+            return f"За период {period.label} нет сохраненного прогноза по {result.station_name}."
+        return f"Прогноз выработки за период {period.label} по {result.station_name}: {_format_kwh(result.energy_kwh)} кВт·ч (точек: {result.points_count})."
+    result = services.get_planfact_for_period(station_id, period.date_from, period.date_to)
+    return (
+        f"План/факт за период {period.label} по {result.station_name}: факт {_format_kwh(result.fact_kwh)} кВт·ч, "
+        f"план {_format_kwh(result.plan_kwh)} кВт·ч, отклонение {_format_kwh(result.deviation_kwh)} кВт·ч "
+        f"({_format_percent(result.deviation_percent)}), точек: {result.points_count}."
+    )
 
 def _answer_for_read_intent(intent: str, station_id: int) -> str:
     if intent == INTENT_GET_YESTERDAY_GENERATION:
@@ -284,7 +329,8 @@ def assistant_query(request):
             return JsonResponse({"answer": "Введите вопрос для ассистента.", "action": None}, status=400)
 
         intent = _detect_intent(text)
-        station = _resolve_station(text, request.user)
+        station_resolution = _resolve_station(text, request.user)
+        station = station_resolution.station
         station_id = station.pk if station else None
 
         if intent is None:
@@ -295,11 +341,16 @@ def assistant_query(request):
                 },
                 status=400,
             )
+        if station_resolution.needs_clarification:
+            return JsonResponse({"answer": "Уточните станцию: у вас несколько станций, а в вопросе не удалось однозначно определить нужную.", "action": None}, status=400)
         if station is None:
             return JsonResponse({"answer": "Не найдена доступная солнечная станция для вашего пользователя.", "action": None}, status=404)
 
         if intent in READ_INTENTS:
-            answer = _answer_for_read_intent(intent, station.pk)
+            if intent in {INTENT_GET_GENERATION_PERIOD, INTENT_GET_FORECAST_PERIOD, INTENT_GET_PLANFACT_PERIOD}:
+                answer = _answer_for_period_intent(intent, station.pk, text)
+            else:
+                answer = _answer_for_read_intent(intent, station.pk)
             action = None
         elif intent in NAVIGATION_INTENTS:
             action = services.build_navigation_action(intent, station.pk)

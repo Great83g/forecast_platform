@@ -72,6 +72,114 @@ def _station(station_id: int) -> Station:
     return Station.objects.get(pk=station_id)
 
 
+
+
+def get_generation_for_period(station_id: int, date_from: date, date_to: date) -> EnergySummary:
+    station = _station(station_id)
+    rows = (
+        SolarRecord.objects.filter(
+            station=station,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            timestamp__date__gte=date_from,
+            timestamp__date__lte=date_to,
+        )
+        .values("timestamp")
+        .annotate(power_kw=Avg("power_kw"))
+        .order_by("timestamp")
+    )
+    values = [float(row["power_kw"]) for row in rows if row.get("power_kw") is not None]
+    return EnergySummary(
+        station_id=station.pk,
+        station_name=station.name,
+        date=date_to,
+        energy_kwh=sum(values),
+        points_count=len(values),
+    )
+
+
+def get_forecast_for_period(station_id: int, date_from: date, date_to: date) -> EnergySummary:
+    station = _station(station_id)
+    rows = (
+        SolarForecast.objects.filter(
+            station=station,
+            forecast_scope=SolarForecast.SCOPE_MAIN,
+            timestamp__date__gte=date_from,
+            timestamp__date__lte=date_to,
+        )
+        .values("timestamp")
+        .annotate(pred_final=Avg("pred_final"), pred_heur=Avg("pred_heur"))
+        .order_by("timestamp")
+    )
+    values = []
+    for row in rows:
+        value = _forecast_plan_value(row, station.capacity_mw)
+        if value is not None:
+            values.append(value)
+    return EnergySummary(
+        station_id=station.pk,
+        station_name=station.name,
+        date=date_to,
+        energy_kwh=sum(values),
+        points_count=len(values),
+    )
+
+
+def get_planfact_for_period(station_id: int, date_from: date, date_to: date) -> PlanFactSummary:
+    station = _station(station_id)
+    fact = get_generation_for_period(station_id, date_from, date_to)
+    plan = get_forecast_for_period(station_id, date_from, date_to)
+    deviation = fact.energy_kwh - plan.energy_kwh
+    deviation_percent = (deviation / plan.energy_kwh * 100.0) if plan.energy_kwh else None
+
+    mape_values = []
+    history_rows = (
+        SolarRecord.objects.filter(
+            station=station,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            timestamp__date__gte=date_from,
+            timestamp__date__lte=date_to,
+        )
+        .values("timestamp")
+        .annotate(power_kw=Avg("power_kw"))
+    )
+    forecast_rows = (
+        SolarForecast.objects.filter(
+            station=station,
+            forecast_scope=SolarForecast.SCOPE_MAIN,
+            timestamp__date__gte=date_from,
+            timestamp__date__lte=date_to,
+        )
+        .values("timestamp")
+        .annotate(pred_final=Avg("pred_final"), pred_heur=Avg("pred_heur"))
+    )
+    fact_map = {row["timestamp"]: float(row["power_kw"]) for row in history_rows if row.get("power_kw") is not None}
+    plan_map = {}
+    for row in forecast_rows:
+        value = _forecast_plan_value(row, station.capacity_mw)
+        if value is not None:
+            plan_map[row["timestamp"]] = value
+
+    fact_values = [value for value in fact_map.values() if value is not None]
+    peak_fact_kw = max(fact_values) if fact_values else 0.0
+    min_fact_for_mape_kw = max(1.0, peak_fact_kw * 0.10)
+    for timestamp, fact_kw in fact_map.items():
+        plan_kw = plan_map.get(timestamp)
+        if plan_kw is None or fact_kw <= 0 or fact_kw < min_fact_for_mape_kw:
+            continue
+        mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
+
+    return PlanFactSummary(
+        station_id=station.pk,
+        station_name=station.name,
+        date=date_to,
+        fact_kwh=fact.energy_kwh,
+        plan_kwh=plan.energy_kwh,
+        deviation_kwh=deviation,
+        deviation_percent=deviation_percent,
+        mape_percent=(sum(mape_values) / len(mape_values)) if mape_values else None,
+        points_count=max(fact.points_count, plan.points_count),
+    )
+
 def _sum_generation_for_date(station: Station, target_date: date) -> EnergySummary:
     rows = (
         SolarRecord.objects.filter(
@@ -174,23 +282,19 @@ def _planfact_for_date(station: Station, target_date: date) -> PlanFactSummary:
 
 
 def get_yesterday_generation(station_id: int) -> EnergySummary:
-    station = _station(station_id)
-    return _sum_generation_for_date(station, _today() - timedelta(days=1))
+    return get_generation_for_period(station_id, _today() - timedelta(days=1), _today() - timedelta(days=1))
 
 
 def get_tomorrow_forecast(station_id: int) -> EnergySummary:
-    station = _station(station_id)
-    return _sum_forecast_for_date(station, _today() + timedelta(days=1))
+    return get_forecast_for_period(station_id, _today() + timedelta(days=1), _today() + timedelta(days=1))
 
 
 def get_today_planfact(station_id: int) -> PlanFactSummary:
-    station = _station(station_id)
-    return _planfact_for_date(station, _today())
+    return get_planfact_for_period(station_id, _today(), _today())
 
 
 def get_yesterday_planfact(station_id: int) -> PlanFactSummary:
-    station = _station(station_id)
-    return _planfact_for_date(station, _today() - timedelta(days=1))
+    return get_planfact_for_period(station_id, _today() - timedelta(days=1), _today() - timedelta(days=1))
 
 
 def build_navigation_action(intent: str, station_id: int):
