@@ -58,6 +58,14 @@ def parse_period(text: str) -> ParsedPeriod:
         date_from = today - timedelta(days=6)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
 
+    if "с начала недели" in normalized:
+        date_from = today - timedelta(days=today.weekday())
+        return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
+
+    if "с начала года" in normalized:
+        date_from = date(today.year, 1, 1)
+        return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
+
     if "с начала месяца" in normalized or "за месяц" in normalized:
         date_from = today.replace(day=1)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
@@ -96,9 +104,13 @@ def parse_period(text: str) -> ParsedPeriod:
 
     short_match = re.search(r"\b(\d{1,2})[./](\d{1,2})\b", normalized)
     if short_match:
-        d = _safe_date(today.year, int(short_match.group(2)), int(short_match.group(1)))
-        if d:
-            return ParsedPeriod(d, d, f"{d:%d.%m.%Y}")
+        day = int(short_match.group(1))
+        month = int(short_match.group(2))
+        station_like = re.search(rf"(?:ses|сес|сэс|station)\s*{day}[.,]{month}\b", normalized)
+        if not station_like:
+            d = _safe_date(today.year, month, day)
+            if d:
+                return ParsedPeriod(d, d, f"{d:%d.%m.%Y}")
 
     month_match = re.search(r"\b(\d{1,2})\s+([а-я]+)\b", normalized)
     if month_match:
