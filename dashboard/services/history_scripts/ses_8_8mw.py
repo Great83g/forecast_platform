@@ -175,4 +175,5 @@ def build_history_dataframe(station) -> pd.DataFrame:
         .reset_index()
     )
     hourly = hourly[hourly["power_kw"].fillna(0) > MIN_POWER_KW].copy()
+    hourly = _align_hourly_day_energy(hourly, daily_targets_kwh)
     return hourly[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
