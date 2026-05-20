@@ -913,6 +913,8 @@
     var choices = document.getElementById('aiAssistantChoices');
     if (!toggle || !panel || !input || !send || !mic || !answer || !choices) return;
 
+    var lastStationId = null;
+
     function getCookie(name) {
       var match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]+)'));
       return match ? decodeURIComponent(match[2]) : '';
@@ -927,13 +929,17 @@
     function renderChoices(items) {
       choices.innerHTML = '';
       if (!Array.isArray(items) || !items.length) return;
+      var title = document.createElement('div');
+      title.className = 'w-100 small text-muted';
+      title.textContent = 'Выберите станцию:';
+      choices.appendChild(title);
       items.forEach(function (item) {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-outline-secondary btn-sm';
         btn.textContent = item.name || ('Станция #' + item.id);
         btn.addEventListener('click', function () {
-          input.value = (input.value || '') + ' station ' + item.id;
+          lastStationId = item.id || null;
           submitQuestion();
         });
         choices.appendChild(btn);
@@ -955,7 +961,7 @@
           'Content-Type': 'application/json',
           'X-CSRFToken': getCookie('csrftoken')
         },
-        body: JSON.stringify({text: text})
+        body: JSON.stringify({text: text, context: {station_id: lastStationId}})
       })
         .then(function (response) {
           return response.json().then(function (data) {
@@ -965,6 +971,7 @@
         })
         .then(function (data) {
           setAnswer(data.answer || 'Готово.', false);
+          if (data.context && data.context.station_id) lastStationId = data.context.station_id;
           renderChoices(data.choices);
           if (data.action && data.action.type === 'navigate' && data.action.url) {
             window.location.href = data.action.url;

@@ -54,19 +54,46 @@ def parse_period(text: str) -> ParsedPeriod:
     if "сегодня" in normalized:
         return ParsedPeriod(today, today, f"{today:%d.%m.%Y}")
 
+    if "за последние 30" in normalized or "последние 30 дней" in normalized:
+        date_from = today - timedelta(days=29)
+        return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
+
     if "за последние 7" in normalized or "последние 7 дней" in normalized or "за неделю" in normalized:
         date_from = today - timedelta(days=6)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
 
-    if "с начала недели" in normalized:
+    if "за текущую неделю" in normalized or "текущая неделя" in normalized or "с начала недели" in normalized:
         date_from = today - timedelta(days=today.weekday())
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
+
+    if "за предыдущую неделю" in normalized or "прошлая неделя" in normalized:
+        current_week_start = today - timedelta(days=today.weekday())
+        prev_week_end = current_week_start - timedelta(days=1)
+        prev_week_start = prev_week_end - timedelta(days=6)
+        return ParsedPeriod(prev_week_start, prev_week_end, f"{prev_week_start:%d.%m.%Y}–{prev_week_end:%d.%m.%Y}")
 
     if "с начала года" in normalized:
         date_from = date(today.year, 1, 1)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
 
-    if "с начала месяца" in normalized or "за месяц" in normalized:
+    if "за предыдущий квартал" in normalized or "прошлый квартал" in normalized:
+        current_quarter = (today.month - 1) // 3 + 1
+        if current_quarter == 1:
+            prev_q_year = today.year - 1
+            prev_q_start_month = 10
+        else:
+            prev_q_year = today.year
+            prev_q_start_month = 3 * (current_quarter - 2) + 1
+        prev_q_start = date(prev_q_year, prev_q_start_month, 1)
+        next_q_month = prev_q_start_month + 3
+        next_q_year = prev_q_year
+        if next_q_month > 12:
+            next_q_month -= 12
+            next_q_year += 1
+        prev_q_end = date(next_q_year, next_q_month, 1) - timedelta(days=1)
+        return ParsedPeriod(prev_q_start, prev_q_end, f"{prev_q_start:%d.%m.%Y}–{prev_q_end:%d.%m.%Y}")
+
+    if "за текущий месяц" in normalized or "текущий месяц" in normalized or "с начала месяца" in normalized or "за месяц" in normalized:
         date_from = today.replace(day=1)
         return ParsedPeriod(date_from, today, f"{date_from:%d.%m.%Y}–{today:%d.%m.%Y}")
 

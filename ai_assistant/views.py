@@ -172,7 +172,7 @@ def _station_name_score(station: Station, query_tokens: list[str], query_search_
 
 
 def _has_period_hint(normalized: str) -> bool:
-    if any(phrase in normalized for phrase in ("за неделю", "за месяц", "за прошлый месяц", "за последние 7", "с начала месяца", "с ", " по ")):
+    if any(phrase in normalized for phrase in ("за неделю", "за месяц", "за текущий месяц", "за прошлый месяц", "за предыдущий месяц", "за текущую неделю", "за предыдущую неделю", "за предыдущий квартал", "за последние 7", "за последние 30", "с начала месяца", "с начала недели", "с начала года", "с ", " по ")):
         if "сегодня" not in normalized and "вчера" not in normalized and "завтра" not in normalized:
             return True
     if re.search(r"\b\d{1,2}[./]\d{1,2}(?:[./]\d{4})?\b", normalized):
@@ -335,6 +335,13 @@ def _answer_for_read_intent(intent: str, station_id: int) -> str:
     return "Не удалось подготовить ответ по выбранному намерению."
 
 
+def _station_by_id_for_user(user, station_id: int) -> Optional[Station]:
+    try:
+        return _station_queryset_for_user(user).get(pk=station_id)
+    except Station.DoesNotExist:
+        return None
+
+
 @login_required
 @require_POST
 def assistant_query(request):
@@ -351,8 +358,17 @@ def assistant_query(request):
             return JsonResponse({"answer": "Введите вопрос для ассистента.", "action": None}, status=400)
 
         intent = _detect_intent(text)
+        context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+        context_station_id = context.get("station_id")
         station_resolution = _resolve_station(text, request.user)
         station = station_resolution.station
+        if station is None and context_station_id is not None:
+            try:
+                station = _station_by_id_for_user(request.user, int(context_station_id))
+                if station is not None:
+                    station_resolution = StationResolution(station=station, needs_clarification=False)
+            except (TypeError, ValueError):
+                pass
         station_id = station.pk if station else None
 
         if intent is None:
@@ -404,7 +420,7 @@ def assistant_query(request):
             return JsonResponse({"answer": "Этот intent не разрешен на первом этапе.", "action": None}, status=400)
 
         success = True
-        return JsonResponse({"answer": answer, "action": action})
+        return JsonResponse({"answer": answer, "action": action, "context": {"station_id": station.pk}})
     except json.JSONDecodeError:
         return JsonResponse({"answer": "Некорректный JSON в запросе.", "action": None}, status=400)
     except Exception:
