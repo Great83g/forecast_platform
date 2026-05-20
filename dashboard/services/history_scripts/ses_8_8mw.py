@@ -91,29 +91,21 @@ def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> 
 
 
 
-def _derive_power_from_energy(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
+def _derive_power_from_energy(df: pd.DataFrame) -> pd.Series:
+    if df.empty or "energy_kwh" not in df.columns:
+        return pd.Series(pd.NA, index=df.index, dtype="float64")
 
-    out = df.sort_values("ds").copy()
-    out["power_kw"] = pd.NA
+    work = df.sort_values("ds").copy()
+    day_key = work["ds"].dt.date
+    delta_kwh = work.groupby(day_key)["energy_kwh"].diff()
+    delta_hours = work.groupby(day_key)["ds"].diff().dt.total_seconds() / 3600.0
+    derived_kw = delta_kwh / delta_hours
 
-    if "energy_kwh" in out.columns:
-        # считаем приращения только внутри одного календарного дня,
-        # чтобы не тащить ночной перенос между днями
-        day_key = out["ds"].dt.date
-        delta_kwh = out.groupby(day_key)["energy_kwh"].diff()
-        delta_hours = out.groupby(day_key)["ds"].diff().dt.total_seconds() / 3600.0
-        derived_kw = delta_kwh / delta_hours
-
-        max_valid_kw = POWER_UPPER_BAD_MW * 1000.0
-        valid_mask = (delta_hours > 0) & (delta_kwh >= 0) & (derived_kw <= max_valid_kw)
-        out.loc[valid_mask, "power_kw"] = derived_kw
-
-    fallback_kw = out.get("power_mw") * 1000.0
-    out["power_kw"] = pd.to_numeric(out["power_kw"], errors="coerce")
-    out["power_kw"] = out["power_kw"].fillna(fallback_kw)
-    return out
+    max_valid_kw = POWER_UPPER_BAD_MW * 1000.0
+    valid_mask = (delta_hours > 0) & (delta_kwh >= 0) & (derived_kw <= max_valid_kw)
+    result = pd.Series(pd.NA, index=work.index, dtype="float64")
+    result.loc[valid_mask] = derived_kw.loc[valid_mask]
+    return result.reindex(df.index)
 
 def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
     if df.empty or "ds" not in df.columns or not hours:
@@ -161,7 +153,11 @@ def build_history_dataframe(station) -> pd.DataFrame:
     df.loc[(df["irradiation"] < 0) | (df["irradiation"] > IRR_MAX), "irradiation"] = pd.NA
     df.loc[(df["pv_temp"] < PV_TEMP_MIN) | (df["pv_temp"] > PV_TEMP_MAX), "pv_temp"] = pd.NA
 
-    df = _derive_power_from_energy(df)
+    power_from_mw_kw = pd.to_numeric(df["power_mw"], errors="coerce") * 1000.0
+    power_from_energy_kw = _derive_power_from_energy(df)
+    # Основной источник — активная мощность из файла;
+    # накопленную энергию используем только для заполнения дыр в power_mw.
+    df["power_kw"] = power_from_mw_kw.fillna(power_from_energy_kw)
 
     hourly = (
         df.set_index("ds")[["irradiation", "air_temp", "pv_temp", "power_kw"]]
