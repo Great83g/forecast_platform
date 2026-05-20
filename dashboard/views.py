@@ -948,6 +948,7 @@ def station_detail(request, pk: int):
     if first_comparison_timestamp is not None:
         all_timestamps = [ts for ts in all_timestamps if ts >= first_comparison_timestamp]
 
+    prev_ts = None
     for ts in all_timestamps:
         fact_kw = history_map.get(ts)
         plan_kw = forecast_map.get(ts)
@@ -967,13 +968,17 @@ def station_detail(request, pk: int):
         temp_fact_series.append(round(temp_fact_map.get(ts), 2) if temp_fact_map.get(ts) is not None else None)
         temp_plan_series.append(round(temp_plan_map.get(ts), 2) if temp_plan_map.get(ts) is not None else None)
 
-        # Суммируем мощность по шагам ряда как приближение энергии (кВт·ч).
-        # Для дневного почасового разреза это близко к фактической суточной энергии,
-        # для произвольного диапазона даёт агрегированный итог за период.
-        if fact_kw is not None:
-            fact_energy_kwh += fact_kw
-        if plan_kw is not None:
-            plan_energy_kwh += plan_kw
+        # Энергию считаем с учётом фактического шага времени между соседними точками.
+        # Это устраняет перекос, когда ряд имеет не ровно 1-часовой интервал.
+        if prev_ts is not None and ts > prev_ts:
+            step_hours = (ts - prev_ts).total_seconds() / 3600.0
+            if 0 < step_hours <= 2:
+                if fact_kw is not None:
+                    fact_energy_kwh += fact_kw * step_hours
+                if plan_kw is not None:
+                    plan_energy_kwh += plan_kw * step_hours
+
+        prev_ts = ts
 
 
     fact_values = [value for value in history_map.values() if value is not None]

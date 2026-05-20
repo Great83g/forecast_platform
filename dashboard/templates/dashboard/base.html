@@ -913,6 +913,12 @@
     var choices = document.getElementById('aiAssistantChoices');
     if (!toggle || !panel || !input || !send || !mic || !answer || !choices) return;
 
+
+    function getStationIdFromPath() {
+      var match = window.location.pathname.match(/\/dashboard\/station\/(\d+)\//);
+      return match ? parseInt(match[1], 10) : null;
+    }
+
     function getCookie(name) {
       var match = document.cookie.match(new RegExp('(^|; )' + name + '=([^;]+)'));
       return match ? decodeURIComponent(match[2]) : '';
@@ -955,7 +961,7 @@
           'Content-Type': 'application/json',
           'X-CSRFToken': getCookie('csrftoken')
         },
-        body: JSON.stringify({text: text})
+        body: JSON.stringify({text: text, station_id: getStationIdFromPath()})
       })
         .then(function (response) {
           return response.json().then(function (data) {

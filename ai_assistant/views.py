@@ -351,8 +351,24 @@ def assistant_query(request):
             return JsonResponse({"answer": "Введите вопрос для ассистента.", "action": None}, status=400)
 
         intent = _detect_intent(text)
-        station_resolution = _resolve_station(text, request.user)
-        station = station_resolution.station
+
+        requested_station_id = payload.get("station_id")
+        station = None
+        station_resolution = None
+
+        if requested_station_id is not None:
+            try:
+                requested_station_id = int(requested_station_id)
+            except (TypeError, ValueError):
+                return JsonResponse({"answer": "Некорректный station_id.", "action": None}, status=400)
+
+            station = _station_queryset_for_user(request.user).filter(pk=requested_station_id).first()
+            if station is None:
+                return JsonResponse({"answer": "Станция из текущей страницы недоступна для пользователя.", "action": None}, status=404)
+        else:
+            station_resolution = _resolve_station(text, request.user)
+            station = station_resolution.station
+
         station_id = station.pk if station else None
 
         if intent is None:
@@ -363,7 +379,7 @@ def assistant_query(request):
                 },
                 status=400,
             )
-        if station_resolution.needs_clarification:
+        if station_resolution is not None and station_resolution.needs_clarification:
             choices = [{"id": st.pk, "name": st.name} for st in _station_queryset_for_user(request.user).order_by("sort_order", "id")[:8]]
             return JsonResponse({"answer": "Уточните станцию: у вас несколько станций, а в вопросе не удалось однозначно определить нужную.", "action": None, "choices": choices}, status=400)
         if station is None:
