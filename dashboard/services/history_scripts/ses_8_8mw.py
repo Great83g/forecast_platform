@@ -17,10 +17,12 @@ COL_PV_TEMP = 7
 
 MIN_POWER_KW = 0.0001
 HISTORY_SHIFT_HOURS = 1
-POWER_UPPER_BAD_MW = 9.0
-IRR_MAX = 1200.0
+POWER_UPPER_BAD_MW = 10.0
+IRR_MAX = 1500.0
 PV_TEMP_MIN = -40.0
 PV_TEMP_MAX = 110.0
+DAY_HOUR_MIN = 4
+DAY_HOUR_MAX = 20
 
 
 def _empty_df() -> pd.DataFrame:
@@ -28,13 +30,11 @@ def _empty_df() -> pd.DataFrame:
 
 
 def _parse_sheet_date(sheet_name: str) -> pd.Timestamp | None:
-    cleaned = sheet_name.strip().replace("г", "").replace(" ", "")
+    cleaned = str(sheet_name).strip().replace("г", "").replace(" ", "")
     try:
         return pd.to_datetime(cleaned, format="%d.%m.%Y", errors="raise")
     except Exception:
         return None
-
-
 
 
 def _normalize_time_token(value) -> str | None:
@@ -62,6 +62,7 @@ def _normalize_time_token(value) -> str | None:
         return f"{hh:02d}:{mm:02d}"
 
     return None
+
 
 def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> pd.DataFrame:
     raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
@@ -116,7 +117,6 @@ def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
     out = df.copy()
     out["ds"] = pd.to_datetime(out["ds"], errors="coerce") + pd.Timedelta(hours=hours)
     out = out.dropna(subset=["ds"]).copy()
-    out["ds"] = out["ds"].dt.floor("h")
     return out
 
 
@@ -149,31 +149,24 @@ def build_history_dataframe(station) -> pd.DataFrame:
 
     df = pd.concat(parts, ignore_index=True)
     df = _shift_ds_hours(df, HISTORY_SHIFT_HOURS)
+
     df = df.sort_values("ds").drop_duplicates(subset=["ds"], keep="last").reset_index(drop=True)
 
-    df.loc[(df["power_mw"] < 0) | (df["power_mw"] > POWER_UPPER_BAD_MW), "power_mw"] = pd.NA
-    df.loc[(df["irradiation"] < 0) | (df["irradiation"] > IRR_MAX), "irradiation"] = pd.NA
+    df = df[(df["power_mw"].notna()) & (df["power_mw"] >= 0) & (df["power_mw"] <= POWER_UPPER_BAD_MW)].copy()
+    df = df[(df["irradiation"].isna()) | ((df["irradiation"] >= 0) & (df["irradiation"] <= IRR_MAX))].copy()
     df.loc[(df["pv_temp"] < PV_TEMP_MIN) | (df["pv_temp"] > PV_TEMP_MAX), "pv_temp"] = pd.NA
 
-    power_from_mw_kw = pd.to_numeric(df["power_mw"], errors="coerce") * 1000.0
-    power_from_energy_kw = _derive_power_from_energy(df)
+    df["power_kw"] = pd.to_numeric(df["power_mw"], errors="coerce") * 1000.0
 
-    # Для дней с корректной накопленной выработкой (energy_kwh) используем
-    # производную мощность как основную, чтобы дневная энергия сходилась с Excel.
-    day_key = pd.to_datetime(df["ds"]).dt.date
-    has_energy_day = day_key.map(df.groupby(day_key)["energy_kwh"].apply(lambda x: x.notna().sum() >= 2))
-
-    df["power_kw"] = power_from_mw_kw
-    df.loc[has_energy_day, "power_kw"] = power_from_energy_kw.loc[has_energy_day].fillna(
-        power_from_mw_kw.loc[has_energy_day]
-    )
-
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce").dt.floor("h")
     hourly = (
-        df.set_index("ds")[["irradiation", "air_temp", "pv_temp", "power_kw"]]
-        .resample("h")
+        df.groupby("ds", as_index=False)[["power_kw", "irradiation", "air_temp", "pv_temp"]]
         .mean()
-        .reset_index()
+        .sort_values("ds")
+        .reset_index(drop=True)
     )
+
+    hourly = hourly[(hourly["ds"].dt.hour >= DAY_HOUR_MIN) & (hourly["ds"].dt.hour <= DAY_HOUR_MAX)].copy()
     hourly = hourly[hourly["power_kw"].fillna(0) > MIN_POWER_KW].copy()
-    hourly = _align_hourly_day_energy(hourly, daily_targets_kwh)
+
     return hourly[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
