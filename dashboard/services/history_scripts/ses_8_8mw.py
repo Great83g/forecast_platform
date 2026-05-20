@@ -9,6 +9,7 @@ TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}(?::\d{2})?\s*$")
 EXCLUDE_TIME_RE = re.compile(r"(?:прогноз|scada|аскуэ)", re.IGNORECASE)
 
 COL_TIME = 0
+COL_ENERGY_KWH = 1
 COL_POWER_MW = 2
 COL_IRR = 3
 COL_AIR_TEMP = 6
@@ -79,6 +80,7 @@ def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> 
     out = pd.DataFrame(
         {
             "ds": ds,
+            "energy_kwh": pd.to_numeric(block.get(COL_ENERGY_KWH), errors="coerce"),
             "power_mw": pd.to_numeric(block.get(COL_POWER_MW), errors="coerce"),
             "irradiation": pd.to_numeric(block.get(COL_IRR), errors="coerce"),
             "air_temp": pd.to_numeric(block.get(COL_AIR_TEMP), errors="coerce"),
@@ -87,6 +89,64 @@ def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> 
     )
     return out.dropna(subset=["ds"])
 
+
+
+def _derive_power_from_energy(df: pd.DataFrame) -> pd.Series:
+    if df.empty or "energy_kwh" not in df.columns:
+        return pd.Series(pd.NA, index=df.index, dtype="float64")
+
+    work = df.sort_values("ds").copy()
+    day_key = work["ds"].dt.date
+    delta_kwh = work.groupby(day_key)["energy_kwh"].diff()
+    delta_hours = work.groupby(day_key)["ds"].diff().dt.total_seconds() / 3600.0
+    derived_kw = delta_kwh / delta_hours
+
+    max_valid_kw = POWER_UPPER_BAD_MW * 1000.0
+    valid_mask = (delta_hours > 0) & (delta_kwh >= 0) & (derived_kw <= max_valid_kw)
+    result = pd.Series(pd.NA, index=work.index, dtype="float64")
+    result.loc[valid_mask] = derived_kw.loc[valid_mask]
+    return result.reindex(df.index)
+
+
+def _daily_energy_targets_from_cumulative(df: pd.DataFrame) -> dict:
+    if df.empty or "energy_kwh" not in df.columns:
+        return {}
+
+    work = df[["ds", "energy_kwh"]].copy()
+    work["energy_kwh"] = pd.to_numeric(work["energy_kwh"], errors="coerce")
+    work = work.dropna(subset=["ds", "energy_kwh"])
+    if work.empty:
+        return {}
+
+    work["_day"] = pd.to_datetime(work["ds"]).dt.date
+    day_min = work.groupby("_day")["energy_kwh"].min()
+    day_max = work.groupby("_day")["energy_kwh"].max()
+    day_energy = (day_max - day_min).clip(lower=0)
+    return {d: float(v) for d, v in day_energy.items() if pd.notna(v) and v > 0}
+
+
+def _align_hourly_day_energy(hourly: pd.DataFrame, daily_targets_kwh: dict) -> pd.DataFrame:
+    if hourly.empty or not daily_targets_kwh:
+        return hourly
+
+    out = hourly.copy()
+    out["_day"] = pd.to_datetime(out["ds"]).dt.date
+
+    for day, target_kwh in daily_targets_kwh.items():
+        mask = out["_day"] == day
+        if not mask.any():
+            continue
+
+        day_sum = pd.to_numeric(out.loc[mask, "power_kw"], errors="coerce").fillna(0).sum()
+        if day_sum <= 0:
+            continue
+
+        factor = target_kwh / day_sum
+        # ограничиваем коррекцию, чтобы не ломать форму графика
+        if 0.85 <= factor <= 1.15:
+            out.loc[mask, "power_kw"] = pd.to_numeric(out.loc[mask, "power_kw"], errors="coerce") * factor
+
+    return out.drop(columns=["_day"])
 
 def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
     if df.empty or "ds" not in df.columns or not hours:
@@ -134,7 +194,12 @@ def build_history_dataframe(station) -> pd.DataFrame:
     df.loc[(df["irradiation"] < 0) | (df["irradiation"] > IRR_MAX), "irradiation"] = pd.NA
     df.loc[(df["pv_temp"] < PV_TEMP_MIN) | (df["pv_temp"] > PV_TEMP_MAX), "pv_temp"] = pd.NA
 
-    df["power_kw"] = df["power_mw"] * 1000.0
+    power_from_mw_kw = pd.to_numeric(df["power_mw"], errors="coerce") * 1000.0
+    power_from_energy_kw = _derive_power_from_energy(df)
+    # Основной источник — активная мощность из файла;
+    # накопленную энергию используем только для заполнения дыр в power_mw.
+    df["power_kw"] = power_from_mw_kw.fillna(power_from_energy_kw)
+    daily_targets_kwh = _daily_energy_targets_from_cumulative(df)
 
     hourly = (
         df.set_index("ds")[["irradiation", "air_temp", "pv_temp", "power_kw"]]
@@ -143,4 +208,5 @@ def build_history_dataframe(station) -> pd.DataFrame:
         .reset_index()
     )
     hourly = hourly[hourly["power_kw"].fillna(0) > MIN_POWER_KW].copy()
+    hourly = _align_hourly_day_energy(hourly, daily_targets_kwh)
     return hourly[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
