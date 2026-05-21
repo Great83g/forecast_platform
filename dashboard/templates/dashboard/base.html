@@ -921,6 +921,7 @@
     var input = document.getElementById('aiAssistantText');
     var send = document.getElementById('aiAssistantSend');
     var mic = document.getElementById('aiAssistantMic');
+    var appVoiceBridge = (typeof window.StartListen !== 'undefined') ? window.StartListen : null;
     var answer = document.getElementById('aiAssistantAnswer');
     var choices = document.getElementById('aiAssistantChoices');
     var ttsToggle = document.getElementById('aiAssistantTtsToggle');
@@ -1096,10 +1097,26 @@
       if (event.key === 'Enter') submitQuestion();
     });
 
+
+    window.onVoiceRecognized = function (text) {
+      var transcript = (text == null ? '' : String(text)).trim();
+      if (!transcript) {
+        setAnswer('Не удалось распознать голос. Попробуйте текстом.', true);
+        return;
+      }
+      input.value = transcript;
+      submitQuestion();
+    };
+
     var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      mic.disabled = true;
-      mic.title = 'Web Speech API не поддерживается этим браузером';
+      if (appVoiceBridge && typeof appVoiceBridge.postMessage === 'function') {
+        mic.disabled = false;
+        mic.title = 'Голосовой ввод через приложение';
+      } else {
+        mic.disabled = true;
+        mic.title = 'Web Speech API не поддерживается этим браузером';
+      }
       return;
     }
     var recognition = new SpeechRecognition();
@@ -1120,6 +1137,16 @@
       mic.title = 'Голосовой ввод';
     });
     mic.addEventListener('click', function () {
+      if (appVoiceBridge && typeof appVoiceBridge.postMessage === 'function') {
+        try {
+          setAnswer('Слушаю…', false);
+          appVoiceBridge.postMessage('');
+          return;
+        } catch (err) {
+          setAnswer('Не удалось запустить голосовой ввод в приложении. Попробуйте текстом.', true);
+          return;
+        }
+      }
       if (isListening) {
         recognition.stop();
         return;
