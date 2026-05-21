@@ -42,6 +42,8 @@ READ_INTENTS = {
     INTENT_GET_FORECAST_PERIOD,
     INTENT_GET_PLANFACT_PERIOD,
 }
+API_VERSION = "v1"
+
 NAVIGATION_INTENTS = {
     INTENT_OPEN_TOMORROW_FORECAST,
     INTENT_OPEN_PLANFACT_TODAY,
@@ -335,6 +337,22 @@ def _answer_for_read_intent(intent: str, station_id: int) -> str:
     return "Не удалось подготовить ответ по выбранному намерению."
 
 
+
+
+def _json_response(*, status: int, answer: str, action=None, error_code: str | None = None, choices=None, context=None):
+    payload = {
+        "api_version": API_VERSION,
+        "answer": answer,
+        "action": action,
+    }
+    if error_code is not None:
+        payload["error_code"] = error_code
+    if choices is not None:
+        payload["choices"] = choices
+    if context is not None:
+        payload["context"] = context
+    return JsonResponse(payload, status=status)
+
 def _station_by_id_for_user(user, station_id: int) -> Optional[Station]:
     try:
         return _station_queryset_for_user(user).get(pk=station_id)
@@ -355,7 +373,7 @@ def assistant_query(request):
         payload = json.loads(request.body.decode("utf-8") or "{}")
         text = str(payload.get("text") or "").strip()
         if not text:
-            return JsonResponse({"answer": "Введите вопрос для ассистента.", "action": None}, status=400)
+            return _json_response(status=400, answer="Введите вопрос для ассистента.", action=None, error_code="empty_text")
 
         intent = _detect_intent(text)
         context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
@@ -372,18 +390,12 @@ def assistant_query(request):
         station_id = station.pk if station else None
 
         if intent is None:
-            return JsonResponse(
-                {
-                    "answer": "Пока я умею отвечать только по выработке, прогнозу и план/факту за сегодня, вчера или завтра.",
-                    "action": None,
-                },
-                status=400,
-            )
+            return _json_response(status=400, answer="Пока я умею отвечать только по выработке, прогнозу и план/факту за сегодня, вчера или завтра.", action=None, error_code="unsupported_intent")
         if station_resolution.needs_clarification:
             choices = [{"id": st.pk, "name": st.name} for st in _station_queryset_for_user(request.user).order_by("sort_order", "id")[:8]]
-            return JsonResponse({"answer": "Уточните станцию: у вас несколько станций, а в вопросе не удалось однозначно определить нужную.", "action": None, "choices": choices}, status=400)
+            return _json_response(status=400, answer="Уточните станцию: у вас несколько станций, а в вопросе не удалось однозначно определить нужную.", action=None, error_code="ambiguous_station", choices=choices)
         if station is None:
-            return JsonResponse({"answer": "Не найдена доступная солнечная станция для вашего пользователя.", "action": None}, status=404)
+            return _json_response(status=404, answer="Не найдена доступная солнечная станция для вашего пользователя.", action=None, error_code="station_not_found")
 
         if intent in READ_INTENTS:
             if intent in {INTENT_GET_GENERATION_PERIOD, INTENT_GET_FORECAST_PERIOD, INTENT_GET_PLANFACT_PERIOD}:
@@ -417,15 +429,15 @@ def assistant_query(request):
                 else:
                     answer = f"Открываю план/факт за сегодня ({timezone.localdate():%d.%m.%Y}) по {station.name}."
         else:
-            return JsonResponse({"answer": "Этот intent не разрешен на первом этапе.", "action": None}, status=400)
+            return _json_response(status=400, answer="Этот intent не разрешен на первом этапе.", action=None, error_code="intent_not_allowed")
 
         success = True
-        return JsonResponse({"answer": answer, "action": action, "context": {"station_id": station.pk}})
+        return _json_response(status=200, answer=answer, action=action, context={"station_id": station.pk})
     except json.JSONDecodeError:
-        return JsonResponse({"answer": "Некорректный JSON в запросе.", "action": None}, status=400)
+        return _json_response(status=400, answer="Некорректный JSON в запросе.", action=None, error_code="invalid_json")
     except Exception:
         logger.exception("AI assistant query failed")
-        return JsonResponse({"answer": "Ассистент временно не смог обработать запрос.", "action": None}, status=500)
+        return _json_response(status=500, answer="Ассистент временно не смог обработать запрос.", action=None, error_code="internal_error")
     finally:
         logger.info(
             "ai_assistant_query",

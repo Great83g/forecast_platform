@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 from django.contrib.auth.models import User
@@ -59,3 +60,37 @@ class AssistantApiContextTests(TestCase):
         payload = response.json()
         self.assertEqual(payload.get("context", {}).get("station_id"), self.station1.pk)
         self.assertIn("SES 1.2", payload.get("answer", ""))
+
+
+    def test_rejects_invalid_json_payload(self):
+        response = self.client.post(
+            "/api/assistant/query/",
+            data="{bad",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertEqual(payload.get("error_code"), "invalid_json")
+        self.assertEqual(payload.get("api_version"), "v1")
+
+    def test_requires_text(self):
+        response = self.client.post(
+            "/api/assistant/query/",
+            data=json.dumps({"text": "   "}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertEqual(payload.get("error_code"), "empty_text")
+        self.assertEqual(payload.get("api_version"), "v1")
+
+    def test_unsupported_intent_returns_error_code(self):
+        response = self.client.post(
+            "/api/assistant/query/",
+            data=json.dumps({"text": "привет ассистент"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertEqual(payload.get("error_code"), "unsupported_intent")
+        self.assertEqual(payload.get("api_version"), "v1")
