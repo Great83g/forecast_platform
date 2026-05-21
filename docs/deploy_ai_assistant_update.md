@@ -47,3 +47,23 @@ git log -1 --oneline
 Ожидаемо, `/api/assistant/query/` доступен только авторизованным пользователям и только
 методом `POST`, поэтому unauthenticated/head smoke-check нужен лишь для проверки, что URL
 маршрутизируется порталом, а не для полноценного функционального запроса.
+
+
+## Как не терять локально заменённые картинки guide после обновления
+
+Если вы вручную меняете файлы в `dashboard/static/dashboard/img/guide/*.svg`,
+то `git reset --hard origin/main` перезаписывает их из репозитория.
+
+Используйте безопасный скрипт обновления:
+
+```bash
+cd ~/forecast_platform
+source venv/bin/activate
+bash deploy/update_portal_preserve_assets.sh
+```
+
+Что он делает:
+1. Сохраняет ваши локальные `guide/*.svg` в `.local_assets_backup/guide`.
+2. Обновляет код через `git fetch + git reset --hard`.
+3. Возвращает сохранённые локальные картинки обратно.
+4. Запускает `migrate`, `collectstatic`, `restart`, smoke-check.
