@@ -835,7 +835,10 @@
   <div class="ai-assistant-panel" id="aiAssistantPanel" hidden>
     <div class="ai-assistant-header">
       <strong>AI ассистент</strong>
-      <span class="text-muted small">только чтение</span>
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" id="aiAssistantTtsToggle" class="btn btn-sm btn-outline-secondary" aria-pressed="false" title="Включить озвучку">🔊 выкл</button>
+        <span class="text-muted small">только чтение</span>
+      </div>
     </div>
     <label class="form-label small mb-1" for="aiAssistantText">Вопрос</label>
     <div class="input-group input-group-sm mb-2">
@@ -920,10 +923,43 @@
     var mic = document.getElementById('aiAssistantMic');
     var answer = document.getElementById('aiAssistantAnswer');
     var choices = document.getElementById('aiAssistantChoices');
+    var ttsToggle = document.getElementById('aiAssistantTtsToggle');
     if (!toggle || !panel || !input || !send || !mic || !answer || !choices) return;
 
     var lastStationId = null;
     var isListening = false;
+
+
+
+    var ttsEngine = window.speechSynthesis || null;
+    var ttsEnabled = localStorage.getItem('aiAssistantTtsEnabled') === '1';
+
+    function updateTtsButton() {
+      if (!ttsToggle) return;
+      var available = Boolean(ttsEngine && window.SpeechSynthesisUtterance);
+      ttsToggle.disabled = !available;
+      if (!available) {
+        ttsToggle.textContent = '🔇 нет TTS';
+        ttsToggle.title = 'Озвучка не поддерживается этим браузером';
+        ttsToggle.setAttribute('aria-pressed', 'false');
+        return;
+      }
+      ttsToggle.textContent = ttsEnabled ? '🔊 вкл' : '🔊 выкл';
+      ttsToggle.title = ttsEnabled ? 'Выключить озвучку' : 'Включить озвучку';
+      ttsToggle.setAttribute('aria-pressed', ttsEnabled ? 'true' : 'false');
+    }
+
+    function speakText(text) {
+      if (!ttsEnabled || !ttsEngine || !window.SpeechSynthesisUtterance || !text) return;
+      try {
+        ttsEngine.cancel();
+        var utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'ru-RU';
+        utter.rate = 1.0;
+        utter.pitch = 1.0;
+        ttsEngine.speak(utter);
+      } catch (err) {}
+    }
 
     var stationPathMatch = window.location.pathname.match(/\/dashboard\/station\/(\d+)\//);
     if (stationPathMatch) {
@@ -986,6 +1022,7 @@
         })
         .then(function (data) {
           setAnswer(data.answer || 'Готово.', false);
+          speakText(data.answer || '');
           if (data.context && data.context.station_id) lastStationId = data.context.station_id;
           renderChoices(data.choices);
           if (data.action && data.action.type === 'navigate' && data.action.url) {
@@ -1007,6 +1044,15 @@
       if (willOpen) input.focus();
     });
     send.addEventListener('click', submitQuestion);
+    if (ttsToggle) {
+      updateTtsButton();
+      ttsToggle.addEventListener('click', function () {
+        ttsEnabled = !ttsEnabled;
+        localStorage.setItem('aiAssistantTtsEnabled', ttsEnabled ? '1' : '0');
+        if (!ttsEnabled && ttsEngine) ttsEngine.cancel();
+        updateTtsButton();
+      });
+    }
     input.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') submitQuestion();
     });
