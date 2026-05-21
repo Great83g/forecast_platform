@@ -896,6 +896,15 @@
     background: #fff3cd;
     color: #664d03;
   }
+  .ai-mic-recording {
+    animation: aiMicPulse 1s infinite;
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.5);
+  }
+  @keyframes aiMicPulse {
+    0% { box-shadow: 0 0 0 0 rgba(220,53,69,0.5); }
+    70% { box-shadow: 0 0 0 10px rgba(220,53,69,0); }
+    100% { box-shadow: 0 0 0 0 rgba(220,53,69,0); }
+  }
   .ai-assistant-choices {
     display: flex;
     flex-wrap: wrap;
@@ -914,6 +923,7 @@
     if (!toggle || !panel || !input || !send || !mic || !answer || !choices) return;
 
     var lastStationId = null;
+    var isListening = false;
 
     var stationPathMatch = window.location.pathname.match(/\/dashboard\/station\/(\d+)\//);
     if (stationPathMatch) {
@@ -1011,8 +1021,24 @@
     recognition.lang = 'ru-RU';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    mic.addEventListener('click', function () {
+    recognition.addEventListener('start', function () {
+      isListening = true;
+      mic.classList.add('ai-mic-recording');
+      mic.setAttribute('aria-pressed', 'true');
+      mic.title = 'Идет запись… Нажмите еще раз, чтобы остановить';
       setAnswer('Слушаю…', false);
+    });
+    recognition.addEventListener('end', function () {
+      isListening = false;
+      mic.classList.remove('ai-mic-recording');
+      mic.setAttribute('aria-pressed', 'false');
+      mic.title = 'Голосовой ввод';
+    });
+    mic.addEventListener('click', function () {
+      if (isListening) {
+        recognition.stop();
+        return;
+      }
       recognition.start();
     });
     recognition.addEventListener('result', function (event) {
@@ -1024,6 +1050,10 @@
     });
     recognition.addEventListener('error', function () {
       setAnswer('Не удалось распознать голос. Попробуйте текстом.', true);
+      isListening = false;
+      mic.classList.remove('ai-mic-recording');
+      mic.setAttribute('aria-pressed', 'false');
+      mic.title = 'Голосовой ввод';
     });
   })();
 </script>
