@@ -9,6 +9,7 @@ TIME_RE = re.compile(r"^\s*\d{1,2}:\d{2}(?::\d{2})?\s*$")
 EXCLUDE_TIME_RE = re.compile(r"(?:прогноз|scada|аскуэ)", re.IGNORECASE)
 
 COL_TIME = 0
+COL_ENERGY_KWH = 1
 COL_POWER_MW = 2
 COL_IRR = 3
 COL_AIR_TEMP = 6
@@ -16,10 +17,12 @@ COL_PV_TEMP = 7
 
 MIN_POWER_KW = 0.0001
 HISTORY_SHIFT_HOURS = 1
-POWER_UPPER_BAD_MW = 9.0
-IRR_MAX = 1200.0
+POWER_UPPER_BAD_MW = 10.0
+IRR_MAX = 1500.0
 PV_TEMP_MIN = -40.0
 PV_TEMP_MAX = 110.0
+DAY_HOUR_MIN = 4
+DAY_HOUR_MAX = 20
 
 
 def _empty_df() -> pd.DataFrame:
@@ -27,13 +30,11 @@ def _empty_df() -> pd.DataFrame:
 
 
 def _parse_sheet_date(sheet_name: str) -> pd.Timestamp | None:
-    cleaned = sheet_name.strip().replace("г", "").replace(" ", "")
+    cleaned = str(sheet_name).strip().replace("г", "").replace(" ", "")
     try:
         return pd.to_datetime(cleaned, format="%d.%m.%Y", errors="raise")
     except Exception:
         return None
-
-
 
 
 def _normalize_time_token(value) -> str | None:
@@ -62,6 +63,7 @@ def _normalize_time_token(value) -> str | None:
 
     return None
 
+
 def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> pd.DataFrame:
     raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
     if raw is None or raw.empty or COL_TIME not in raw.columns:
@@ -79,6 +81,7 @@ def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> 
     out = pd.DataFrame(
         {
             "ds": ds,
+            "energy_kwh": pd.to_numeric(block.get(COL_ENERGY_KWH), errors="coerce"),
             "power_mw": pd.to_numeric(block.get(COL_POWER_MW), errors="coerce"),
             "irradiation": pd.to_numeric(block.get(COL_IRR), errors="coerce"),
             "air_temp": pd.to_numeric(block.get(COL_AIR_TEMP), errors="coerce"),
@@ -88,6 +91,25 @@ def _read_sheet_rows(file_path: Path, sheet_name: str, day_ts: pd.Timestamp) -> 
     return out.dropna(subset=["ds"])
 
 
+
+def _derive_power_from_energy(df: pd.DataFrame) -> pd.Series:
+    if df.empty or "energy_kwh" not in df.columns:
+        return pd.Series(pd.NA, index=df.index, dtype="float64")
+
+    work = df.sort_values("ds").copy()
+    day_key = work["ds"].dt.date
+    delta_kwh = work.groupby(day_key)["energy_kwh"].diff()
+    delta_hours = work.groupby(day_key)["ds"].diff().dt.total_seconds() / 3600.0
+    derived_kw = delta_kwh / delta_hours
+
+    max_valid_kw = POWER_UPPER_BAD_MW * 1000.0
+    valid_mask = (delta_hours > 0) & (delta_kwh >= 0) & (derived_kw <= max_valid_kw)
+    result = pd.Series(pd.NA, index=work.index, dtype="float64")
+    result.loc[valid_mask] = derived_kw.loc[valid_mask]
+    return result.reindex(df.index)
+
+
+
 def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
     if df.empty or "ds" not in df.columns or not hours:
         return df
@@ -95,7 +117,6 @@ def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
     out = df.copy()
     out["ds"] = pd.to_datetime(out["ds"], errors="coerce") + pd.Timedelta(hours=hours)
     out = out.dropna(subset=["ds"]).copy()
-    out["ds"] = out["ds"].dt.floor("h")
     return out
 
 
@@ -128,19 +149,24 @@ def build_history_dataframe(station) -> pd.DataFrame:
 
     df = pd.concat(parts, ignore_index=True)
     df = _shift_ds_hours(df, HISTORY_SHIFT_HOURS)
+
     df = df.sort_values("ds").drop_duplicates(subset=["ds"], keep="last").reset_index(drop=True)
 
-    df.loc[(df["power_mw"] < 0) | (df["power_mw"] > POWER_UPPER_BAD_MW), "power_mw"] = pd.NA
-    df.loc[(df["irradiation"] < 0) | (df["irradiation"] > IRR_MAX), "irradiation"] = pd.NA
+    df = df[(df["power_mw"].notna()) & (df["power_mw"] >= 0) & (df["power_mw"] <= POWER_UPPER_BAD_MW)].copy()
+    df = df[(df["irradiation"].isna()) | ((df["irradiation"] >= 0) & (df["irradiation"] <= IRR_MAX))].copy()
     df.loc[(df["pv_temp"] < PV_TEMP_MIN) | (df["pv_temp"] > PV_TEMP_MAX), "pv_temp"] = pd.NA
 
-    df["power_kw"] = df["power_mw"] * 1000.0
+    df["power_kw"] = pd.to_numeric(df["power_mw"], errors="coerce") * 1000.0
 
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce").dt.floor("h")
     hourly = (
-        df.set_index("ds")[["irradiation", "air_temp", "pv_temp", "power_kw"]]
-        .resample("h")
+        df.groupby("ds", as_index=False)[["power_kw", "irradiation", "air_temp", "pv_temp"]]
         .mean()
-        .reset_index()
+        .sort_values("ds")
+        .reset_index(drop=True)
     )
+
+    hourly = hourly[(hourly["ds"].dt.hour >= DAY_HOUR_MIN) & (hourly["ds"].dt.hour <= DAY_HOUR_MAX)].copy()
     hourly = hourly[hourly["power_kw"].fillna(0) > MIN_POWER_KW].copy()
+
     return hourly[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
