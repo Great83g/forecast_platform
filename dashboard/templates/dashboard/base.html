@@ -932,6 +932,7 @@
 
 
     var ttsEngine = window.speechSynthesis || null;
+    var appTtsBridge = window.Ozvuchka || null;
     var ttsEnabled = false;
     try {
       ttsEnabled = (window.localStorage && localStorage.getItem('aiAssistantTtsEnabled') === '1');
@@ -953,11 +954,11 @@
 
     function updateTtsButton() {
       if (!ttsToggle) return;
-      var available = Boolean(ttsEngine && window.SpeechSynthesisUtterance && (cachedVoices.length || (ttsEngine.getVoices && ttsEngine.getVoices().length)));
+      var available = Boolean((appTtsBridge && typeof appTtsBridge.postMessage === 'function') || (ttsEngine && window.SpeechSynthesisUtterance && (cachedVoices.length || (ttsEngine.getVoices && ttsEngine.getVoices().length))));
       ttsToggle.disabled = !available;
       if (!available) {
         ttsToggle.textContent = '🔇 нет TTS';
-        ttsToggle.title = 'Озвучка не поддерживается этим браузером';
+        ttsToggle.title = 'Озвучка не поддерживается в этом браузере/приложении';
         ttsToggle.setAttribute('aria-pressed', 'false');
         return;
       }
@@ -967,7 +968,14 @@
     }
 
     function speakText(text) {
-      if (!ttsEnabled || !ttsEngine || !window.SpeechSynthesisUtterance || !text) return;
+      if (!ttsEnabled || !text) return;
+      if (appTtsBridge && typeof appTtsBridge.postMessage === 'function') {
+        try {
+          appTtsBridge.postMessage(String(text));
+          return;
+        } catch (err) {}
+      }
+      if (!ttsEngine || !window.SpeechSynthesisUtterance) return;
       try {
         ttsEngine.cancel();
         var utter = new SpeechSynthesisUtterance(text);
