@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase, override_settings
@@ -94,3 +95,29 @@ class AssistantApiContextTests(TestCase):
         payload = response.json()
         self.assertEqual(payload.get("error_code"), "unsupported_intent")
         self.assertEqual(payload.get("api_version"), "v1")
+
+
+    @patch("ai_assistant.views.services.get_llm_fallback_answer", return_value="LLM ответ")
+    def test_unsupported_intent_uses_llm_fallback_when_available(self, llm_mock):
+        response = self.client.post(
+            "/api/assistant/query/",
+            data=json.dumps({"text": "объясни почему выработка просела"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload.get("answer"), "LLM ответ")
+        self.assertEqual(payload.get("api_version"), "v1")
+        llm_mock.assert_called_once()
+
+    @patch("ai_assistant.views.services.get_llm_fallback_answer", return_value=None)
+    def test_unsupported_intent_keeps_old_error_without_llm_answer(self, llm_mock):
+        response = self.client.post(
+            "/api/assistant/query/",
+            data=json.dumps({"text": "объясни почему выработка просела"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertEqual(payload.get("error_code"), "unsupported_intent")
+        llm_mock.assert_called_once()

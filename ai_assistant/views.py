@@ -390,6 +390,11 @@ def assistant_query(request):
         station_id = station.pk if station else None
 
         if intent is None:
+            fallback_station_name = station.name if station is not None else None
+            llm_answer = services.get_llm_fallback_answer(question=text, station_name=fallback_station_name)
+            if llm_answer:
+                success = True
+                return _json_response(status=200, answer=llm_answer, action=None, context={"station_id": station.pk} if station else None)
             return _json_response(status=400, answer="Пока я умею отвечать только по выработке, прогнозу и план/факту за сегодня, вчера или завтра.", action=None, error_code="unsupported_intent")
         if station_resolution.needs_clarification:
             choices = [{"id": st.pk, "name": st.name} for st in _station_queryset_for_user(request.user).order_by("sort_order", "id")[:8]]

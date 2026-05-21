@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from typing import Optional
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.db.models import Avg
 from django.utils import timezone
 
@@ -313,3 +314,41 @@ def build_navigation_action(intent: str, station_id: int):
         query = urlencode({"date_from": target_date.isoformat(), "date_to": target_date.isoformat()})
         return {"type": "navigate", "url": f"/dashboard/station/{station.pk}/?{query}"}
     return None
+
+
+def get_llm_fallback_answer(*, question: str, station_name: str | None = None) -> str | None:
+    if not getattr(settings, "AI_ASSISTANT_LLM_ENABLED", False):
+        return None
+    api_key = (getattr(settings, "OPENAI_API_KEY", "") or "").strip()
+    if not api_key:
+        return None
+
+    try:
+        from openai import OpenAI
+    except Exception:
+        return None
+
+    system_prompt = (
+        "Ты помощник портала InTech-Forecast. Отвечай только по теме солнечной генерации, "
+        "прогноза и план/факт. Если данных недостаточно, прямо скажи об этом. "
+        "Не придумывай факты и числа."
+    )
+    user_prompt = question.strip()
+    if station_name:
+        user_prompt += f"\n\nКонтекст станции: {station_name}"
+
+    try:
+        client = OpenAI(api_key=api_key, timeout=getattr(settings, "OPENAI_TIMEOUT_SECONDS", 20))
+        response = client.responses.create(
+            model=getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini"),
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_output_tokens=300,
+        )
+        text = getattr(response, "output_text", "") or ""
+        text = text.strip()
+        return text or None
+    except Exception:
+        return None
