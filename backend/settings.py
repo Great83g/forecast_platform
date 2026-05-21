@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     "dashboard",
     "wind",
     "solar_calculator",
+    "ai_assistant",
 ]
 
 # === MIDDLEWARE ===
@@ -102,6 +103,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "backend.context_processors.project_settings",
             ],
         },
     },
@@ -182,3 +184,10 @@ HCAPTCHA_SECRET_KEY = os.getenv("HCAPTCHA_SECRET_KEY", "")
 
 # === Bitrix24 ===
 BITRIX_WEBHOOK_URL = os.getenv("BITRIX_WEBHOOK_URL", "https://portal.care-tech.kz/rest/1/alg2q93ky7mw2oly/")
+
+
+# === AI Assistant LLM fallback ===
+AI_ASSISTANT_LLM_ENABLED = os.getenv("AI_ASSISTANT_LLM_ENABLED", "false").lower() == "true"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+OPENAI_TIMEOUT_SECONDS = int(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
