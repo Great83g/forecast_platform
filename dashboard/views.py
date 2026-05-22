@@ -1000,6 +1000,61 @@ def station_detail(request, pk: int):
     else:
         mape_percent = None
 
+    # Диагностика модели
+    morning_mape_values = []
+    peak_points_count = 0
+    peak_underforecast_count = 0
+    peak_threshold_kw = peak_fact_kw * 0.8 if peak_fact_kw > 0 else None
+
+    paired_points_by_ts = {
+        ts: (history_map.get(ts), forecast_map.get(ts))
+        for ts in all_timestamps
+        if history_map.get(ts) is not None and forecast_map.get(ts) is not None and history_map.get(ts) > 0
+    }
+
+    for ts, (fact_kw, plan_kw) in paired_points_by_ts.items():
+        ts_local = timezone.localtime(ts) if timezone.is_aware(ts) else ts
+        if 6 <= ts_local.hour <= 9 and fact_kw >= min_fact_for_mape_kw:
+            morning_mape_values.append(abs((fact_kw - plan_kw) / fact_kw) * 100.0)
+
+        if peak_threshold_kw is not None and fact_kw >= peak_threshold_kw:
+            peak_points_count += 1
+            if plan_kw < fact_kw:
+                peak_underforecast_count += 1
+
+    morning_mape_percent = round(sum(morning_mape_values) / len(morning_mape_values), 1) if morning_mape_values else None
+    peak_underforecast_share_percent = round(peak_underforecast_count * 100.0 / peak_points_count, 1) if peak_points_count else None
+    energy_bias_percent = round(((plan_energy_kwh - fact_energy_kwh) / fact_energy_kwh) * 100.0, 1) if fact_energy_kwh > 0 else None
+
+    suggested_shift_hours = 0
+    suggested_shift_points = 0
+    if len(paired_points_by_ts) >= 6:
+        best_shift = 0
+        best_mae = None
+        max_shift = 3
+
+        for shift_hours in range(-max_shift, max_shift + 1):
+            shift_delta = timedelta(hours=shift_hours)
+            errors = []
+            for ts, (fact_kw, _) in paired_points_by_ts.items():
+                shifted_ts = ts + shift_delta
+                shifted_pair = paired_points_by_ts.get(shifted_ts)
+                if shifted_pair is None:
+                    continue
+                shifted_plan_kw = shifted_pair[1]
+                errors.append(abs(fact_kw - shifted_plan_kw))
+
+            if not errors:
+                continue
+
+            mae = sum(errors) / len(errors)
+            if best_mae is None or mae < best_mae:
+                best_mae = mae
+                best_shift = shift_hours
+                suggested_shift_points = len(errors)
+
+        suggested_shift_hours = best_shift
+
     context = {
         "station": st,
         "date_from": date_from,
@@ -1020,6 +1075,12 @@ def station_detail(request, pk: int):
         "deviation_percent": round(((fact_energy_kwh - plan_energy_kwh) / plan_energy_kwh * 100.0), 1) if plan_energy_kwh else None,
         "mape_percent": round(mape_percent, 1) if mape_percent is not None else None,
         "mape_points_count": mape_points_count,
+        "morning_mape_percent": morning_mape_percent,
+        "peak_underforecast_share_percent": peak_underforecast_share_percent,
+        "peak_points_count": peak_points_count,
+        "energy_bias_percent": energy_bias_percent,
+        "suggested_shift_hours": suggested_shift_hours,
+        "suggested_shift_points": suggested_shift_points,
         "export_query": urlencode({"date_from": date_from, "date_to": date_to}),
     }
     return render(request, "dashboard/station_detail.html", context)
