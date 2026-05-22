@@ -822,13 +822,16 @@ def station_detail(request, pk: int):
 
     history_qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
     forecast_qs = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_MAIN)
+    forecast_qs_test = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_TEST)
 
     if dt_from:
         history_qs = history_qs.filter(timestamp__gte=dt_from)
         forecast_qs = forecast_qs.filter(timestamp__gte=dt_from)
+        forecast_qs_test = forecast_qs_test.filter(timestamp__gte=dt_from)
     if dt_to:
         history_qs = history_qs.filter(timestamp__lte=dt_to)
         forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
+        forecast_qs_test = forecast_qs_test.filter(timestamp__lte=dt_to)
 
     is_single_day_range = bool(dt_from and dt_to and dt_from.date() == dt_to.date())
 
@@ -854,12 +857,26 @@ def station_detail(request, pk: int):
             )
             .order_by("bucket")
         )
+        forecast_rows_test = (
+            forecast_qs_test.annotate(bucket=TruncHour("timestamp"))
+            .values("bucket")
+            .annotate(
+                pred_final=Avg("pred_final"),
+                pred_heur=Avg("pred_heur"),
+            )
+            .order_by("bucket")
+        )
+        forecast_rows_test = forecast_qs_test.values("timestamp").annotate(
+            pred_final=Avg("pred_final"),
+            pred_heur=Avg("pred_heur"),
+        ).order_by("timestamp")
         history_map = {
             row["bucket"]: float(row["power_kw"])
             for row in history_rows
             if row.get("power_kw") is not None
         }
         forecast_map = _build_forecast_plan_map(forecast_rows, "bucket")
+        forecast_test_map = _build_forecast_plan_map(forecast_rows_test, "bucket")
         irr_fact_map = {
             row["bucket"]: float(row["irradiation"])
             for row in history_rows
@@ -898,6 +915,7 @@ def station_detail(request, pk: int):
             if row.get("power_kw") is not None
         }
         forecast_map = _build_forecast_plan_map(forecast_rows, "timestamp")
+        forecast_test_map = _build_forecast_plan_map(forecast_rows_test, "timestamp")
         irr_fact_map = {
             row["timestamp"]: float(row["irradiation"])
             for row in history_rows
@@ -923,6 +941,7 @@ def station_detail(request, pk: int):
     labels = []
     fact_series = []
     plan_series = []
+    plan_test_series = []
     irr_fact_series = []
     irr_plan_series = []
     temp_fact_series = []
@@ -937,6 +956,7 @@ def station_detail(request, pk: int):
     all_timestamps = sorted(
         set(history_map.keys())
         | set(forecast_map.keys())
+        | set(forecast_test_map.keys())
         | set(irr_fact_map.keys())
         | set(irr_plan_map.keys())
         | set(temp_fact_map.keys())
@@ -952,17 +972,20 @@ def station_detail(request, pk: int):
     for ts in all_timestamps:
         fact_kw = history_map.get(ts)
         plan_kw = forecast_map.get(ts)
+        plan_test_kw = forecast_test_map.get(ts)
         merged_points.append(
             {
                 "timestamp": ts,
                 "fact_mw": (fact_kw / 1000.0) if fact_kw is not None else None,
                 "plan_mw": (plan_kw / 1000.0) if plan_kw is not None else None,
+                "plan_test_mw": (plan_test_kw / 1000.0) if plan_test_kw is not None else None,
             }
         )
         ts_local = timezone.localtime(ts) if timezone.is_aware(ts) else ts
         labels.append(ts_local.strftime("%H:%M") if is_single_day_range else ts_local.strftime("%d.%m %H:%M"))
         fact_series.append(round(fact_kw / 1000.0, 4) if fact_kw is not None else None)
         plan_series.append(round(plan_kw / 1000.0, 4) if plan_kw is not None else None)
+        plan_test_series.append(round(plan_test_kw / 1000.0, 4) if plan_test_kw is not None else None)
         irr_fact_series.append(round(irr_fact_map.get(ts), 2) if irr_fact_map.get(ts) is not None else None)
         irr_plan_series.append(round(irr_plan_map.get(ts), 2) if irr_plan_map.get(ts) is not None else None)
         temp_fact_series.append(round(temp_fact_map.get(ts), 2) if temp_fact_map.get(ts) is not None else None)
@@ -988,6 +1011,7 @@ def station_detail(request, pk: int):
     for ts in all_timestamps:
         fact_kw = history_map.get(ts)
         plan_kw = forecast_map.get(ts)
+        plan_test_kw = forecast_test_map.get(ts)
         if fact_kw is None or plan_kw is None or fact_kw <= 0:
             continue
         if fact_kw < min_fact_for_mape_kw:
@@ -1062,6 +1086,7 @@ def station_detail(request, pk: int):
         "labels": labels,
         "fact_series": fact_series,
         "plan_series": plan_series,
+        "plan_test_series": plan_test_series,
         "irr_fact_series": irr_fact_series,
         "irr_plan_series": irr_plan_series,
         "temp_fact_series": temp_fact_series,
@@ -1097,12 +1122,15 @@ def station_plan_fact_export(request, pk: int):
 
     history_qs = SolarRecord.objects.filter(station=st, history_scope=SolarRecord.HISTORY_SCOPE_MAIN)
     forecast_qs = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_MAIN)
+    forecast_qs_test = SolarForecast.objects.filter(station=st, forecast_scope=SolarForecast.SCOPE_TEST)
     if dt_from:
         history_qs = history_qs.filter(timestamp__gte=dt_from)
         forecast_qs = forecast_qs.filter(timestamp__gte=dt_from)
+        forecast_qs_test = forecast_qs_test.filter(timestamp__gte=dt_from)
     if dt_to:
         history_qs = history_qs.filter(timestamp__lte=dt_to)
         forecast_qs = forecast_qs.filter(timestamp__lte=dt_to)
+        forecast_qs_test = forecast_qs_test.filter(timestamp__lte=dt_to)
 
     history_df = pd.DataFrame(list(history_qs.values("timestamp").annotate(fact_kw=Avg("power_kw")).order_by("timestamp")))
     forecast_rows = list(
