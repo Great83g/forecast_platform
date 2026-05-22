@@ -855,7 +855,11 @@
     bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
     position: fixed;
     right: max(12px, calc(env(safe-area-inset-right, 0px) + 10px));
-    z-index: 2000;
+    z-index: 2147483647; /* max */
+    pointer-events: none;
+  }
+  .ai-assistant-widget > * {
+    pointer-events: auto;
   }
   .ai-assistant-toggle {
     align-items: center;
@@ -923,18 +927,19 @@
     padding-right: 10px;
   }
   @media (max-width: 576px) {
-    .ai-assistant-widget.is-station-list {
-      bottom: max(132px, calc(env(safe-area-inset-bottom, 0px) + 124px));
-    }
-  }
-  @media (max-width: 576px) {
     .ai-assistant-widget {
-      bottom: max(82px, calc(env(safe-area-inset-bottom, 0px) + 74px));
-      right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+      bottom: max(96px, calc(env(safe-area-inset-bottom, 0px) + 88px));
+      right: max(8px, calc(env(safe-area-inset-right, 0px) + 6px));
     }
+
+    /* именно главная /dashboard/ */
+    .ai-assistant-widget.is-station-list {
+      bottom: max(170px, calc(env(safe-area-inset-bottom, 0px) + 162px));
+    }
+
     .ai-assistant-toggle {
-      height: 60px;
-      width: 60px;
+      height: 62px;
+      width: 62px;
     }
     #aiAssistantMic {
       font-size: 1.4rem;
