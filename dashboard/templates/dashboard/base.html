@@ -923,6 +923,10 @@
     padding-right: 10px;
   }
   @media (max-width: 576px) {
+    .ai-assistant-widget {
+      bottom: max(82px, calc(env(safe-area-inset-bottom, 0px) + 74px));
+      right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+    }
     .ai-assistant-toggle {
       height: 60px;
       width: 60px;
