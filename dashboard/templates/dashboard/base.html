@@ -932,9 +932,16 @@
       right: max(8px, calc(env(safe-area-inset-right, 0px) + 6px));
     }
 
-    /* именно главная /dashboard/ */
+    /* именно главная /dashboard/ — уводим влево, чтобы не конфликтовать с синим виджетом справа */
     .ai-assistant-widget.is-station-list {
-      bottom: max(170px, calc(env(safe-area-inset-bottom, 0px) + 162px));
+      left: max(8px, calc(env(safe-area-inset-left, 0px) + 6px));
+      right: auto;
+      bottom: max(96px, calc(env(safe-area-inset-bottom, 0px) + 88px));
+    }
+
+    .ai-assistant-panel {
+      left: 0;
+      right: auto;
     }
 
     .ai-assistant-toggle {
