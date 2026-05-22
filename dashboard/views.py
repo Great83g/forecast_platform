@@ -866,10 +866,6 @@ def station_detail(request, pk: int):
             )
             .order_by("bucket")
         )
-        forecast_rows_test = forecast_qs_test.values("timestamp").annotate(
-            pred_final=Avg("pred_final"),
-            pred_heur=Avg("pred_heur"),
-        ).order_by("timestamp")
         history_map = {
             row["bucket"]: float(row["power_kw"])
             for row in history_rows
@@ -908,6 +904,10 @@ def station_detail(request, pk: int):
             pred_heur=Avg("pred_heur"),
             irradiation_fc=Avg("irradiation_fc"),
             air_temp_fc=Avg("air_temp_fc"),
+        ).order_by("timestamp")
+        forecast_rows_test = forecast_qs_test.values("timestamp").annotate(
+            pred_final=Avg("pred_final"),
+            pred_heur=Avg("pred_heur"),
         ).order_by("timestamp")
         history_map = {
             row["timestamp"]: float(row["power_kw"])
