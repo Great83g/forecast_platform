@@ -913,6 +913,25 @@
     flex-wrap: wrap;
     gap: 6px;
   }
+  #aiAssistantMic {
+    align-items: center;
+    display: inline-flex;
+    font-size: 1.25rem;
+    justify-content: center;
+    min-width: 44px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  @media (max-width: 576px) {
+    #aiAssistantMic {
+      font-size: 1.4rem;
+      min-width: 52px;
+      order: 3;
+    }
+    #aiAssistantSend {
+      order: 2;
+    }
+  }
 </style>
 <script>
   (function () {
