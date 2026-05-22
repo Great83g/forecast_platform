@@ -852,10 +852,10 @@
 </div>
 <style>
   .ai-assistant-widget {
-    bottom: 20px;
+    bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
     position: fixed;
-    right: 20px;
-    z-index: 1050;
+    right: max(12px, calc(env(safe-area-inset-right, 0px) + 10px));
+    z-index: 2000;
   }
   .ai-assistant-toggle {
     align-items: center;
@@ -912,6 +912,29 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+  #aiAssistantMic {
+    align-items: center;
+    display: inline-flex;
+    font-size: 1.25rem;
+    justify-content: center;
+    min-width: 44px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  @media (max-width: 576px) {
+    .ai-assistant-toggle {
+      height: 60px;
+      width: 60px;
+    }
+    #aiAssistantMic {
+      font-size: 1.4rem;
+      min-width: 52px;
+      order: 3;
+    }
+    #aiAssistantSend {
+      order: 2;
+    }
   }
 </style>
 <script>
