@@ -307,23 +307,18 @@ def _historical_tracker_hourly_profile_mw(st: Station, ac_cap_mw: float) -> Dict
     return profile
 
 
-def _is_shu_100_station(st: Station) -> bool:
-    name = str(getattr(st, "name", "") or "").strip().lower()
-    return "shu" in name and "100" in name
-
-
-def _apply_shu_midday_expected_floor(
+def _apply_tracker_midday_expected_floor(
     y_final: np.ndarray,
     feat: pd.DataFrame,
     st: Station,
     ac_cap_mw: float,
 ) -> np.ndarray:
     """
-    Shu 100 MW guardrail:
+    Tracker midday guardrail (all single-axis tracker stations):
     if Irradiation >= 750 and hour in [09..16], forecast cannot be below
     historical expected output by (hour, irradiation-bin), capped by AC.
     """
-    if not _is_shu_100_station(st):
+    if not _is_single_axis_tracker(st):
         return y_final
 
     rows = list(
@@ -1766,7 +1761,7 @@ def run_forecast_for_station(
         if early_morning_caps:
             logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
 
-    y_final = _apply_shu_midday_expected_floor(y_final, feat, st, capacity_mw)
+    y_final = _apply_tracker_midday_expected_floor(y_final, feat, st, capacity_mw)
 
     guardrail_df = pd.DataFrame(
         {

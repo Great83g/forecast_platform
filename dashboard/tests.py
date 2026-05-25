@@ -23,7 +23,7 @@ from dashboard.services.forecast_engine import (
     _compute_features,
     _apply_early_morning_history_cap,
     _apply_single_axis_tracker_postprocessing,
-    _apply_shu_midday_expected_floor,
+    _apply_tracker_midday_expected_floor,
     _is_single_axis_tracker,
     WeatherFetchResult,
     run_forecast_for_station,
@@ -1021,13 +1021,14 @@ class SingleAxisTrackerPostProcessingTests(TestCase):
         self.assertIn("tracker_reference_mw", feat.columns)
 
 
-class ShuMiddayFloorTests(TestCase):
+class TrackerMiddayFloorTests(TestCase):
     def setUp(self):
         user = User.objects.create_user(username="shu-floor", password="pass")
         org = Organization.objects.create(name="Shu Org", owner=user)
         self.station = Station.objects.create(
             org=org,
             name="Shu 100 MW",
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
             capacity_mw=84.0,
             capacity_ac_kw=85000,
             capacity_dc_kw=100000,
@@ -1054,10 +1055,29 @@ class ShuMiddayFloorTests(TestCase):
         )
         y = np.array([55.0, 40.0], dtype=float)
 
-        corrected = _apply_shu_midday_expected_floor(y, feat, self.station, ac_cap_mw=85.0)
+        corrected = _apply_tracker_midday_expected_floor(y, feat, self.station, ac_cap_mw=85.0)
 
         self.assertGreaterEqual(corrected[0], 74.0)
         self.assertEqual(corrected[1], 40.0)
+
+    def test_does_not_apply_for_fixed_mount(self):
+        fixed_station = Station.objects.create(
+            org=self.station.org,
+            name="Fixed 50 MW",
+            mount_type=Station.MOUNT_FIXED,
+            capacity_mw=50.0,
+            capacity_ac_kw=50000,
+            capacity_dc_kw=60000,
+        )
+        feat = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-06-01 12:00:00"]),
+                "Irradiation": [900.0],
+            }
+        )
+        y = np.array([30.0], dtype=float)
+        corrected = _apply_tracker_midday_expected_floor(y, feat, fixed_station, ac_cap_mw=50.0)
+        self.assertEqual(float(corrected[0]), 30.0)
 
 
 class StationAutoHistoryStandardFileTests(TestCase):
