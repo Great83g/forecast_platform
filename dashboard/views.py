@@ -1393,6 +1393,7 @@ def station_forecast_list(request, pk: int):
     manual_snow_dates = request.GET.get("manual_snow_dates") or ""
     target_dates_raw = request.GET.get("target_dates") or ""
     manual_auto_send = request.GET.get("manual_auto_send") in {"1", "true", "on", "yes"}
+    manual_auto_test = request.GET.get("manual_auto_test") in {"1", "true", "on", "yes"}
     forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
     schedule = ForecastSchedule.objects.filter(station=st).first()
     if schedule:
@@ -1431,6 +1432,9 @@ def station_forecast_list(request, pk: int):
             "days": schedule.days if schedule else days,
             "horizon_mode": schedule.horizon_mode if schedule else horizon_mode,
             "providers": (schedule.providers.split(",") if schedule and schedule.providers else selected_providers),
+            "test_enabled": schedule.test_enabled if schedule else False,
+            "test_run_time": schedule.test_run_time.strftime("%H:%M") if schedule and schedule.test_run_time else "07:00",
+            "test_providers": (schedule.test_providers.split(",") if schedule and schedule.test_providers else []),
             "emails": schedule.emails if schedule else request.GET.get("emails", ""),
             "manual_snow_enable": schedule.manual_snow_enable if schedule else manual_snow_enable,
             "manual_snow_factor": schedule.manual_snow_factor if schedule else manual_snow_factor,
@@ -1495,6 +1499,7 @@ def station_forecast_list(request, pk: int):
             "manual_snow_dates": manual_snow_dates,
             "target_dates_raw": target_dates_raw,
             "manual_auto_send": manual_auto_send,
+            "manual_auto_test": manual_auto_test,
             "open_meteo_only": open_meteo_only,
             "visual_crossing_only": visual_crossing_only,
             "horizon_mode": horizon_mode,
@@ -1526,6 +1531,7 @@ def station_forecast_run(request, pk: int):
         manual_snow_dates_raw = request.GET.get("manual_snow_dates") or ""
         target_dates_raw = request.GET.get("target_dates") or ""
         manual_auto_send = request.GET.get("manual_auto_send") in {"1", "true", "on", "yes"}
+        manual_auto_test = request.GET.get("manual_auto_test") in {"1", "true", "on", "yes"}
         forecast_scope = _normalize_forecast_scope(request.GET.get("scope") or "test")
         schedule = ForecastSchedule.objects.filter(station=st).first()
         if schedule:
@@ -1616,6 +1622,19 @@ def station_forecast_run(request, pk: int):
                 )
                 res = run_forecast_for_station(st.pk, use_models=False, **run_kwargs)
 
+            res_test_auto = None
+            if manual_auto_test and forecast_scope != "test":
+                test_kwargs = dict(run_kwargs)
+                test_kwargs["forecast_scope"] = "test"
+                try:
+                    res_test_auto = run_forecast_for_station(st.pk, use_models=not heuristic_only, **test_kwargs)
+                except Exception as test_exc:
+                    logger.exception(
+                        "[FORECAST] auto test run failed station=%s",
+                        st.pk,
+                    )
+                    res_test_auto = {"ok": False, "error": str(test_exc)}
+
             if res.get("ok"):
                 actual_days = res.get("days") or run_days
                 msg = f"Прогноз построен: {res.get('count')} строк, days={actual_days}, weather={res.get('weather_source')}, scope={forecast_scope}"
@@ -1647,6 +1666,13 @@ def station_forecast_run(request, pk: int):
                 if not res.get("xgb_ok"):
                     xgb_err = res.get("xgb_error") or "FAIL"
                     msg += f" | XGB: {xgb_err}"
+                if res_test_auto is not None:
+                    if res_test_auto.get("ok"):
+                        msg += " | Авто-тест: OK"
+                    else:
+                        msg += f" | Авто-тест: FAIL ({res_test_auto})"
+                elif manual_auto_test and forecast_scope == "test":
+                    msg += " | Авто-тест: уже выполнен (текущая база test)"
                 messages.success(request, msg)
             else:
                 messages.error(request, f"Ошибка прогноза: {res}")
@@ -1663,6 +1689,7 @@ def station_forecast_run(request, pk: int):
                 "manual_snow_dates": manual_snow_dates_raw,
                 "target_dates": target_dates_raw,
                 "manual_auto_send": "1" if manual_auto_send else "",
+                "manual_auto_test": "1" if manual_auto_test else "",
                 "open_meteo_only": "1" if open_meteo_only else "",
                 "visual_crossing_only": "1" if visual_crossing_only else "",
                 "horizon_mode": horizon_mode,
@@ -1700,6 +1727,9 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.days = form.cleaned_data["days"]
     schedule.horizon_mode = form.cleaned_data.get("horizon_mode") or "weekday_calendar"
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
+    schedule.test_enabled = form.cleaned_data.get("test_enabled", False)
+    schedule.test_run_time = form.cleaned_data.get("test_run_time") or schedule.run_time
+    schedule.test_providers = ",".join(form.cleaned_data.get("test_providers") or [])
     schedule.emails = form.cleaned_data.get("emails", "")
     schedule.manual_snow_enable = form.cleaned_data.get("manual_snow_enable", False)
     schedule.manual_snow_factor = form.cleaned_data.get("manual_snow_factor") or 1.0

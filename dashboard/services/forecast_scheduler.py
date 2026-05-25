@@ -189,15 +189,13 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
 
     for schedule in ForecastSchedule.objects.filter(enabled=True):
         if not force:
-            if schedule.last_run_at and schedule.last_run_at.date() >= today:
-                continue
 
             if schedule.start_at:
                 start_at = timezone.localtime(schedule.start_at)
                 if current < start_at:
                     continue
 
-            if current.time() < schedule.run_time:
+            if current.time() < min(schedule.run_time, schedule.test_run_time if schedule.test_enabled and schedule.test_run_time else schedule.run_time):
                 continue
 
         scheduled_dt = timezone.datetime.combine(today, schedule.run_time, tzinfo=current.tzinfo)
@@ -225,10 +223,19 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                     continue
 
         providers, open_meteo_only = _normalize_schedule_providers(schedule.providers)
+        test_providers, test_open_meteo_only = _normalize_schedule_providers(schedule.test_providers)
+
+        run_main_now = force or (not schedule.last_run_at or schedule.last_run_at.date() < today) and current.time() >= schedule.run_time
+        run_test_now = bool(schedule.test_enabled) and (force or ((not schedule.last_test_run_at or schedule.last_test_run_at.date() < today) and current.time() >= (schedule.test_run_time or schedule.run_time)))
+
+        if not run_main_now and not run_test_now:
+            continue
 
         if schedule.station.station_kind == Station.KIND_WIND:
             try:
-                ok = _run_wind_scheduled_forecast(schedule, current)
+                ok = True
+                if run_main_now:
+                    ok = _run_wind_scheduled_forecast(schedule, current)
             except Exception:
                 logger.exception(
                     "Scheduled wind forecast crashed station_id=%s schedule_id=%s",
@@ -236,22 +243,36 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                     schedule.pk,
                 )
                 continue
-            if not ok:
+            if run_main_now and not ok:
                 continue
             res = {"days": schedule.days}
         else:
             try:
-                res = run_forecast_for_station(
-                    schedule.station_id,
-                    days=schedule.days,
-                    providers=providers,
-                    manual_snow_enable=schedule.manual_snow_enable,
-                    manual_snow_factor=schedule.manual_snow_factor,
-                    manual_snow_dates=manual_dates,
-                    use_models=not open_meteo_only,
-                    horizon_mode=schedule.horizon_mode or "weekday_calendar",
-                    forecast_scope="main",
-                )
+                res = {"ok": True, "days": schedule.days}
+                if run_main_now:
+                    res = run_forecast_for_station(
+                        schedule.station_id,
+                        days=schedule.days,
+                        providers=providers,
+                        manual_snow_enable=schedule.manual_snow_enable,
+                        manual_snow_factor=schedule.manual_snow_factor,
+                        manual_snow_dates=manual_dates,
+                        use_models=not open_meteo_only,
+                        horizon_mode=schedule.horizon_mode or "weekday_calendar",
+                        forecast_scope="main",
+                    )
+                if run_test_now:
+                    run_forecast_for_station(
+                        schedule.station_id,
+                        days=schedule.days,
+                        providers=test_providers or providers,
+                        manual_snow_enable=schedule.manual_snow_enable,
+                        manual_snow_factor=schedule.manual_snow_factor,
+                        manual_snow_dates=manual_dates,
+                        use_models=not test_open_meteo_only,
+                        horizon_mode=schedule.horizon_mode or "weekday_calendar",
+                        forecast_scope="test",
+                    )
             except Exception:
                 logger.exception(
                     "Scheduled forecast crashed station_id=%s schedule_id=%s",
@@ -260,7 +281,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 )
                 continue
 
-            if not res.get("ok"):
+            if run_main_now and not res.get("ok"):
                 logger.warning(
                     "Scheduled forecast failed station_id=%s schedule_id=%s result=%s",
                     schedule.station_id,
@@ -271,14 +292,15 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
 
             effective_report_days = int(res.get("days") or schedule.days)
             try:
-                report = build_forecast_report(
+                if run_main_now:
+                    report = build_forecast_report(
                     station=schedule.station,
                     days=effective_report_days,
                     weather_source=res.get("weather_source"),
                     recipients=[schedule.emails],
                     forecast_scope="main",
                     target_dates=res.get("target_dates") or [],
-                )
+                    )
             except Exception:
                 logger.exception(
                     "Scheduled report build failed station_id=%s schedule_id=%s",
@@ -288,7 +310,7 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 continue
 
             recipients_configured = bool((schedule.emails or "").strip())
-            if recipients_configured:
+            if run_main_now and recipients_configured:
                 sent_ok = _send_report_with_retries(report, [schedule.emails], schedule.station.name, effective_report_days)
                 if not sent_ok:
                     schedule.last_email_status = "Ошибка отправки email"
@@ -306,10 +328,15 @@ def run_scheduled_forecasts(now: Optional[timezone.datetime] = None, force: bool
                 schedule.last_email_forecast_date = forecast_date
                 schedule.last_email_status = f"Прогноз за {forecast_date:%d.%m.%Y} отправлен в {current:%H:%M}"
 
-        schedule.last_run_at = current
-        update_fields = ["last_run_at"]
+        update_fields = []
+        if run_main_now:
+            schedule.last_run_at = current
+            update_fields.append("last_run_at")
+        if run_test_now:
+            schedule.last_test_run_at = current
+            update_fields.append("last_test_run_at")
         recipients_configured = bool((schedule.emails or "").strip())
-        if recipients_configured:
+        if run_main_now and recipients_configured:
             update_fields.extend(["last_email_sent_at", "last_email_forecast_date", "last_email_status"])
         schedule.save(update_fields=update_fields)
         run_count += 1

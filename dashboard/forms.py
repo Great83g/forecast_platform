@@ -187,6 +187,12 @@ class ForecastScheduleForm(forms.Form):
         label="Время запуска",
         widget=forms.TimeInput(attrs={"type": "time", "class": "form-control form-control-sm"}),
     )
+    test_enabled = forms.BooleanField(label="Авто в TEST", required=False)
+    test_run_time = forms.TimeField(
+        label="Время TEST",
+        required=False,
+        widget=forms.TimeInput(attrs={"type": "time", "class": "form-control form-control-sm"}),
+    )
     days = forms.IntegerField(
         label="Дней вперёд",
         min_value=1,
@@ -213,6 +219,12 @@ class ForecastScheduleForm(forms.Form):
             ("open_meteo_only", "Open‑Meteo без истории (только эвристика)"),
             ("visual_crossing_only", "Visual Crossing без истории (только эвристика)"),
         ],
+    )
+    test_providers = forms.MultipleChoiceField(
+        label="Провайдеры TEST",
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=providers.choices,
     )
     emails = forms.CharField(
         label="Email получателей",
