@@ -1668,6 +1668,8 @@ def station_forecast_run(request, pk: int):
                         msg += " | Авто-тест: OK"
                     else:
                         msg += f" | Авто-тест: FAIL ({res_test_auto})"
+                elif manual_auto_test and forecast_scope == "test":
+                    msg += " | Авто-тест: уже выполнен (текущая база test)"
                 messages.success(request, msg)
             else:
                 messages.error(request, f"Ошибка прогноза: {res}")
