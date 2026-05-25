@@ -307,6 +307,82 @@ def _historical_tracker_hourly_profile_mw(st: Station, ac_cap_mw: float) -> Dict
     return profile
 
 
+def _is_shu_100_station(st: Station) -> bool:
+    name = str(getattr(st, "name", "") or "").strip().lower()
+    return "shu" in name and "100" in name
+
+
+def _apply_shu_midday_expected_floor(
+    y_final: np.ndarray,
+    feat: pd.DataFrame,
+    st: Station,
+    ac_cap_mw: float,
+) -> np.ndarray:
+    """
+    Shu 100 MW guardrail:
+    if Irradiation >= 750 and hour in [09..16], forecast cannot be below
+    historical expected output by (hour, irradiation-bin), capped by AC.
+    """
+    if not _is_shu_100_station(st):
+        return y_final
+
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+            irradiation__isnull=False,
+        )
+        .order_by("-timestamp")
+        .values("timestamp", "power_kw", "irradiation")[:24 * 365]
+    )
+    if len(rows) < 72:
+        return y_final
+
+    hist = pd.DataFrame(rows)
+    hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
+    hist["hour"] = hist["timestamp"].dt.hour
+    hist["irr"] = pd.to_numeric(hist["irradiation"], errors="coerce")
+    hist["power_mw"] = pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0
+    hist = hist.dropna(subset=["hour", "irr", "power_mw"])
+    if hist.empty:
+        return y_final
+
+    hist = hist[(hist["hour"] >= 9) & (hist["hour"] <= 16) & (hist["irr"] >= 0)]
+    if hist.empty:
+        return y_final
+
+    bin_edges = [0, 250, 500, 750, 900, 1100, 2000]
+    hist["irr_bin"] = pd.cut(hist["irr"], bins=bin_edges, include_lowest=True, right=False)
+    grouped = (
+        hist.groupby(["hour", "irr_bin"], observed=False)["power_mw"]
+        .median()
+        .reset_index()
+        .rename(columns={"power_mw": "expected_floor_mw"})
+    )
+    floor_map: Dict[tuple[int, str], float] = {}
+    for row in grouped.itertuples(index=False):
+        key = (int(row.hour), str(row.irr_bin))
+        val = float(row.expected_floor_mw)
+        if np.isfinite(val) and val >= 0:
+            floor_map[key] = min(val, ac_cap_mw)
+    if not floor_map:
+        return y_final
+
+    out = np.asarray(y_final, dtype=float).copy()
+    irr = pd.to_numeric(feat.get("Irradiation"), errors="coerce").to_numpy(dtype=float)
+    hrs = pd.to_datetime(feat["ds"]).dt.hour.to_numpy(dtype=int)
+    pred_bins = pd.cut(pd.Series(irr), bins=bin_edges, include_lowest=True, right=False)
+    for i in range(len(out)):
+        if not np.isfinite(irr[i]) or irr[i] < 750 or hrs[i] < 9 or hrs[i] > 16:
+            continue
+        floor_val = floor_map.get((int(hrs[i]), str(pred_bins.iloc[i])))
+        if floor_val is None:
+            continue
+        out[i] = min(ac_cap_mw, max(out[i], float(floor_val)))
+    return out
+
+
 def _single_axis_tracker_profile_factor(feat: pd.DataFrame) -> np.ndarray:
     hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
     irradiation = pd.to_numeric(feat["Irradiation"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
@@ -1689,6 +1765,8 @@ def run_forecast_for_station(
         y_final, early_morning_caps = _apply_early_morning_history_cap(y_final, feat, st, capacity_mw)
         if early_morning_caps:
             logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
+
+    y_final = _apply_shu_midday_expected_floor(y_final, feat, st, capacity_mw)
 
     guardrail_df = pd.DataFrame(
         {

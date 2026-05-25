@@ -23,6 +23,7 @@ from dashboard.services.forecast_engine import (
     _compute_features,
     _apply_early_morning_history_cap,
     _apply_single_axis_tracker_postprocessing,
+    _apply_shu_midday_expected_floor,
     _is_single_axis_tracker,
     WeatherFetchResult,
     run_forecast_for_station,
@@ -1018,6 +1019,45 @@ class SingleAxisTrackerPostProcessingTests(TestCase):
         self.assertGreaterEqual(caps["plateau_hours_applied"], 2.0)
         self.assertIn("tracker_profile_factor", feat.columns)
         self.assertIn("tracker_reference_mw", feat.columns)
+
+
+class ShuMiddayFloorTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="shu-floor", password="pass")
+        org = Organization.objects.create(name="Shu Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Shu 100 MW",
+            capacity_mw=84.0,
+            capacity_ac_kw=85000,
+            capacity_dc_kw=100000,
+        )
+
+    def test_applies_midday_floor_for_high_irradiation(self):
+        tz = timezone.get_current_timezone()
+        for day in range(1, 5):
+            for hour in range(9, 17):
+                SolarRecord.objects.create(
+                    station=self.station,
+                    timestamp=timezone.datetime(2026, 5, day, hour, 0, tzinfo=tz),
+                    history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+                    irradiation=820.0,
+                    air_temp=25.0,
+                    power_kw=74000.0,
+                )
+
+        feat = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-06-01 12:00:00", "2026-06-01 08:00:00"]),
+                "Irradiation": [830.0, 830.0],
+            }
+        )
+        y = np.array([55.0, 40.0], dtype=float)
+
+        corrected = _apply_shu_midday_expected_floor(y, feat, self.station, ac_cap_mw=85.0)
+
+        self.assertGreaterEqual(corrected[0], 74.0)
+        self.assertEqual(corrected[1], 40.0)
 
 
 class StationAutoHistoryStandardFileTests(TestCase):
