@@ -1432,6 +1432,9 @@ def station_forecast_list(request, pk: int):
             "days": schedule.days if schedule else days,
             "horizon_mode": schedule.horizon_mode if schedule else horizon_mode,
             "providers": (schedule.providers.split(",") if schedule and schedule.providers else selected_providers),
+            "test_enabled": schedule.test_enabled if schedule else False,
+            "test_run_time": schedule.test_run_time.strftime("%H:%M") if schedule and schedule.test_run_time else "07:00",
+            "test_providers": (schedule.test_providers.split(",") if schedule and schedule.test_providers else []),
             "emails": schedule.emails if schedule else request.GET.get("emails", ""),
             "manual_snow_enable": schedule.manual_snow_enable if schedule else manual_snow_enable,
             "manual_snow_factor": schedule.manual_snow_factor if schedule else manual_snow_factor,
@@ -1724,6 +1727,9 @@ def station_forecast_schedule_update(request, pk: int):
     schedule.days = form.cleaned_data["days"]
     schedule.horizon_mode = form.cleaned_data.get("horizon_mode") or "weekday_calendar"
     schedule.providers = ",".join(form.cleaned_data.get("providers") or [])
+    schedule.test_enabled = form.cleaned_data.get("test_enabled", False)
+    schedule.test_run_time = form.cleaned_data.get("test_run_time") or schedule.run_time
+    schedule.test_providers = ",".join(form.cleaned_data.get("test_providers") or [])
     schedule.emails = form.cleaned_data.get("emails", "")
     schedule.manual_snow_enable = form.cleaned_data.get("manual_snow_enable", False)
     schedule.manual_snow_factor = form.cleaned_data.get("manual_snow_factor") or 1.0
