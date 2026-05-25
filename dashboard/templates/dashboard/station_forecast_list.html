@@ -156,6 +156,10 @@
             <input class="form-check-input" type="checkbox" name="manual_auto_send" id="manual-auto-send" value="1" {% if manual_auto_send %}checked{% endif %}>
             <label class="form-check-label small" for="manual-auto-send" data-i18n="forecast_manual_auto_send">Авто-отправка отчёта в ручном режиме</label>
           </div>
+          <div class="form-check m-0">
+            <input class="form-check-input" type="checkbox" name="manual_auto_test" id="manual-auto-test" value="1" {% if manual_auto_test %}checked{% endif %}>
+            <label class="form-check-label small" for="manual-auto-test">Автопрогноз в тестовую базу (из ручных настроек)</label>
+          </div>
           <button class="btn btn-sm btn-primary" type="submit" data-i18n="forecast_run">Сделать прогноз</button>
         </div>
       </form>
