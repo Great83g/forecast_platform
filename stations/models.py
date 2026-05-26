@@ -192,6 +192,11 @@ class Station(models.Model):
         validators=[MinValueValidator(-12), MaxValueValidator(12)],
         help_text="Сдвиг данных станции в часах (прогноз/автоистория/сопоставление с фактом).",
     )
+    forecast_shift_hours = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(-12), MaxValueValidator(12)],
+        help_text="Сдвиг времени только для сохраняемого прогноза (БД/экспорт).",
+    )
 
     # === Паспорт станции (MVP) ===
     # Мощности (кВт)

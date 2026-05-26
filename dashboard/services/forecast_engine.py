@@ -45,6 +45,13 @@ def _station_data_shift_hours(station: Station) -> int:
         return 0
 
 
+def _station_forecast_shift_hours(station: Station) -> int:
+    try:
+        return int(getattr(station, "forecast_shift_hours", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _station_model_dir(station: Station) -> Path:
     return resolve_station_model_dir(MODEL_DIR, station)
 
@@ -1374,6 +1381,7 @@ def run_forecast_for_station(
     capacity_mw = _station_capacity_mw(st)
     now = timezone.localtime(timezone.now())
     data_shift_hours = _station_data_shift_hours(st)
+    forecast_shift_hours = _station_forecast_shift_hours(st)
 
     # Keep tracker diagnostics defined for every execution path. This prevents
     # NameError in the final result if conflict resolution or a non-tracker path
@@ -1793,8 +1801,8 @@ def run_forecast_for_station(
         (max(target_dates) + timedelta(days=1)) if target_dates else (start_date + timedelta(days=effective_days)),
         timezone.datetime.min.time(),
     ).replace(tzinfo=now.tzinfo)
-    shifted_cleanup_start = base_cleanup_start + timedelta(hours=data_shift_hours)
-    shifted_cleanup_end = base_cleanup_end + timedelta(hours=data_shift_hours)
+    shifted_cleanup_start = base_cleanup_start + timedelta(hours=forecast_shift_hours)
+    shifted_cleanup_end = base_cleanup_end + timedelta(hours=forecast_shift_hours)
 
     SolarForecast.objects.filter(
         station=st,
@@ -1802,6 +1810,14 @@ def run_forecast_for_station(
         timestamp__gte=shifted_cleanup_start,
         timestamp__lt=shifted_cleanup_end,
     ).delete()
+
+    feat["ds"] = pd.to_datetime(feat["ds"], errors="coerce") + pd.to_timedelta(forecast_shift_hours, unit="h")
+    logger.info(
+        "[FORECAST_SHIFT] station=%s shift=%sh applied rows=%s",
+        st.name,
+        forecast_shift_hours,
+        len(feat),
+    )
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
@@ -1813,7 +1829,7 @@ def run_forecast_for_station(
         objs.append(
             SolarForecast(
                 station=st,
-                timestamp=pd.to_datetime(row["ds"]).to_pydatetime() + timedelta(hours=data_shift_hours),
+                timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
                 forecast_scope=forecast_scope,
                 # Сохраняем в кВт (модель работает в MW, перевели выше)
                 pred_np=pred_np_kw,
