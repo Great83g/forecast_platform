@@ -92,6 +92,7 @@ class StationSerializer(serializers.ModelSerializer):
             "longitude",
             "timezone",
             "data_shift_hours",
+            "forecast_shift_hours",
             "org",
             "history_source",
             "history_scale_by_capacity",
@@ -104,6 +105,7 @@ class StationSerializer(serializers.ModelSerializer):
         read_only_fields = ["auto_history_last_run_date"]
         extra_kwargs = {
             "data_shift_hours": {"required": False},
+            "forecast_shift_hours": {"required": False},
         }
 
     def validate(self, attrs):
