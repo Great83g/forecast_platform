@@ -852,10 +852,14 @@
 </div>
 <style>
   .ai-assistant-widget {
-    bottom: 20px;
+    bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
     position: fixed;
-    right: 20px;
-    z-index: 1050;
+    right: max(12px, calc(env(safe-area-inset-right, 0px) + 10px));
+    z-index: 2147483647; /* max */
+    pointer-events: none;
+  }
+  .ai-assistant-widget > * {
+    pointer-events: auto;
   }
   .ai-assistant-toggle {
     align-items: center;
@@ -913,6 +917,46 @@
     flex-wrap: wrap;
     gap: 6px;
   }
+  #aiAssistantMic {
+    align-items: center;
+    display: inline-flex;
+    font-size: 1.25rem;
+    justify-content: center;
+    min-width: 44px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  @media (max-width: 576px) {
+    .ai-assistant-widget {
+      bottom: max(112px, calc(env(safe-area-inset-bottom, 0px) + 104px));
+      right: max(8px, calc(env(safe-area-inset-right, 0px) + 6px));
+    }
+
+    /* именно главная /dashboard/ — уводим влево, чтобы не конфликтовать с синим виджетом справа */
+    .ai-assistant-widget.is-station-list {
+      left: max(8px, calc(env(safe-area-inset-left, 0px) + 6px));
+      right: auto;
+      bottom: max(112px, calc(env(safe-area-inset-bottom, 0px) + 104px));
+    }
+
+    .ai-assistant-widget.is-station-list .ai-assistant-panel {
+      left: 0;
+      right: auto;
+    }
+
+    .ai-assistant-toggle {
+      height: 62px;
+      width: 62px;
+    }
+    #aiAssistantMic {
+      font-size: 1.4rem;
+      min-width: 52px;
+      order: 3;
+    }
+    #aiAssistantSend {
+      order: 2;
+    }
+  }
 </style>
 <script>
   (function () {
@@ -929,6 +973,11 @@
 
     var lastStationId = null;
     var isListening = false;
+
+    var isStationListPage = /^\/dashboard\/?$/.test(window.location.pathname || '');
+    if (isStationListPage) {
+      toggle.closest('.ai-assistant-widget').classList.add('is-station-list');
+    }
 
 
 
