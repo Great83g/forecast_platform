@@ -45,6 +45,13 @@ def _station_data_shift_hours(station: Station) -> int:
         return 0
 
 
+def _station_forecast_shift_hours(station: Station) -> int:
+    try:
+        return int(getattr(station, "forecast_shift_hours", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _station_model_dir(station: Station) -> Path:
     return resolve_station_model_dir(MODEL_DIR, station)
 
@@ -305,6 +312,77 @@ def _historical_tracker_hourly_profile_mw(st: Station, ac_cap_mw: float) -> Dict
             "samples": float(len(values)),
         }
     return profile
+
+
+def _apply_tracker_midday_expected_floor(
+    y_final: np.ndarray,
+    feat: pd.DataFrame,
+    st: Station,
+    ac_cap_mw: float,
+) -> np.ndarray:
+    """
+    Tracker midday guardrail (all single-axis tracker stations):
+    if Irradiation >= 750 and hour in [09..16], forecast cannot be below
+    historical expected output by (hour, irradiation-bin), capped by AC.
+    """
+    if not _is_single_axis_tracker(st):
+        return y_final
+
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+            irradiation__isnull=False,
+        )
+        .order_by("-timestamp")
+        .values("timestamp", "power_kw", "irradiation")[:24 * 365]
+    )
+    if len(rows) < 72:
+        return y_final
+
+    hist = pd.DataFrame(rows)
+    hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
+    hist["hour"] = hist["timestamp"].dt.hour
+    hist["irr"] = pd.to_numeric(hist["irradiation"], errors="coerce")
+    hist["power_mw"] = pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0
+    hist = hist.dropna(subset=["hour", "irr", "power_mw"])
+    if hist.empty:
+        return y_final
+
+    hist = hist[(hist["hour"] >= 9) & (hist["hour"] <= 16) & (hist["irr"] >= 0)]
+    if hist.empty:
+        return y_final
+
+    bin_edges = [0, 250, 500, 750, 900, 1100, 2000]
+    hist["irr_bin"] = pd.cut(hist["irr"], bins=bin_edges, include_lowest=True, right=False)
+    grouped = (
+        hist.groupby(["hour", "irr_bin"], observed=False)["power_mw"]
+        .median()
+        .reset_index()
+        .rename(columns={"power_mw": "expected_floor_mw"})
+    )
+    floor_map: Dict[tuple[int, str], float] = {}
+    for row in grouped.itertuples(index=False):
+        key = (int(row.hour), str(row.irr_bin))
+        val = float(row.expected_floor_mw)
+        if np.isfinite(val) and val >= 0:
+            floor_map[key] = min(val, ac_cap_mw)
+    if not floor_map:
+        return y_final
+
+    out = np.asarray(y_final, dtype=float).copy()
+    irr = pd.to_numeric(feat.get("Irradiation"), errors="coerce").to_numpy(dtype=float)
+    hrs = pd.to_datetime(feat["ds"]).dt.hour.to_numpy(dtype=int)
+    pred_bins = pd.cut(pd.Series(irr), bins=bin_edges, include_lowest=True, right=False)
+    for i in range(len(out)):
+        if not np.isfinite(irr[i]) or irr[i] < 750 or hrs[i] < 9 or hrs[i] > 16:
+            continue
+        floor_val = floor_map.get((int(hrs[i]), str(pred_bins.iloc[i])))
+        if floor_val is None:
+            continue
+        out[i] = min(ac_cap_mw, max(out[i], float(floor_val)))
+    return out
 
 
 def _single_axis_tracker_profile_factor(feat: pd.DataFrame) -> np.ndarray:
@@ -1303,6 +1381,7 @@ def run_forecast_for_station(
     capacity_mw = _station_capacity_mw(st)
     now = timezone.localtime(timezone.now())
     data_shift_hours = _station_data_shift_hours(st)
+    forecast_shift_hours = _station_forecast_shift_hours(st)
 
     # Keep tracker diagnostics defined for every execution path. This prevents
     # NameError in the final result if conflict resolution or a non-tracker path
@@ -1690,6 +1769,8 @@ def run_forecast_for_station(
         if early_morning_caps:
             logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
 
+    y_final = _apply_tracker_midday_expected_floor(y_final, feat, st, capacity_mw)
+
     guardrail_df = pd.DataFrame(
         {
             "timestamp": feat["ds"],
@@ -1720,8 +1801,8 @@ def run_forecast_for_station(
         (max(target_dates) + timedelta(days=1)) if target_dates else (start_date + timedelta(days=effective_days)),
         timezone.datetime.min.time(),
     ).replace(tzinfo=now.tzinfo)
-    shifted_cleanup_start = base_cleanup_start + timedelta(hours=data_shift_hours)
-    shifted_cleanup_end = base_cleanup_end + timedelta(hours=data_shift_hours)
+    shifted_cleanup_start = base_cleanup_start + timedelta(hours=forecast_shift_hours)
+    shifted_cleanup_end = base_cleanup_end + timedelta(hours=forecast_shift_hours)
 
     SolarForecast.objects.filter(
         station=st,
@@ -1729,6 +1810,14 @@ def run_forecast_for_station(
         timestamp__gte=shifted_cleanup_start,
         timestamp__lt=shifted_cleanup_end,
     ).delete()
+
+    feat["ds"] = pd.to_datetime(feat["ds"], errors="coerce") + pd.to_timedelta(forecast_shift_hours, unit="h")
+    logger.info(
+        "[FORECAST_SHIFT] station=%s shift=%sh applied rows=%s",
+        st.name,
+        forecast_shift_hours,
+        len(feat),
+    )
 
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
@@ -1740,7 +1829,7 @@ def run_forecast_for_station(
         objs.append(
             SolarForecast(
                 station=st,
-                timestamp=pd.to_datetime(row["ds"]).to_pydatetime() + timedelta(hours=data_shift_hours),
+                timestamp=pd.to_datetime(row["ds"]).to_pydatetime(),
                 forecast_scope=forecast_scope,
                 # Сохраняем в кВт (модель работает в MW, перевели выше)
                 pred_np=pred_np_kw,
