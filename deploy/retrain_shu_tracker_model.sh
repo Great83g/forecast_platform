@@ -15,13 +15,20 @@ REBUILD_POSTFACT_TEST="${REBUILD_POSTFACT_TEST:-1}"
 export STATION_NAME POSTFACT_FROM POSTFACT_TO REBUILD_OPERATIONAL REBUILD_POSTFACT_TEST
 
 echo "=== 1) Найти станцию ==="
-STATION_ID="$(python3 manage.py shell -c "import os; from stations.models import Station; name=os.environ['STATION_NAME']; st=Station.objects.filter(name=name).first() or Station.objects.filter(name__icontains=name).first(); print(st.pk if st else '')")"
+# Django shell can print a banner such as "19 objects imported automatically" before
+# our output. Print a unique marker and parse only that line, otherwise the banner
+# gets captured into STATION_ID and breaks integer lookups.
+STATION_ID="$(
+  python3 manage.py shell -c "import os; from stations.models import Station; name=os.environ['STATION_NAME']; st=Station.objects.filter(name=name).first() or Station.objects.filter(name__icontains=name).first(); print(f'__STATION_ID__={st.pk if st else ""}')" \
+    | sed -n 's/^__STATION_ID__=//p' \
+    | tail -n 1
+)"
 if [ -z "$STATION_ID" ]; then
   echo "ERROR: station not found: $STATION_NAME" >&2
   exit 1
 fi
 export STATION_ID
-python3 manage.py shell -c "import os; from stations.models import Station; st=Station.objects.get(pk=os.environ['STATION_ID']); print({'id': st.pk, 'name': st.name, 'mount_type': st.mount_type, 'AC_kW': st.capacity_ac_kw, 'DC_kW': st.capacity_dc_kw})"
+python3 manage.py shell -c "import os; from stations.models import Station; st=Station.objects.get(pk=int(os.environ['STATION_ID'])); print({'id': st.pk, 'name': st.name, 'mount_type': st.mount_type, 'AC_kW': st.capacity_ac_kw, 'DC_kW': st.capacity_dc_kw})"
 
 echo "=== 2) Переобучить модель станции ==="
 python3 manage.py train_station_models "$STATION_ID"

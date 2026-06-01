@@ -563,6 +563,48 @@ def _tracker_station_calibration_curve(st: Station, ac_cap_mw: float) -> Dict[in
         }
     return curve
 
+
+def _add_tracker_model_features(feat: pd.DataFrame, st: Station, capacity_mw: float) -> pd.DataFrame:
+    """Add tracker-aware model regressors before XGB/NP prediction.
+
+    Retrained tracker models can learn against the station-calibrated tracker
+    expected curve instead of a fixed-tilt GHI curve. For non-tracker stations
+    the columns are harmless defaults, so legacy models keep working.
+    """
+    out = feat.copy()
+    out["tracker_profile_factor"] = 1.0
+    out["tracker_station_calibration_factor"] = 1.0
+    base_expected = pd.to_numeric(out.get("y_expected"), errors="coerce").fillna(0.0)
+    out["tracker_calibrated_expected_mw"] = base_expected
+    out["tracker_calibrated_expected_log"] = np.log1p(base_expected)
+
+    if not _is_single_axis_tracker(st) or out.empty:
+        return out
+
+    factor = _single_axis_tracker_profile_factor(out)
+    ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
+    irradiation = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    hours = pd.to_datetime(out["ds"]).dt.hour.astype(int).to_numpy()
+
+    calibration_curve = _tracker_station_calibration_curve(st, ac_cap_mw)
+    station_calibration = np.ones(len(out), dtype=float)
+    for i, hour in enumerate(hours):
+        stats = calibration_curve.get(int(hour))
+        if stats:
+            station_calibration[i] = float(stats["factor"])
+
+    calibrated_expected = np.clip(
+        ac_cap_mw * (irradiation / 1000.0) * _station_pr_default(st) * factor * station_calibration,
+        0.0,
+        ac_cap_mw,
+    )
+    out["tracker_profile_factor"] = factor
+    out["tracker_station_calibration_factor"] = station_calibration
+    out["tracker_calibrated_expected_mw"] = calibrated_expected
+    out["tracker_calibrated_expected_log"] = np.log1p(calibrated_expected)
+    return out
+
+
 def _describe_np_model(model: object) -> str:
     if model is None:
         return "model=None"
@@ -1292,8 +1334,12 @@ def _postprocess_xgb_prediction(
             floor = max(0.05 * cap_used, 0.15)
         floor = max(floor, 1e-3)
 
+        expected_col = str((xgb_meta or {}).get("expected_col", "") or "")
         if df_feat is None:
             expected = np.full(len(out), floor, dtype=float)
+        elif expected_col and expected_col in df_feat.columns:
+            expected = pd.to_numeric(df_feat.get(expected_col), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            expected = np.maximum(expected, floor)
         else:
             irr = pd.to_numeric(df_feat.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
             expected = np.clip(cap_used * (irr / 1000.0) * PR_FOR_EXPECTED, 0.0, cap_used * 0.95)
@@ -1529,6 +1575,7 @@ def run_forecast_for_station(
     # а массивы предсказаний индексируются позиционно с 0. Выравниваем индекс,
     # чтобы избежать ошибок вида "index X is out of bounds for axis 0" при сохранении.
     feat = feat.reset_index(drop=True)
+    feat = _add_tracker_model_features(feat, st, capacity_mw)
 
     if feat.empty:
         return {
@@ -1733,9 +1780,14 @@ def run_forecast_for_station(
     else:
         y_heur = y_heur.to_numpy(dtype=float)
 
-    # NP теперь выдаёт residual -> приводим к полной мощности
+    # NP теперь выдаёт residual -> приводим к полной мощности.
+    # Tracker models retrained after this change can store residuals relative to
+    # tracker_calibrated_expected_mw, so operational and postfact use the same
+    # tracker base curve.
     if np_ok:
-        y_np = y_np + np.nan_to_num(feat.get("y_expected", 0.0))
+        np_base_col = str((np_meta or {}).get("base_expected_col", "y_expected") or "y_expected")
+        np_base = feat.get(np_base_col) if np_base_col in feat.columns else feat.get("y_expected", 0.0)
+        y_np = y_np + np.nan_to_num(np_base)
 
     # чистим NaN до ансамбля, иначе NaN в XGB/NP зануляет итог
     if use_models:

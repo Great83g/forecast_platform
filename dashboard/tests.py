@@ -46,6 +46,7 @@ from dashboard.services.model_storage import (
     resolve_station_model_dir,
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
+from dashboard.services.train_models import add_tracker_training_features
 from dashboard.services.train_models import _capacity_mw_from_fields
 from dashboard.views import (
     _build_forecast_plan_map,
@@ -1198,6 +1199,43 @@ class ForecastEngineXgbLowConfidenceTests(TestCase):
         low = _xgb_is_systematically_low(y_xgb, y_heur, y_np, np_ok=False, capacity_mw=50.0)
 
         self.assertFalse(low)
+
+
+
+    def test_tracker_training_features_make_xgb_target_use_tracker_expected_curve(self):
+        station = SimpleNamespace(
+            pk=11,
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
+        )
+        df = pd.DataFrame(
+            {
+                "ds": pd.to_datetime([
+                    "2026-05-01 08:00:00",
+                    "2026-05-01 12:00:00",
+                    "2026-05-01 16:00:00",
+                    "2026-05-02 08:00:00",
+                    "2026-05-02 12:00:00",
+                    "2026-05-02 16:00:00",
+                ]),
+                "hour": [8, 12, 16, 8, 12, 16],
+                "Irradiation": [700.0, 900.0, 650.0, 720.0, 880.0, 640.0],
+                "Air_Temp": [22.0] * 6,
+                "sun_elev_deg": [25.0, 65.0, 24.0, 25.0, 65.0, 24.0],
+                "y_expected": [50.0] * 6,
+                "y": [60.0, 58.0, 55.0, 61.0, 57.0, 54.0],
+            }
+        )
+
+        out = add_tracker_training_features(df, station, cap_mw=85.0)
+        prepared = _prepare_xgb_training_frame(out, cap_mw=85.0)
+
+        self.assertIn("tracker_profile_factor", out.columns)
+        self.assertIn("tracker_calibrated_expected_mw", out.columns)
+        first_expected = float(out.loc[prepared.index[0], "tracker_calibrated_expected_mw"])
+        self.assertAlmostEqual(
+            float(prepared.iloc[0]["y_over_expected"]),
+            min(float(out.loc[prepared.index[0], "y"]) / max(first_expected, 4.25), 1.6),
+        )
 
 
 class ForecastEngineIndexRegressionTests(TestCase):
