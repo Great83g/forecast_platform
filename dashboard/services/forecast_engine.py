@@ -461,11 +461,23 @@ def _apply_single_axis_tracker_postprocessing(
             continue
         historical_reference[i] = 0.35 * stats["median"] + 0.65 * stats["p75"]
 
-    tracker_reference = irradiance_reference.copy()
+    calibration_curve = _tracker_station_calibration_curve(st, ac_cap_mw)
+    station_calibration = np.ones(len(feat), dtype=float)
+    for i, hour in enumerate(hours):
+        stats = calibration_curve.get(int(hour))
+        if stats:
+            station_calibration[i] = float(stats["factor"])
+
+    # Station-calibrated expected power curve. This is the shared calibration
+    # path for operational and postfact forecasts; only the weather input
+    # should differ between those modes.
+    calibrated_reference = np.clip(irradiance_reference * station_calibration, 0.0, ac_cap_mw)
+
+    tracker_reference = calibrated_reference.copy()
     hist_mask = np.isfinite(historical_reference)
     tracker_reference[hist_mask] = (
-        0.35 * irradiance_reference[hist_mask]
-        + 0.65 * historical_reference[hist_mask]
+        0.45 * calibrated_reference[hist_mask]
+        + 0.55 * historical_reference[hist_mask]
     )
 
     plateau_mask = (
@@ -476,11 +488,13 @@ def _apply_single_axis_tracker_postprocessing(
     )
     tracker_reference[plateau_mask] = np.maximum(
         tracker_reference[plateau_mask],
-        historical_reference[plateau_mask],
+        calibrated_reference[plateau_mask],
     )
 
     feat["tracker_reference_mw"] = tracker_reference
     feat["tracker_historical_reference_mw"] = historical_reference
+    feat["tracker_station_calibration_factor"] = station_calibration
+    feat["tracker_calibrated_expected_mw"] = calibrated_reference
 
     corrected = reshaped.copy()
     corrected[daylight] = 0.35 * reshaped[daylight] + 0.65 * tracker_reference[daylight]
@@ -489,9 +503,65 @@ def _apply_single_axis_tracker_postprocessing(
         "ac_cap_mw": float(ac_cap_mw),
         "safe_cap_mw": safe_cap_mw,
         "historical_profile_hours": float(len(hourly_profile)),
+        "station_calibration_hours": float(len(calibration_curve)),
         "plateau_hours_applied": float(np.count_nonzero(plateau_mask)),
     }
 
+
+
+def _tracker_station_calibration_curve(st: Station, ac_cap_mw: float) -> Dict[int, Dict[str, float]]:
+    """Hourly station calibration factors derived from post-fact history.
+
+    The same curve is intentionally used by operational and backfilled
+    (postfact) runs, so tracker stations are not calibrated differently just
+    because one run uses forecast weather and the other uses measured weather.
+    Factors are based on actual AC power divided by a physical expected curve
+    and clipped to a conservative range to avoid learning data glitches.
+    """
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+            irradiation__isnull=False,
+        )
+        .order_by("-timestamp")
+        .values("timestamp", "power_kw", "irradiation")[:24 * 365]
+    )
+    if len(rows) < 24:
+        return {}
+
+    hist = pd.DataFrame(rows)
+    hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
+    hist["hour"] = hist["timestamp"].dt.hour.astype("Int64")
+    hist["irr"] = pd.to_numeric(hist["irradiation"], errors="coerce")
+    hist["power_mw"] = pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0
+    hist = hist.dropna(subset=["hour", "irr", "power_mw"])
+    hist = hist[(hist["irr"] >= 80.0) & (hist["power_mw"] >= 0.0)]
+    if len(hist) < 24:
+        return {}
+
+    physical_expected = ac_cap_mw * (hist["irr"] / 1000.0) * _station_pr_default(st)
+    physical_expected = physical_expected.clip(lower=max(ac_cap_mw * 0.03, 0.05), upper=ac_cap_mw)
+    hist["calibration_factor"] = (hist["power_mw"] / physical_expected).replace([np.inf, -np.inf], np.nan)
+    hist = hist.dropna(subset=["calibration_factor"])
+    hist = hist[(hist["calibration_factor"] > 0.2) & (hist["calibration_factor"] < 2.0)]
+    if len(hist) < 24:
+        return {}
+
+    curve: Dict[int, Dict[str, float]] = {}
+    for hour, values in hist.groupby("hour")["calibration_factor"]:
+        values = values.dropna()
+        if len(values) < 3:
+            continue
+        factor = float(values.median())
+        if not np.isfinite(factor):
+            continue
+        curve[int(hour)] = {
+            "factor": float(np.clip(factor, 0.70, 1.30)),
+            "samples": float(len(values)),
+        }
+    return curve
 
 def _describe_np_model(model: object) -> str:
     if model is None:
