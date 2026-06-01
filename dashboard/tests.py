@@ -28,6 +28,7 @@ from dashboard.services.forecast_engine import (
     WeatherFetchResult,
     run_forecast_for_station,
 )
+from dashboard.services.forecast_diagnostics import compare_forecast_modes
 from dashboard.services.forecast_guardrails import (
     apply_visual_crossing_fallback,
     fallback_heuristic_1_2mw,
@@ -45,6 +46,7 @@ from dashboard.services.model_storage import (
     resolve_station_model_dir,
 )
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
+from dashboard.services.train_models import add_tracker_training_features
 from dashboard.services.train_models import _capacity_mw_from_fields
 from dashboard.views import (
     _build_forecast_plan_map,
@@ -1019,6 +1021,9 @@ class SingleAxisTrackerPostProcessingTests(TestCase):
         self.assertGreaterEqual(caps["plateau_hours_applied"], 2.0)
         self.assertIn("tracker_profile_factor", feat.columns)
         self.assertIn("tracker_reference_mw", feat.columns)
+        self.assertIn("tracker_station_calibration_factor", feat.columns)
+        self.assertIn("tracker_calibrated_expected_mw", feat.columns)
+        self.assertGreaterEqual(caps["station_calibration_hours"], 8.0)
 
 
 class TrackerMiddayFloorTests(TestCase):
@@ -1079,6 +1084,48 @@ class TrackerMiddayFloorTests(TestCase):
         corrected = _apply_tracker_midday_expected_floor(y, feat, fixed_station, ac_cap_mw=50.0)
         self.assertEqual(float(corrected[0]), 30.0)
 
+
+
+
+class ForecastModeDiagnosticsTests(TestCase):
+    def test_compare_forecast_modes_returns_hourly_values_and_logs_large_diffs(self):
+        user = User.objects.create_user(username="diag", password="pass")
+        org = Organization.objects.create(name="Diag Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Shu 100 MW",
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
+            capacity_mw=84.0,
+            capacity_ac_kw=85000,
+            capacity_dc_kw=100000,
+        )
+        ts = timezone.datetime(2026, 5, 25, 12, 0, tzinfo=timezone.get_current_timezone())
+        SolarForecast.objects.create(
+            station=station,
+            timestamp=ts,
+            forecast_scope=SolarForecast.SCOPE_MAIN,
+            irradiation_fc=700.0,
+            pred_final_raw=60000.0,
+            pred_final=61000.0,
+        )
+        SolarForecast.objects.create(
+            station=station,
+            timestamp=ts,
+            forecast_scope=SolarForecast.SCOPE_TEST,
+            irradiation_fc=900.0,
+            pred_final_raw=74000.0,
+            pred_final=75000.0,
+        )
+
+        with self.assertLogs("dashboard.services.forecast_diagnostics", level="WARNING") as logs:
+            rows = compare_forecast_modes(station, date(2026, 5, 25), date(2026, 5, 31))
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].forecast_weather_irr, 700.0)
+        self.assertEqual(rows[0].postfact_weather_irr, 900.0)
+        self.assertAlmostEqual(rows[0].forecast_raw_mw, 60.0)
+        self.assertAlmostEqual(rows[0].postfact_final_mw, 75.0)
+        self.assertIn("[FORECAST_COMPARE]", logs.output[0])
 
 class StationAutoHistoryStandardFileTests(TestCase):
     def test_collect_share_history_uses_standard_history_columns_from_csv(self):
@@ -1152,6 +1199,43 @@ class ForecastEngineXgbLowConfidenceTests(TestCase):
         low = _xgb_is_systematically_low(y_xgb, y_heur, y_np, np_ok=False, capacity_mw=50.0)
 
         self.assertFalse(low)
+
+
+
+    def test_tracker_training_features_make_xgb_target_use_tracker_expected_curve(self):
+        station = SimpleNamespace(
+            pk=11,
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
+        )
+        df = pd.DataFrame(
+            {
+                "ds": pd.to_datetime([
+                    "2026-05-01 08:00:00",
+                    "2026-05-01 12:00:00",
+                    "2026-05-01 16:00:00",
+                    "2026-05-02 08:00:00",
+                    "2026-05-02 12:00:00",
+                    "2026-05-02 16:00:00",
+                ]),
+                "hour": [8, 12, 16, 8, 12, 16],
+                "Irradiation": [700.0, 900.0, 650.0, 720.0, 880.0, 640.0],
+                "Air_Temp": [22.0] * 6,
+                "sun_elev_deg": [25.0, 65.0, 24.0, 25.0, 65.0, 24.0],
+                "y_expected": [50.0] * 6,
+                "y": [60.0, 58.0, 55.0, 61.0, 57.0, 54.0],
+            }
+        )
+
+        out = add_tracker_training_features(df, station, cap_mw=85.0)
+        prepared = _prepare_xgb_training_frame(out, cap_mw=85.0)
+
+        self.assertIn("tracker_profile_factor", out.columns)
+        self.assertIn("tracker_calibrated_expected_mw", out.columns)
+        first_expected = float(out.loc[prepared.index[0], "tracker_calibrated_expected_mw"])
+        self.assertAlmostEqual(
+            float(prepared.iloc[0]["y_over_expected"]),
+            min(float(out.loc[prepared.index[0], "y"]) / max(first_expected, 4.25), 1.6),
+        )
 
 
 class ForecastEngineIndexRegressionTests(TestCase):
