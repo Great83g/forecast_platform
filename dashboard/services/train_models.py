@@ -13,6 +13,7 @@ import neuralprophet
 from neuralprophet import NeuralProphet, save as np_save
 
 from solar.models import SolarRecord
+from stations.models import Station
 from .model_storage import resolve_station_model_dir
 
 
@@ -168,7 +169,8 @@ def _prepare_xgb_training_frame(df: pd.DataFrame, cap_mw: float) -> pd.DataFrame
     is_day_or_active = (irr > 20.0) | (out["y_permw"] > 0.02)
     out = out.loc[is_day_or_active].copy()
 
-    y_expected = pd.to_numeric(out.get("y_expected"), errors="coerce").fillna(0.0)
+    expected_col = "tracker_calibrated_expected_mw" if "tracker_calibrated_expected_mw" in out.columns else "y_expected"
+    y_expected = pd.to_numeric(out.get(expected_col), errors="coerce").fillna(0.0)
     expected_floor_mw = max(0.05 * float(cap_mw), 0.15)
     expected_base = np.maximum(y_expected, expected_floor_mw)
     out["y_over_expected"] = (out["y"] / np.maximum(expected_base, 1e-6)).clip(0.0, 1.6)
@@ -189,6 +191,58 @@ def add_sun_geometry(df: pd.DataFrame, ds_col: str = "ds", lat_deg: float = 47.8
     df["sun_elev_deg"] = np.rad2deg(np.arcsin(np.clip(sin_elev, -1, 1)))
     df["low_sun_flag"] = (df["sun_elev_deg"] < 15).astype(int)
     return df
+
+
+
+def _is_single_axis_tracker(station) -> bool:
+    mount_type = str(getattr(station, "mount_type", Station.MOUNT_FIXED) or Station.MOUNT_FIXED)
+    mount_type = mount_type.strip().lower().replace("-", "_")
+    return mount_type == Station.MOUNT_SINGLE_AXIS_TRACKER
+
+
+def _tracker_profile_factor(df: pd.DataFrame) -> np.ndarray:
+    hours = pd.to_datetime(df["ds"]).dt.hour.astype(int).to_numpy()
+    irradiation = pd.to_numeric(df.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    sun_elev = pd.to_numeric(df.get("sun_elev_deg", pd.Series(0.0, index=df.index)), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    daylight = (irradiation > 0.0) & (sun_elev > 0.0)
+    factor = np.ones(len(df), dtype=float)
+
+    shoulder_mask = daylight & (((hours >= 6) & (hours <= 10)) | ((hours >= 15) & (hours <= 19)))
+    edge_strength = np.clip((45.0 - sun_elev) / 45.0, 0.0, 1.0)
+    factor[shoulder_mask] *= 1.0 + 0.16 * edge_strength[shoulder_mask]
+
+    midday_mask = daylight & (hours >= 11) & (hours <= 14)
+    high_sun_strength = np.clip((sun_elev - 35.0) / 35.0, 0.0, 1.0)
+    factor[midday_mask] *= 1.0 - 0.08 * high_sun_strength[midday_mask]
+    return np.clip(factor, 0.0, 1.18)
+
+
+def add_tracker_training_features(df: pd.DataFrame, station, cap_mw: float) -> pd.DataFrame:
+    """Add tracker-specific expected curve columns used by retrained models."""
+    out = df.copy()
+    if not _is_single_axis_tracker(station):
+        return out
+
+    factor = _tracker_profile_factor(out)
+    irradiation = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0)
+    expected_physical = np.clip(cap_mw * (irradiation / 1000.0) * PR_FOR_EXPECTED * factor, 0.0, cap_mw)
+    y = pd.to_numeric(out.get("y"), errors="coerce").fillna(0.0)
+
+    denom = np.maximum(expected_physical, max(0.03 * float(cap_mw), 0.05))
+    calib_raw = (y / denom).replace([np.inf, -np.inf], np.nan)
+    valid = (irradiation >= 80.0) & calib_raw.notna() & (calib_raw > 0.2) & (calib_raw < 2.0)
+    curve = calib_raw.loc[valid].groupby(out.loc[valid, "hour"]).median().clip(0.70, 1.30).to_dict()
+    station_calibration = out["hour"].map(curve).fillna(1.0).astype(float)
+
+    out["tracker_profile_factor"] = factor
+    out["tracker_station_calibration_factor"] = station_calibration
+    out["tracker_calibrated_expected_mw"] = np.clip(expected_physical * station_calibration, 0.0, cap_mw)
+    out["tracker_calibrated_expected_log"] = np.log1p(out["tracker_calibrated_expected_mw"])
+    print(
+        f"[TRAIN] station {station.pk}: tracker features enabled, "
+        f"calibration_hours={len(curve)}"
+    )
+    return out
 
 
 def add_common_features(df: pd.DataFrame, cap_mw: float, ds_col: str = "ds") -> pd.DataFrame:
@@ -274,6 +328,7 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
 
     df = add_common_features(df, cap_mw, "ds")
     df = add_sun_geometry(df, "ds", float(lat_deg))
+    df = add_tracker_training_features(df, station, cap_mw)
     n_rows = len(df)
 
     # =========================================================
@@ -296,6 +351,15 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
         "solar_ramp_factor",
         "irradiation_x_ramp",
     ]
+    tracker_expected_col = None
+    if _is_single_axis_tracker(station) and "tracker_calibrated_expected_mw" in df.columns:
+        tracker_expected_col = "tracker_calibrated_expected_mw"
+        X_cols += [
+            "tracker_profile_factor",
+            "tracker_station_calibration_factor",
+            "tracker_calibrated_expected_mw",
+            "tracker_calibrated_expected_log",
+        ]
 
     for col in X_cols:
         if col not in df.columns:
@@ -341,7 +405,8 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
                 "station_id": station.pk,
                 "X_cols": X_cols,
                 "cap_mw_used": cap_mw,
-                "target": "y_over_expected = y / max(y_expected, floor)",
+                "target": "y_over_expected = y / max(expected_col, floor)",
+                "expected_col": tracker_expected_col or "y_expected",
                 "y_expected_floor_mw": max(0.05 * float(cap_mw), 0.15),
                 "train_filter": "(Irradiation > 20) or (y_permw > 0.02)",
                 "weighted_fit": "1 + 3*clip(Irradiation/800,0,1) + 2*(y_over_expected>0.80)",
@@ -372,7 +437,8 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
     np_path: Path | None = None
     try:
         df_np = df.copy()
-        df_np["y_residual"] = df_np["y"] - df_np["y_expected"]
+        np_base_expected_col = tracker_expected_col or "y_expected"
+        df_np["y_residual"] = df_np["y"] - pd.to_numeric(df_np[np_base_expected_col], errors="coerce").fillna(0.0)
 
         print(
             f"[TRAIN] station {station.pk}: старт обучения NP(residual), строк={len(df_np)}"
@@ -413,6 +479,13 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "solar_ramp_factor",
             "irradiation_x_ramp",
         ]
+        if tracker_expected_col:
+            reg_cols += [
+                "tracker_profile_factor",
+                "tracker_station_calibration_factor",
+                "tracker_calibrated_expected_mw",
+                "tracker_calibrated_expected_log",
+            ]
         for col in reg_cols:
             m.add_future_regressor(col, normalize="minmax")
 
@@ -457,7 +530,8 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
             "pr_for_expected": PR_FOR_EXPECTED,
             "features_reg": features_reg,
             "fill_map": fill_map,
-            "target": "y_residual = y - y_expected",
+            "target": f"y_residual = y - {np_base_expected_col}",
+            "base_expected_col": np_base_expected_col,
             "note": "NP residual. Missing regressor values are filled using train medians.",
             "np_version": getattr(neuralprophet, "__version__", "unknown"),
         }
