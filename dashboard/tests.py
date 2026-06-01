@@ -28,6 +28,7 @@ from dashboard.services.forecast_engine import (
     WeatherFetchResult,
     run_forecast_for_station,
 )
+from dashboard.services.forecast_diagnostics import compare_forecast_modes
 from dashboard.services.forecast_guardrails import (
     apply_visual_crossing_fallback,
     fallback_heuristic_1_2mw,
@@ -1019,6 +1020,9 @@ class SingleAxisTrackerPostProcessingTests(TestCase):
         self.assertGreaterEqual(caps["plateau_hours_applied"], 2.0)
         self.assertIn("tracker_profile_factor", feat.columns)
         self.assertIn("tracker_reference_mw", feat.columns)
+        self.assertIn("tracker_station_calibration_factor", feat.columns)
+        self.assertIn("tracker_calibrated_expected_mw", feat.columns)
+        self.assertGreaterEqual(caps["station_calibration_hours"], 8.0)
 
 
 class TrackerMiddayFloorTests(TestCase):
@@ -1079,6 +1083,48 @@ class TrackerMiddayFloorTests(TestCase):
         corrected = _apply_tracker_midday_expected_floor(y, feat, fixed_station, ac_cap_mw=50.0)
         self.assertEqual(float(corrected[0]), 30.0)
 
+
+
+
+class ForecastModeDiagnosticsTests(TestCase):
+    def test_compare_forecast_modes_returns_hourly_values_and_logs_large_diffs(self):
+        user = User.objects.create_user(username="diag", password="pass")
+        org = Organization.objects.create(name="Diag Org", owner=user)
+        station = Station.objects.create(
+            org=org,
+            name="Shu 100 MW",
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
+            capacity_mw=84.0,
+            capacity_ac_kw=85000,
+            capacity_dc_kw=100000,
+        )
+        ts = timezone.datetime(2026, 5, 25, 12, 0, tzinfo=timezone.get_current_timezone())
+        SolarForecast.objects.create(
+            station=station,
+            timestamp=ts,
+            forecast_scope=SolarForecast.SCOPE_MAIN,
+            irradiation_fc=700.0,
+            pred_final_raw=60000.0,
+            pred_final=61000.0,
+        )
+        SolarForecast.objects.create(
+            station=station,
+            timestamp=ts,
+            forecast_scope=SolarForecast.SCOPE_TEST,
+            irradiation_fc=900.0,
+            pred_final_raw=74000.0,
+            pred_final=75000.0,
+        )
+
+        with self.assertLogs("dashboard.services.forecast_diagnostics", level="WARNING") as logs:
+            rows = compare_forecast_modes(station, date(2026, 5, 25), date(2026, 5, 31))
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].forecast_weather_irr, 700.0)
+        self.assertEqual(rows[0].postfact_weather_irr, 900.0)
+        self.assertAlmostEqual(rows[0].forecast_raw_mw, 60.0)
+        self.assertAlmostEqual(rows[0].postfact_final_mw, 75.0)
+        self.assertIn("[FORECAST_COMPARE]", logs.output[0])
 
 class StationAutoHistoryStandardFileTests(TestCase):
     def test_collect_share_history_uses_standard_history_columns_from_csv(self):
