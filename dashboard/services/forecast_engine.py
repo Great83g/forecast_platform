@@ -461,11 +461,23 @@ def _apply_single_axis_tracker_postprocessing(
             continue
         historical_reference[i] = 0.35 * stats["median"] + 0.65 * stats["p75"]
 
-    tracker_reference = irradiance_reference.copy()
+    calibration_curve = _tracker_station_calibration_curve(st, ac_cap_mw)
+    station_calibration = np.ones(len(feat), dtype=float)
+    for i, hour in enumerate(hours):
+        stats = calibration_curve.get(int(hour))
+        if stats:
+            station_calibration[i] = float(stats["factor"])
+
+    # Station-calibrated expected power curve. This is the shared calibration
+    # path for operational and postfact forecasts; only the weather input
+    # should differ between those modes.
+    calibrated_reference = np.clip(irradiance_reference * station_calibration, 0.0, ac_cap_mw)
+
+    tracker_reference = calibrated_reference.copy()
     hist_mask = np.isfinite(historical_reference)
     tracker_reference[hist_mask] = (
-        0.35 * irradiance_reference[hist_mask]
-        + 0.65 * historical_reference[hist_mask]
+        0.45 * calibrated_reference[hist_mask]
+        + 0.55 * historical_reference[hist_mask]
     )
 
     plateau_mask = (
@@ -476,11 +488,13 @@ def _apply_single_axis_tracker_postprocessing(
     )
     tracker_reference[plateau_mask] = np.maximum(
         tracker_reference[plateau_mask],
-        historical_reference[plateau_mask],
+        calibrated_reference[plateau_mask],
     )
 
     feat["tracker_reference_mw"] = tracker_reference
     feat["tracker_historical_reference_mw"] = historical_reference
+    feat["tracker_station_calibration_factor"] = station_calibration
+    feat["tracker_calibrated_expected_mw"] = calibrated_reference
 
     corrected = reshaped.copy()
     corrected[daylight] = 0.35 * reshaped[daylight] + 0.65 * tracker_reference[daylight]
@@ -489,8 +503,106 @@ def _apply_single_axis_tracker_postprocessing(
         "ac_cap_mw": float(ac_cap_mw),
         "safe_cap_mw": safe_cap_mw,
         "historical_profile_hours": float(len(hourly_profile)),
+        "station_calibration_hours": float(len(calibration_curve)),
         "plateau_hours_applied": float(np.count_nonzero(plateau_mask)),
     }
+
+
+
+def _tracker_station_calibration_curve(st: Station, ac_cap_mw: float) -> Dict[int, Dict[str, float]]:
+    """Hourly station calibration factors derived from post-fact history.
+
+    The same curve is intentionally used by operational and backfilled
+    (postfact) runs, so tracker stations are not calibrated differently just
+    because one run uses forecast weather and the other uses measured weather.
+    Factors are based on actual AC power divided by a physical expected curve
+    and clipped to a conservative range to avoid learning data glitches.
+    """
+    rows = list(
+        SolarRecord.objects.filter(
+            station=st,
+            history_scope=SolarRecord.HISTORY_SCOPE_MAIN,
+            power_kw__isnull=False,
+            irradiation__isnull=False,
+        )
+        .order_by("-timestamp")
+        .values("timestamp", "power_kw", "irradiation")[:24 * 365]
+    )
+    if len(rows) < 24:
+        return {}
+
+    hist = pd.DataFrame(rows)
+    hist["timestamp"] = pd.to_datetime(hist["timestamp"], errors="coerce")
+    hist["hour"] = hist["timestamp"].dt.hour.astype("Int64")
+    hist["irr"] = pd.to_numeric(hist["irradiation"], errors="coerce")
+    hist["power_mw"] = pd.to_numeric(hist["power_kw"], errors="coerce") / 1000.0
+    hist = hist.dropna(subset=["hour", "irr", "power_mw"])
+    hist = hist[(hist["irr"] >= 80.0) & (hist["power_mw"] >= 0.0)]
+    if len(hist) < 24:
+        return {}
+
+    physical_expected = ac_cap_mw * (hist["irr"] / 1000.0) * _station_pr_default(st)
+    physical_expected = physical_expected.clip(lower=max(ac_cap_mw * 0.03, 0.05), upper=ac_cap_mw)
+    hist["calibration_factor"] = (hist["power_mw"] / physical_expected).replace([np.inf, -np.inf], np.nan)
+    hist = hist.dropna(subset=["calibration_factor"])
+    hist = hist[(hist["calibration_factor"] > 0.2) & (hist["calibration_factor"] < 2.0)]
+    if len(hist) < 24:
+        return {}
+
+    curve: Dict[int, Dict[str, float]] = {}
+    for hour, values in hist.groupby("hour")["calibration_factor"]:
+        values = values.dropna()
+        if len(values) < 3:
+            continue
+        factor = float(values.median())
+        if not np.isfinite(factor):
+            continue
+        curve[int(hour)] = {
+            "factor": float(np.clip(factor, 0.70, 1.30)),
+            "samples": float(len(values)),
+        }
+    return curve
+
+
+def _add_tracker_model_features(feat: pd.DataFrame, st: Station, capacity_mw: float) -> pd.DataFrame:
+    """Add tracker-aware model regressors before XGB/NP prediction.
+
+    Retrained tracker models can learn against the station-calibrated tracker
+    expected curve instead of a fixed-tilt GHI curve. For non-tracker stations
+    the columns are harmless defaults, so legacy models keep working.
+    """
+    out = feat.copy()
+    out["tracker_profile_factor"] = 1.0
+    out["tracker_station_calibration_factor"] = 1.0
+    base_expected = pd.to_numeric(out.get("y_expected"), errors="coerce").fillna(0.0)
+    out["tracker_calibrated_expected_mw"] = base_expected
+    out["tracker_calibrated_expected_log"] = np.log1p(base_expected)
+
+    if not _is_single_axis_tracker(st) or out.empty:
+        return out
+
+    factor = _single_axis_tracker_profile_factor(out)
+    ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
+    irradiation = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    hours = pd.to_datetime(out["ds"]).dt.hour.astype(int).to_numpy()
+
+    calibration_curve = _tracker_station_calibration_curve(st, ac_cap_mw)
+    station_calibration = np.ones(len(out), dtype=float)
+    for i, hour in enumerate(hours):
+        stats = calibration_curve.get(int(hour))
+        if stats:
+            station_calibration[i] = float(stats["factor"])
+
+    calibrated_expected = np.clip(
+        ac_cap_mw * (irradiation / 1000.0) * _station_pr_default(st) * factor * station_calibration,
+        0.0,
+        ac_cap_mw,
+    )
+    out["tracker_profile_factor"] = factor
+    out["tracker_station_calibration_factor"] = station_calibration
+    out["tracker_calibrated_expected_mw"] = calibrated_expected
+    out["tracker_calibrated_expected_log"] = np.log1p(calibrated_expected)
+    return out
 
 
 def _describe_np_model(model: object) -> str:
@@ -1156,18 +1268,58 @@ def _predict_np(
     if missing:
         logger.warning("[NP] missing regressors -> filled with defaults: %s", missing)
 
-    fcst = model.predict(dfp)
+    try:
+        fcst = model.predict(dfp)
+    except Exception as exc:
+        logger.exception("[NP] predict failed; skipping NP for this forecast run: %s", exc)
+        return np.full(len(dfp), np.nan)
 
-    # NeuralProphet обычно возвращает yhat1
+    # NeuralProphet usually returns yhat1. Some versions can also return a
+    # different row count for irregular hourly grids. Always align back to the
+    # requested dfp["ds"] so a bad/odd NP output cannot crash saving rows.
     yhat_col = "yhat1" if "yhat1" in fcst.columns else None
     if not yhat_col:
         yhat_cols = [c for c in fcst.columns if c.startswith("yhat")]
         yhat_col = yhat_cols[0] if yhat_cols else None
 
     if not yhat_col:
+        logger.warning("[NP] predict returned no yhat columns: %s", list(fcst.columns))
         return np.full(len(dfp), np.nan)
 
-    return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
+    yhat = pd.to_numeric(fcst[yhat_col], errors="coerce")
+    if len(yhat) == len(dfp):
+        return yhat.to_numpy(dtype=float)
+
+    if "ds" in fcst.columns:
+        aligned = (
+            pd.DataFrame({"ds": pd.to_datetime(dfp["ds"]).dt.floor("h")})
+            .merge(
+                pd.DataFrame(
+                    {
+                        "ds": pd.to_datetime(fcst["ds"], errors="coerce").dt.floor("h"),
+                        "yhat": yhat,
+                    }
+                ).dropna(subset=["ds"]).drop_duplicates(subset=["ds"], keep="last"),
+                on="ds",
+                how="left",
+            )["yhat"]
+        )
+        logger.warning(
+            "[NP] predict row-count mismatch input=%s output=%s; aligned by ds",
+            len(dfp),
+            len(fcst),
+        )
+        return pd.to_numeric(aligned, errors="coerce").to_numpy(dtype=float)
+
+    logger.warning(
+        "[NP] predict row-count mismatch input=%s output=%s and no ds column; padding/truncating",
+        len(dfp),
+        len(fcst),
+    )
+    out = np.full(len(dfp), np.nan, dtype=float)
+    values = yhat.to_numpy(dtype=float)
+    out[: min(len(out), len(values))] = values[: min(len(out), len(values))]
+    return out
 
 
 def _predict_xgb(booster: Any, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
@@ -1222,8 +1374,12 @@ def _postprocess_xgb_prediction(
             floor = max(0.05 * cap_used, 0.15)
         floor = max(floor, 1e-3)
 
+        expected_col = str((xgb_meta or {}).get("expected_col", "") or "")
         if df_feat is None:
             expected = np.full(len(out), floor, dtype=float)
+        elif expected_col and expected_col in df_feat.columns:
+            expected = pd.to_numeric(df_feat.get(expected_col), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+            expected = np.maximum(expected, floor)
         else:
             irr = pd.to_numeric(df_feat.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
             expected = np.clip(cap_used * (irr / 1000.0) * PR_FOR_EXPECTED, 0.0, cap_used * 0.95)
@@ -1459,6 +1615,7 @@ def run_forecast_for_station(
     # а массивы предсказаний индексируются позиционно с 0. Выравниваем индекс,
     # чтобы избежать ошибок вида "index X is out of bounds for axis 0" при сохранении.
     feat = feat.reset_index(drop=True)
+    feat = _add_tracker_model_features(feat, st, capacity_mw)
 
     if feat.empty:
         return {
@@ -1663,9 +1820,14 @@ def run_forecast_for_station(
     else:
         y_heur = y_heur.to_numpy(dtype=float)
 
-    # NP теперь выдаёт residual -> приводим к полной мощности
+    # NP теперь выдаёт residual -> приводим к полной мощности.
+    # Tracker models retrained after this change can store residuals relative to
+    # tracker_calibrated_expected_mw, so operational and postfact use the same
+    # tracker base curve.
     if np_ok:
-        y_np = y_np + np.nan_to_num(feat.get("y_expected", 0.0))
+        np_base_col = str((np_meta or {}).get("base_expected_col", "y_expected") or "y_expected")
+        np_base = feat.get(np_base_col) if np_base_col in feat.columns else feat.get("y_expected", 0.0)
+        y_np = y_np + np.nan_to_num(np_base)
 
     # чистим NaN до ансамбля, иначе NaN в XGB/NP зануляет итог
     if use_models:
