@@ -1268,18 +1268,58 @@ def _predict_np(
     if missing:
         logger.warning("[NP] missing regressors -> filled with defaults: %s", missing)
 
-    fcst = model.predict(dfp)
+    try:
+        fcst = model.predict(dfp)
+    except Exception as exc:
+        logger.exception("[NP] predict failed; skipping NP for this forecast run: %s", exc)
+        return np.full(len(dfp), np.nan)
 
-    # NeuralProphet обычно возвращает yhat1
+    # NeuralProphet usually returns yhat1. Some versions can also return a
+    # different row count for irregular hourly grids. Always align back to the
+    # requested dfp["ds"] so a bad/odd NP output cannot crash saving rows.
     yhat_col = "yhat1" if "yhat1" in fcst.columns else None
     if not yhat_col:
         yhat_cols = [c for c in fcst.columns if c.startswith("yhat")]
         yhat_col = yhat_cols[0] if yhat_cols else None
 
     if not yhat_col:
+        logger.warning("[NP] predict returned no yhat columns: %s", list(fcst.columns))
         return np.full(len(dfp), np.nan)
 
-    return pd.to_numeric(fcst[yhat_col], errors="coerce").to_numpy()
+    yhat = pd.to_numeric(fcst[yhat_col], errors="coerce")
+    if len(yhat) == len(dfp):
+        return yhat.to_numpy(dtype=float)
+
+    if "ds" in fcst.columns:
+        aligned = (
+            pd.DataFrame({"ds": pd.to_datetime(dfp["ds"]).dt.floor("h")})
+            .merge(
+                pd.DataFrame(
+                    {
+                        "ds": pd.to_datetime(fcst["ds"], errors="coerce").dt.floor("h"),
+                        "yhat": yhat,
+                    }
+                ).dropna(subset=["ds"]).drop_duplicates(subset=["ds"], keep="last"),
+                on="ds",
+                how="left",
+            )["yhat"]
+        )
+        logger.warning(
+            "[NP] predict row-count mismatch input=%s output=%s; aligned by ds",
+            len(dfp),
+            len(fcst),
+        )
+        return pd.to_numeric(aligned, errors="coerce").to_numpy(dtype=float)
+
+    logger.warning(
+        "[NP] predict row-count mismatch input=%s output=%s and no ds column; padding/truncating",
+        len(dfp),
+        len(fcst),
+    )
+    out = np.full(len(dfp), np.nan, dtype=float)
+    values = yhat.to_numpy(dtype=float)
+    out[: min(len(out), len(values))] = values[: min(len(out), len(values))]
+    return out
 
 
 def _predict_xgb(booster: Any, df_feat: pd.DataFrame, feature_names: List[str]) -> np.ndarray:
