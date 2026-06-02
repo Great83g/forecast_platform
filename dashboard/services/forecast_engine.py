@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import importlib.util
+import time
 from datetime import date, timedelta
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from django.conf import settings
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
 
 from neuralprophet import load as np_load
@@ -117,6 +118,68 @@ AUTO_FOG_FACTOR = 1.0
 FOG_CODES = {45, 48}
 SNOW_CODES = {71, 73, 75, 77, 85, 86}
 
+
+
+
+def _forecast_db_lock_retries() -> int:
+    raw = getattr(settings, "FORECAST_DB_LOCK_RETRIES", 8)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 8
+
+
+def _forecast_db_lock_retry_delay_seconds() -> float:
+    raw = getattr(settings, "FORECAST_DB_LOCK_RETRY_DELAY_SECONDS", 0.75)
+    try:
+        return float(np.clip(float(raw), 0.05, 10.0))
+    except (TypeError, ValueError):
+        return 0.75
+
+
+def _replace_solar_forecast_rows_with_retry(
+    *,
+    station: Station,
+    forecast_scope: str,
+    cleanup_start,
+    cleanup_end,
+    objs: List[SolarForecast],
+) -> None:
+    """Replace forecast rows with SQLite lock retries.
+
+    The expensive weather/model prediction work happens before this helper. Only
+    the small delete+bulk_create section is wrapped in a transaction, which keeps
+    SQLite write locks short and makes manual recalculation less likely to fight
+    the scheduler/web process.
+    """
+    retries = _forecast_db_lock_retries()
+    delay = _forecast_db_lock_retry_delay_seconds()
+
+    for attempt in range(retries + 1):
+        try:
+            with transaction.atomic():
+                SolarForecast.objects.filter(
+                    station=station,
+                    forecast_scope=forecast_scope,
+                    timestamp__gte=cleanup_start,
+                    timestamp__lt=cleanup_end,
+                ).delete()
+                SolarForecast.objects.bulk_create(objs, batch_size=500)
+            return
+        except OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt >= retries:
+                raise
+            sleep_seconds = delay * (attempt + 1)
+            logger.warning(
+                "[FORECAST_DB] database locked while saving station=%s scope=%s rows=%s; retry %s/%s in %.2fs",
+                station.pk,
+                forecast_scope,
+                len(objs),
+                attempt + 1,
+                retries,
+                sleep_seconds,
+            )
+            time.sleep(sleep_seconds)
 
 def _forecast_global_bias() -> float:
     raw = getattr(settings, "FORECAST_GLOBAL_BIAS", 1.0)
@@ -1520,7 +1583,6 @@ def _apply_early_morning_history_cap(
     return out, caps
 
 
-@transaction.atomic
 def run_forecast_for_station(
     station_id: int,
     days: int = 7,
@@ -1966,13 +2028,6 @@ def run_forecast_for_station(
     shifted_cleanup_start = base_cleanup_start + timedelta(hours=forecast_shift_hours)
     shifted_cleanup_end = base_cleanup_end + timedelta(hours=forecast_shift_hours)
 
-    SolarForecast.objects.filter(
-        station=st,
-        forecast_scope=forecast_scope,
-        timestamp__gte=shifted_cleanup_start,
-        timestamp__lt=shifted_cleanup_end,
-    ).delete()
-
     feat["ds"] = pd.to_datetime(feat["ds"], errors="coerce") + pd.to_timedelta(forecast_shift_hours, unit="h")
     logger.info(
         "[FORECAST_SHIFT] station=%s shift=%sh applied rows=%s",
@@ -2023,7 +2078,13 @@ def run_forecast_for_station(
             )
         )
 
-    SolarForecast.objects.bulk_create(objs, batch_size=500)
+    _replace_solar_forecast_rows_with_retry(
+        station=st,
+        forecast_scope=forecast_scope,
+        cleanup_start=shifted_cleanup_start,
+        cleanup_end=shifted_cleanup_end,
+        objs=objs,
+    )
 
     mirrored_qs = SolarForecast.objects.filter(
         station=st,
