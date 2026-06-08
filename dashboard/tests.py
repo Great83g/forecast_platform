@@ -2665,3 +2665,47 @@ class StationListScopeTests(TestCase):
         response = self.client.post(reverse("dashboard:station-move", args=[self.wind_station.pk, "up"]))
 
         self.assertEqual(response.status_code, 404)
+
+class IrradiationHistoryTrainingTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="train-irr-owner", password="pass12345")
+        self.org = Organization.objects.create(name="Train Irr Org", owner=self.owner)
+
+    def test_training_uses_ghi_when_both_split_columns_exist(self):
+        from dashboard.services.train_models import get_history_dataframe
+
+        station = Station.objects.create(org=self.org, name="Tracker", mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER)
+        SolarRecord.objects.create(
+            station=station,
+            timestamp="2026-01-01T10:00:00+05:00",
+            power_kw=100.0,
+            irradiation=999.0,
+            irradiation_ghi=500.0,
+            irradiation_poa=700.0,
+            air_temp=20.0,
+            pv_temp=25.0,
+        )
+
+        df = get_history_dataframe(station)
+        self.assertEqual(float(df.iloc[0]["Irradiation"]), 500.0)
+        self.assertEqual(float(df.iloc[0]["Irradiation_POA"]), 700.0)
+
+    def test_training_does_not_treat_legacy_poa_as_ghi(self):
+        from dashboard.services.train_models import get_history_dataframe
+
+        station = Station.objects.create(
+            org=self.org,
+            name="POA legacy",
+            irradiation_type=Station.IRRADIATION_POA,
+        )
+        SolarRecord.objects.create(
+            station=station,
+            timestamp="2026-01-01T10:00:00+05:00",
+            power_kw=100.0,
+            irradiation=700.0,
+            air_temp=20.0,
+            pv_temp=25.0,
+        )
+
+        df = get_history_dataframe(station)
+        self.assertTrue(df.empty)

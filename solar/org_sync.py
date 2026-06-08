@@ -49,6 +49,8 @@ def _ensure_schema(conn: sqlite3.Connection):
             timestamp TEXT NOT NULL,
             history_scope TEXT NOT NULL,
             irradiation REAL,
+            irradiation_ghi REAL,
+            irradiation_poa REAL,
             air_temp REAL,
             pv_temp REAL,
             power_kw REAL,
@@ -86,6 +88,11 @@ def _ensure_schema(conn: sqlite3.Connection):
         )
         """
     )
+    for col in ["irradiation_ghi", "irradiation_poa"]:
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(solar_solarrecord)").fetchall()}
+        if col not in existing_cols:
+            conn.execute(f"ALTER TABLE solar_solarrecord ADD COLUMN {col} REAL")
+
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_solarrecord_station_time ON solar_solarrecord(station_id, timestamp)"
     )
@@ -145,13 +152,15 @@ def sync_solar_record(record: SolarRecord):
         _upsert_station(conn, station)
         conn.execute(
             """
-            INSERT INTO solar_solarrecord(id, station_id, timestamp, history_scope, irradiation, air_temp, pv_temp, power_kw)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO solar_solarrecord(id, station_id, timestamp, history_scope, irradiation, irradiation_ghi, irradiation_poa, air_temp, pv_temp, power_kw)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 station_id=excluded.station_id,
                 timestamp=excluded.timestamp,
                 history_scope=excluded.history_scope,
                 irradiation=excluded.irradiation,
+                irradiation_ghi=excluded.irradiation_ghi,
+                irradiation_poa=excluded.irradiation_poa,
                 air_temp=excluded.air_temp,
                 pv_temp=excluded.pv_temp,
                 power_kw=excluded.power_kw
@@ -162,6 +171,8 @@ def sync_solar_record(record: SolarRecord):
                 _dt(record.timestamp),
                 record.history_scope,
                 record.irradiation,
+                record.irradiation_ghi,
+                record.irradiation_poa,
                 record.air_temp,
                 record.pv_temp,
                 record.power_kw,

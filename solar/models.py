@@ -17,7 +17,9 @@ class SolarRecord(models.Model):
     """
     Исторические данные станции:
     - timestamp: момент времени
-    - irradiation: солнечная радиация (Вт/м²)
+    - irradiation: старая солнечная радиация (Вт/м²), оставлена для совместимости
+    - irradiation_ghi: GHI (глобальная горизонтальная радиация, Вт/м²)
+    - irradiation_poa: POA (радиация в плоскости панелей, Вт/м²)
     - air_temp: температура воздуха (°C)
     - pv_temp: температура панелей (°C)
     - power_kw: фактическая выработка (кВт)
@@ -31,6 +33,8 @@ class SolarRecord(models.Model):
     history_scope = models.CharField(max_length=16, choices=HISTORY_SCOPE_CHOICES, default=HISTORY_SCOPE_MAIN)
 
     irradiation = models.FloatField(null=True, blank=True)
+    irradiation_ghi = models.FloatField(null=True, blank=True)
+    irradiation_poa = models.FloatField(null=True, blank=True)
     air_temp = models.FloatField(null=True, blank=True)
     pv_temp = models.FloatField(null=True, blank=True)
     power_kw = models.FloatField(null=True, blank=True)
@@ -41,6 +45,20 @@ class SolarRecord(models.Model):
             models.Index(fields=["station", "history_scope", "timestamp"]),
             models.Index(fields=["station", "timestamp"]),
         ]
+
+    def effective_ghi(self):
+        if self.irradiation_ghi is not None:
+            return self.irradiation_ghi
+        if getattr(self.station, "irradiation_type", Station.IRRADIATION_GHI) == Station.IRRADIATION_GHI:
+            return self.irradiation
+        return None
+
+    def effective_poa(self):
+        if self.irradiation_poa is not None:
+            return self.irradiation_poa
+        if getattr(self.station, "irradiation_type", Station.IRRADIATION_GHI) == Station.IRRADIATION_POA:
+            return self.irradiation
+        return None
 
     def __str__(self):
         return f"{self.station.name} [{self.history_scope}] @ {self.timestamp}"

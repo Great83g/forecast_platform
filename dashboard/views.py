@@ -238,6 +238,51 @@ def _parse_history_datetime(series: pd.Series) -> pd.Series:
     return parsed
 
 
+
+def _column_name_map(df: pd.DataFrame) -> dict[str, str]:
+    return {str(col).strip().lower(): col for col in df.columns}
+
+
+def _pick_column(df: pd.DataFrame, explicit_name: str | None, candidates: list[str]) -> str | None:
+    col_map = _column_name_map(df)
+    if explicit_name:
+        key = str(explicit_name).strip().lower()
+        if key in col_map:
+            return col_map[key]
+        return None
+
+    for candidate in candidates:
+        key = candidate.strip().lower()
+        if key in col_map:
+            return col_map[key]
+
+    for candidate in candidates:
+        key = candidate.strip().lower()
+        for normalized, original in col_map.items():
+            if key in normalized:
+                return original
+    return None
+
+
+def _effective_history_ghi(row, station: Station, legacy_col: str = "irradiation"):
+    ghi = row.get("irradiation_ghi")
+    if pd.notna(ghi):
+        return ghi
+    legacy = row.get(legacy_col)
+    if pd.notna(legacy) and getattr(station, "irradiation_type", Station.IRRADIATION_GHI) == Station.IRRADIATION_GHI:
+        return legacy
+    return None
+
+
+def _effective_history_poa(row, station: Station, legacy_col: str = "irradiation"):
+    poa = row.get("irradiation_poa")
+    if pd.notna(poa):
+        return poa
+    legacy = row.get(legacy_col)
+    if pd.notna(legacy) and getattr(station, "irradiation_type", Station.IRRADIATION_GHI) == Station.IRRADIATION_POA:
+        return legacy
+    return None
+
 def _normalize_forecast_scope(value: str) -> str:
     if value == "test":
         return "test"
@@ -842,6 +887,8 @@ def station_detail(request, pk: int):
             .annotate(
                 power_kw=Avg("power_kw"),
                 irradiation=Avg("irradiation"),
+                irradiation_ghi=Avg("irradiation_ghi"),
+                irradiation_poa=Avg("irradiation_poa"),
                 air_temp=Avg("air_temp"),
             )
             .order_by("bucket")
@@ -874,9 +921,9 @@ def station_detail(request, pk: int):
         forecast_map = _build_forecast_plan_map(forecast_rows, "bucket")
         forecast_test_map = _build_forecast_plan_map(forecast_rows_test, "bucket")
         irr_fact_map = {
-            row["bucket"]: float(row["irradiation"])
+            row["bucket"]: float(_effective_history_ghi(row, st))
             for row in history_rows
-            if row.get("irradiation") is not None
+            if _effective_history_ghi(row, st) is not None
         }
         irr_plan_map = {
             row["bucket"]: float(row["irradiation_fc"])
@@ -897,6 +944,8 @@ def station_detail(request, pk: int):
         history_rows = history_qs.values("timestamp").annotate(
             power_kw=Avg("power_kw"),
             irradiation=Avg("irradiation"),
+            irradiation_ghi=Avg("irradiation_ghi"),
+            irradiation_poa=Avg("irradiation_poa"),
             air_temp=Avg("air_temp"),
         ).order_by("timestamp")
         forecast_rows = forecast_qs.values("timestamp").annotate(
@@ -917,9 +966,9 @@ def station_detail(request, pk: int):
         forecast_map = _build_forecast_plan_map(forecast_rows, "timestamp")
         forecast_test_map = _build_forecast_plan_map(forecast_rows_test, "timestamp")
         irr_fact_map = {
-            row["timestamp"]: float(row["irradiation"])
+            row["timestamp"]: float(_effective_history_ghi(row, st))
             for row in history_rows
-            if row.get("irradiation") is not None
+            if _effective_history_ghi(row, st) is not None
         }
         irr_plan_map = {
             row["timestamp"]: float(row["irradiation_fc"])
@@ -1225,41 +1274,52 @@ def station_upload(request, pk: int):
             messages.error(request, f"Не удалось прочитать файл: {e}")
             return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
-        # нормализуем названия колонок: убираем пробелы и приводим к нижнему регистру
-        df.columns = [str(c).strip().lower() for c in df.columns]
-
-        # поддержим разные названия колонок
-        col_ts = "timestamp" if "timestamp" in df.columns else ("ds" if "ds" in df.columns else None)
-        col_y = "power_kw" if "power_kw" in df.columns else ("y" if "y" in df.columns else None)
+        # поддержим разные названия колонок + явный маппинг из формы
+        col_ts = _pick_column(df, None, ["timestamp", "ds", "date_time", "datetime", "date"])
+        col_y = _pick_column(df, request.POST.get("power_column"), ["power_kw", "power", "power_kW", "y"])
+        col_legacy_irr = _pick_column(df, None, ["irradiation", "irradiance", "solar", "radiation", "w/m2", "wm2"])
+        col_ghi = _pick_column(df, request.POST.get("ghi_column"), ["irradiation_ghi", "ghi", "ghi column", "global horizontal irradiance"])
+        col_poa = _pick_column(df, request.POST.get("poa_column"), ["irradiation_poa", "poa", "poa column", "plane of array", "plane_of_array"])
+        col_air = _pick_column(df, request.POST.get("air_temp_column"), ["air_temp", "air temperature", "temp_air", "tair", "temperature"])
+        col_pv = _pick_column(df, request.POST.get("pv_temp_column"), ["pv_temp", "pv temperature", "module_temp", "panel_temp", "tmodule"])
 
         if not col_ts or not col_y:
-            messages.error(request, "Нужны колонки timestamp/ds и power_kw/y (регистр не важен).")
+            messages.error(request, "Нужны колонки timestamp/ds и Power/Power_KW (или укажите Power column).")
             return redirect(f"{reverse('dashboard:station-upload', kwargs={'pk': pk})}?history_scope={history_scope}")
 
         df[col_ts] = _parse_history_datetime(df[col_ts])
         df[col_y] = pd.to_numeric(df[col_y], errors="coerce")
 
-        # опциональные колонки
-        for c in ["irradiation", "air_temp", "pv_temp"]:
-            if c in df.columns:
+        for c in [col_legacy_irr, col_ghi, col_poa, col_air, col_pv]:
+            if c:
                 df[c] = pd.to_numeric(df[c], errors="coerce")
 
         df = df.dropna(subset=[col_ts]).sort_values(col_ts).reset_index(drop=True)
 
-        # полностью заменяем историю
+        # полностью заменяем историю выбранной базы, как и раньше; миграции старые записи не трогают
         SolarRecord.objects.filter(station=st, history_scope=history_scope).delete()
 
         objs = []
         for _, r in df.iterrows():
+            legacy_irr = r.get(col_legacy_irr) if col_legacy_irr else None
+            ghi = r.get(col_ghi) if col_ghi else None
+            poa = r.get(col_poa) if col_poa else None
+            if pd.isna(ghi) and pd.notna(legacy_irr) and st.irradiation_type == Station.IRRADIATION_GHI:
+                ghi = legacy_irr
+            if pd.isna(poa) and pd.notna(legacy_irr) and st.irradiation_type == Station.IRRADIATION_POA:
+                poa = legacy_irr
+
             objs.append(
                 SolarRecord(
                     station=st,
                     history_scope=history_scope,
                     timestamp=r[col_ts].to_pydatetime(),
                     power_kw=float(r[col_y]) if pd.notna(r[col_y]) else None,
-                    irradiation=float(r["irradiation"]) if "irradiation" in df.columns and pd.notna(r.get("irradiation")) else None,
-                    air_temp=float(r["air_temp"]) if "air_temp" in df.columns and pd.notna(r.get("air_temp")) else None,
-                    pv_temp=float(r["pv_temp"]) if "pv_temp" in df.columns and pd.notna(r.get("pv_temp")) else None,
+                    irradiation=float(legacy_irr) if pd.notna(legacy_irr) else (float(ghi) if pd.notna(ghi) else None),
+                    irradiation_ghi=float(ghi) if pd.notna(ghi) else None,
+                    irradiation_poa=float(poa) if pd.notna(poa) else None,
+                    air_temp=float(r[col_air]) if col_air and pd.notna(r.get(col_air)) else None,
+                    pv_temp=float(r[col_pv]) if col_pv and pd.notna(r.get(col_pv)) else None,
                 )
             )
 
@@ -1306,7 +1366,7 @@ def station_export_history(request, pk: int):
 
     history_scope = _normalize_history_scope(request.GET.get("history_scope") or "main")
     qs = SolarRecord.objects.filter(station=st, history_scope=history_scope).order_by("timestamp")
-    data = list(qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp"))
+    data = list(qs.values("timestamp", "power_kw", "irradiation", "irradiation_ghi", "irradiation_poa", "air_temp", "pv_temp"))
     df = pd.DataFrame(data)
 
     if not df.empty and "timestamp" in df.columns:

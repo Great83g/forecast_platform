@@ -72,10 +72,16 @@
       <input type="hidden" name="action" value="upload">
       <input type="hidden" name="history_scope" value="{{ history_scope }}">
       <input type="file" name="file" class="form-control form-control-sm" style="max-width: 420px;">
+      <input type="text" name="ghi_column" class="form-control form-control-sm" placeholder="GHI column" style="max-width: 150px;">
+      <input type="text" name="poa_column" class="form-control form-control-sm" placeholder="POA column" style="max-width: 150px;">
+      <input type="text" name="power_column" class="form-control form-control-sm" placeholder="Power column" style="max-width: 150px;">
+      <input type="text" name="air_temp_column" class="form-control form-control-sm" placeholder="Air temp column" style="max-width: 150px;">
+      <input type="text" name="pv_temp_column" class="form-control form-control-sm" placeholder="PV temp column" style="max-width: 150px;">
       <button type="submit" class="btn btn-primary btn-sm" data-i18n="upload_upload_btn">Загрузить</button>
     </form>
     <div class="text-muted small mt-2">
-      <span data-i18n="upload_expected_columns">Ожидаемые колонки</span>: <code>ds, Irradiation, Air_Temp, PV_Temp, Power_KW</code>
+      <span data-i18n="upload_expected_columns">Ожидаемые колонки</span>: <code>ds/timestamp, irradiation_ghi/GHI, irradiation_poa/POA, irradiation, Air_Temp, PV_Temp, Power_KW</code>.
+      Старое <code>irradiation</code> остаётся совместимым и трактуется по настройке станции.
     </div>
   </div>
 </div>
@@ -89,7 +95,9 @@
     <thead class="table-light" style="position: sticky; top: 0; z-index: 2;">
       <tr>
         <th data-i18n="upload_datetime">Дата/время</th>
-        <th>Irradiation</th>
+        <th>Irradiation (legacy)</th>
+        <th>GHI</th>
+        <th>POA</th>
         <th>Air_Temp</th>
         <th>PV_Temp</th>
         <th>Power_KW</th>
@@ -100,12 +108,14 @@
         <tr>
           <td>{{ r.timestamp }}</td>
           <td>{{ r.irradiation }}</td>
+          <td>{{ r.irradiation_ghi }}</td>
+          <td>{{ r.irradiation_poa }}</td>
           <td>{{ r.air_temp }}</td>
           <td>{{ r.pv_temp }}</td>
           <td>{{ r.power_kw }}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="5" class="text-center text-muted py-4" data-i18n="upload_no_data">Нет данных</td></tr>
+        <tr><td colspan="7" class="text-center text-muted py-4" data-i18n="upload_no_data">Нет данных</td></tr>
       {% endfor %}
     </tbody>
   </table>

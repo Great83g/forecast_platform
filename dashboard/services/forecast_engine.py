@@ -907,7 +907,7 @@ def _weather_from_history(st: Station, target_dates: set[date], forecast_scope: 
     for history_scope in scope_order:
         for source_station in station_order:
             qs = SolarRecord.objects.filter(station=source_station, history_scope=history_scope, timestamp__date__in=list(target_dates))
-            data = list(qs.values("timestamp", "irradiation", "air_temp"))
+            data = list(qs.values("timestamp", "irradiation", "irradiation_ghi", "irradiation_poa", "air_temp"))
             if data:
                 break
         if data:
@@ -918,7 +918,16 @@ def _weather_from_history(st: Station, target_dates: set[date], forecast_scope: 
 
     df = pd.DataFrame(data)
     df["ds"] = pd.to_datetime(df["timestamp"], errors="coerce").dt.floor("h")
-    df["irradiation"] = pd.to_numeric(df.get("irradiation"), errors="coerce")
+    legacy_irr = pd.to_numeric(df.get("irradiation"), errors="coerce")
+    ghi = pd.to_numeric(df.get("irradiation_ghi"), errors="coerce")
+    poa = pd.to_numeric(df.get("irradiation_poa"), errors="coerce")
+    source_irradiation_type = getattr(source_station, "irradiation_type", "GHI")
+    if source_irradiation_type == "POA":
+        df["irradiation"] = ghi
+        df["irradiation_poa"] = poa.combine_first(legacy_irr)
+    else:
+        df["irradiation"] = ghi.combine_first(legacy_irr)
+        df["irradiation_poa"] = poa
     df["air_temp"] = pd.to_numeric(df.get("air_temp"), errors="coerce")
     for c in ["wind_speed", "cloudcover", "humidity", "precip", "snowfall", "snowdepth", "weather_code"]:
         df[c] = np.nan
