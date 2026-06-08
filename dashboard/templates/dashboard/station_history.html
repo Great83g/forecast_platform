@@ -83,7 +83,9 @@
         <tr>
           <th style="width:40px;"><input type="checkbox" id="chk_all" /></th>
           <th>Дата/время</th>
-          <th>Irradiation</th>
+          <th>Irradiation (legacy)</th>
+          <th>GHI</th>
+          <th>POA</th>
           <th>Air_Temp</th>
           <th>PV_Temp</th>
           <th>Power_KW</th>
@@ -95,12 +97,14 @@
             <td><input type="checkbox" name="selected" value="{{ r.id }}" class="chk_row" /></td>
             <td>{{ r.timestamp }}</td>
             <td>{{ r.irradiation }}</td>
+            <td>{{ r.irradiation_ghi }}</td>
+            <td>{{ r.irradiation_poa }}</td>
             <td>{{ r.air_temp }}</td>
             <td>{{ r.pv_temp }}</td>
             <td>{{ r.power_kw }}</td>
           </tr>
         {% empty %}
-          <tr><td colspan="6" class="text-center text-muted py-4">Нет данных</td></tr>
+          <tr><td colspan="8" class="text-center text-muted py-4">Нет данных</td></tr>
         {% endfor %}
       </tbody>
     </table>

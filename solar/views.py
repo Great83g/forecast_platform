@@ -28,10 +28,8 @@ class UploadHistoryView(GenericAPIView):
       - CSV или XLSX
       - обязательные колонки:
             ds          – дата/время
-            Irradiation – радиация
-            Air_Temp    – температура воздуха
-            PV_Temp     – температура панелей
             Power_kW    – фактическая выработка (кВт)
+      - радиация: Irradiation_GHI/GHI и/или Irradiation_POA/POA, либо старая Irradiation
 
     Возвращает JSON:
         {
@@ -80,29 +78,48 @@ class UploadHistoryView(GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ---------- проверяем колонки ----------
-        required_cols = ["ds", "Irradiation", "Air_Temp", "PV_Temp", "Power_kW"]
-        missing = [c for c in required_cols if c not in df.columns]
-        if missing:
+        # ---------- проверяем и маппим колонки ----------
+        col_map = {str(c).strip().lower(): c for c in df.columns}
+
+        def pick(*names):
+            for name in names:
+                key = name.strip().lower()
+                if key in col_map:
+                    return col_map[key]
+            return None
+
+        col_ds = pick("ds", "timestamp", "datetime", "date_time")
+        col_power = pick("Power_kW", "Power_KW", "power_kw", "power", "y")
+        col_legacy_irr = pick("Irradiation", "irradiation")
+        col_ghi = pick("Irradiation_GHI", "irradiation_ghi", "GHI", "ghi")
+        col_poa = pick("Irradiation_POA", "irradiation_poa", "POA", "poa")
+        col_air = pick("Air_Temp", "air_temp", "air temperature", "temperature")
+        col_pv = pick("PV_Temp", "pv_temp", "module_temp", "panel_temp")
+
+        if not col_ds or not col_power:
             return Response(
                 {
                     "status": "error",
-                    "message": f"Отсутствуют обязательные колонки: {missing}",
+                    "message": "Нужны колонки ds/timestamp и Power_kW/power_kw.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # ---------- парсим даты ----------
         try:
-            df["ds"] = pd.to_datetime(df["ds"])
+            df[col_ds] = pd.to_datetime(df[col_ds])
         except Exception as e:
             return Response(
                 {
                     "status": "error",
-                    "message": f"Не удалось распарсить колонку 'ds' как дату: {e}",
+                    "message": f"Не удалось распарсить колонку даты как дату: {e}",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        for col in [col_power, col_legacy_irr, col_ghi, col_poa, col_air, col_pv]:
+            if col:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
         df = df.replace({pd.NA: None})
 
@@ -111,17 +128,26 @@ class UploadHistoryView(GenericAPIView):
         # ---------- пишем в базу ----------
         with transaction.atomic():
             for _, row in df.iterrows():
-                ts = row["ds"]
+                ts = row[col_ds]
+                legacy_irr = row[col_legacy_irr] if col_legacy_irr else None
+                ghi = row[col_ghi] if col_ghi else None
+                poa = row[col_poa] if col_poa else None
+                if pd.isna(ghi) and pd.notna(legacy_irr) and station.irradiation_type == Station.IRRADIATION_GHI:
+                    ghi = legacy_irr
+                if pd.isna(poa) and pd.notna(legacy_irr) and station.irradiation_type == Station.IRRADIATION_POA:
+                    poa = legacy_irr
 
                 # update_or_create по (station, timestamp)
                 SolarRecord.objects.update_or_create(
                     station=station,
                     timestamp=ts,
                     defaults={
-                        "irradiation": row["Irradiation"],
-                        "air_temp": row["Air_Temp"],
-                        "pv_temp": row["PV_Temp"],
-                        "power_kw": row["Power_kW"],
+                        "irradiation": legacy_irr if pd.notna(legacy_irr) else (ghi if pd.notna(ghi) else None),
+                        "irradiation_ghi": ghi if pd.notna(ghi) else None,
+                        "irradiation_poa": poa if pd.notna(poa) else None,
+                        "air_temp": row[col_air] if col_air else None,
+                        "pv_temp": row[col_pv] if col_pv else None,
+                        "power_kw": row[col_power],
                     },
                 )
                 created += 1

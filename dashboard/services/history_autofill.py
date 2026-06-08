@@ -204,11 +204,15 @@ def pick_best_report_for_date(files: list[Path]) -> Path:
 
 
 def _clean_round_filter(df: pd.DataFrame) -> pd.DataFrame:
-    for c in ["irradiation", "air_temp", "pv_temp", "power_kw"]:
+    for c in ["irradiation", "irradiation_ghi", "irradiation_poa", "air_temp", "pv_temp", "power_kw"]:
+        if c not in df.columns:
+            df[c] = pd.NA
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     df = df[df["power_kw"].fillna(0) > MIN_POWER_KW].copy()
     df["irradiation"] = df["irradiation"].round(ROUND_IRR)
+    df["irradiation_ghi"] = df["irradiation_ghi"].round(ROUND_IRR)
+    df["irradiation_poa"] = df["irradiation_poa"].round(ROUND_IRR)
     df["air_temp"] = df["air_temp"].round(ROUND_TEMP)
     df["pv_temp"] = df["pv_temp"].round(ROUND_TEMP)
     df["power_kw"] = df["power_kw"].round(ROUND_POWER)
@@ -220,18 +224,33 @@ def _normalize_standard_history_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     ds_col = col_map.get("ds") or col_map.get("timestamp")
     irr_col = col_map.get("irradiation")
+    ghi_col = col_map.get("irradiation_ghi") or col_map.get("ghi")
+    poa_col = col_map.get("irradiation_poa") or col_map.get("poa")
     air_col = col_map.get("air_temp")
     pv_col = col_map.get("pv_temp")
     power_col = col_map.get("power_kw")
 
-    if not all([ds_col, irr_col, air_col, pv_col, power_col]):
+    if not all([ds_col, air_col, pv_col, power_col]) or not (irr_col or ghi_col or poa_col):
         raise ValueError(
-            "[STANDARD] Нужны колонки ds, Irradiation, Air_Temp, PV_Temp, Power_KW "
+            "[STANDARD] Нужны колонки ds, Irradiation/Irradiation_GHI/Irradiation_POA, Air_Temp, PV_Temp, Power_KW "
             f"(или timestamp вместо ds). Найдено: {list(df.columns)}"
         )
 
-    out = df[[ds_col, irr_col, air_col, pv_col, power_col]].copy()
-    out.columns = ["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]
+    selected_cols = [ds_col, air_col, pv_col, power_col]
+    rename_map = {ds_col: "ds", air_col: "air_temp", pv_col: "pv_temp", power_col: "power_kw"}
+    if irr_col:
+        selected_cols.append(irr_col)
+        rename_map[irr_col] = "irradiation"
+    if ghi_col:
+        selected_cols.append(ghi_col)
+        rename_map[ghi_col] = "irradiation_ghi"
+    if poa_col:
+        selected_cols.append(poa_col)
+        rename_map[poa_col] = "irradiation_poa"
+    out = df[selected_cols].copy().rename(columns=rename_map)
+    for optional_col in ["irradiation", "irradiation_ghi", "irradiation_poa"]:
+        if optional_col not in out.columns:
+            out[optional_col] = pd.NA
     out["ds"] = pd.to_datetime(out["ds"], errors="coerce")
     out = out.dropna(subset=["ds"]).copy()
     out["ds"] = out["ds"].dt.floor("h")
@@ -585,6 +604,8 @@ def upsert_station_history_from_share(station: Station) -> int:
                     timestamp=ts,
                     power_kw=float(row.power_kw) if pd.notna(row.power_kw) else None,
                     irradiation=float(row.irradiation) if pd.notna(row.irradiation) else None,
+                    irradiation_ghi=float(row.irradiation_ghi) if hasattr(row, "irradiation_ghi") and pd.notna(row.irradiation_ghi) else None,
+                    irradiation_poa=float(row.irradiation_poa) if hasattr(row, "irradiation_poa") and pd.notna(row.irradiation_poa) else None,
                     air_temp=float(row.air_temp) if pd.notna(row.air_temp) else None,
                     pv_temp=float(row.pv_temp) if pd.notna(row.pv_temp) else None,
                 )
@@ -593,6 +614,8 @@ def upsert_station_history_from_share(station: Station) -> int:
 
         obj.power_kw = float(row.power_kw) if pd.notna(row.power_kw) else None
         obj.irradiation = float(row.irradiation) if pd.notna(row.irradiation) else None
+        obj.irradiation_ghi = float(row.irradiation_ghi) if hasattr(row, "irradiation_ghi") and pd.notna(row.irradiation_ghi) else None
+        obj.irradiation_poa = float(row.irradiation_poa) if hasattr(row, "irradiation_poa") and pd.notna(row.irradiation_poa) else None
         obj.air_temp = float(row.air_temp) if pd.notna(row.air_temp) else None
         obj.pv_temp = float(row.pv_temp) if pd.notna(row.pv_temp) else None
         update_objs.append(obj)
@@ -600,7 +623,7 @@ def upsert_station_history_from_share(station: Station) -> int:
     if create_objs:
         SolarRecord.objects.bulk_create(create_objs, batch_size=1000)
     if update_objs:
-        SolarRecord.objects.bulk_update(update_objs, ["power_kw", "irradiation", "air_temp", "pv_temp"], batch_size=1000)
+        SolarRecord.objects.bulk_update(update_objs, ["power_kw", "irradiation", "irradiation_ghi", "irradiation_poa", "air_temp", "pv_temp"], batch_size=1000)
 
     if ts_values:
         mirrored_qs = SolarRecord.objects.filter(
