@@ -44,6 +44,7 @@ class StationForm(forms.ModelForm):
             "capacity_dc_kw",
             "capacity_ac_kw",
             "mount_type",
+            "irradiation_type",
             "pr_default",
             "tilt_deg",
             "azimuth_deg",
@@ -76,6 +77,7 @@ class StationForm(forms.ModelForm):
         self.fields["capacity_dc_kw"].label = "DC мощность (кВт)"
         self.fields["capacity_ac_kw"].label = "AC мощность (кВт)"
         self.fields["mount_type"].label = "Тип конструкции"
+        self.fields["irradiation_type"].label = "Тип старой irradiation"
         self.fields["pr_default"].label = "PR (0–1)"
         self.fields["tilt_deg"].label = "Наклон (°)"
         self.fields["azimuth_deg"].label = "Азимут (°), юг = 180"
@@ -120,6 +122,9 @@ class StationForm(forms.ModelForm):
         self.fields["forecast_shift_hours"].help_text = (
             "Применяется только к сохраняемому прогнозу. Например -1 сдвигает прогноз на час назад."
         )
+        self.fields["irradiation_type"].help_text = (
+            "Используется только для старой колонки irradiation, когда нет отдельных irradiation_ghi/irradiation_poa."
+        )
         self.fields["auto_history_run_time"].input_formats = AUTO_HISTORY_TIME_INPUT_FORMATS
         self.fields["auto_history_run_time"].widget = forms.TimeInput(attrs={"type": "time", "step": "60"})
         self.fields["data_shift_hours"].required = False
@@ -134,6 +139,7 @@ class StationForm(forms.ModelForm):
             self.fields["azimuth_deg"].initial = 180.0
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["mount_type"].initial = Station.MOUNT_FIXED
+            self.fields["irradiation_type"].initial = Station.IRRADIATION_GHI
             self.fields["timezone"].initial = "Asia/Almaty"
             self.fields["data_shift_hours"].initial = 0
             self.fields["forecast_shift_hours"].initial = 0
@@ -170,6 +176,11 @@ class StationForm(forms.ModelForm):
 
 class UploadHistoryForm(forms.Form):
     file = forms.FileField(label="CSV / Excel файл с историей")
+    ghi_column = forms.CharField(label="GHI column", required=False)
+    poa_column = forms.CharField(label="POA column", required=False)
+    power_column = forms.CharField(label="Power column", required=False)
+    air_temp_column = forms.CharField(label="Air temp column", required=False)
+    pv_temp_column = forms.CharField(label="PV temp column", required=False)
 
 
 class ForecastEmailForm(forms.Form):

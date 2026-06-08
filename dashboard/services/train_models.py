@@ -66,7 +66,7 @@ def get_history_dataframe(station) -> pd.DataFrame:
     История по станции из SolarRecord.
 
     Возвращает DataFrame с колонками:
-      ds, Power_KW, Irradiation, Air_Temp, PV_Temp
+      ds, Power_KW, Irradiation, Irradiation_GHI, Irradiation_POA, Air_Temp, PV_Temp
     """
     history_station = station
     qs = SolarRecord.objects.filter(station=station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("timestamp")
@@ -74,7 +74,7 @@ def get_history_dataframe(station) -> pd.DataFrame:
         history_station = station.history_source
         qs = SolarRecord.objects.filter(station=history_station, history_scope=SolarRecord.HISTORY_SCOPE_MAIN).order_by("timestamp")
 
-    qs = qs.values("timestamp", "power_kw", "irradiation", "air_temp", "pv_temp")
+    qs = qs.values("timestamp", "power_kw", "irradiation", "irradiation_ghi", "irradiation_poa", "air_temp", "pv_temp")
     df = pd.DataFrame.from_records(qs)
     if df.empty:
         print(f"[TRAIN] station {station.pk}: история пуста")
@@ -84,13 +84,24 @@ def get_history_dataframe(station) -> pd.DataFrame:
         columns={
             "timestamp": "ds",
             "power_kw": "Power_KW",
-            "irradiation": "Irradiation",
+            "irradiation": "Irradiation_Legacy",
+            "irradiation_ghi": "Irradiation_GHI",
+            "irradiation_poa": "Irradiation_POA",
             "air_temp": "Air_Temp",
             "pv_temp": "PV_Temp",
         },
         inplace=True,
     )
     df["ds"] = pd.to_datetime(df["ds"])
+    legacy_irr = pd.to_numeric(df.get("Irradiation_Legacy"), errors="coerce")
+    ghi = pd.to_numeric(df.get("Irradiation_GHI"), errors="coerce")
+    poa = pd.to_numeric(df.get("Irradiation_POA"), errors="coerce")
+    if getattr(history_station, "irradiation_type", "GHI") == "POA":
+        df["Irradiation"] = ghi
+        df["Irradiation_POA"] = poa.combine_first(legacy_irr)
+    else:
+        df["Irradiation"] = ghi.combine_first(legacy_irr)
+        df["Irradiation_POA"] = poa
 
     if history_station.pk != station.pk:
         scale_factor = _history_scale_factor(station, history_station)

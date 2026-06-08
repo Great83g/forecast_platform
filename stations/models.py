@@ -166,10 +166,23 @@ class Station(models.Model):
         (MOUNT_DUAL_AXIS_TRACKER, "Двухосевой трекер"),
     ]
 
+    IRRADIATION_GHI = "GHI"
+    IRRADIATION_POA = "POA"
+    IRRADIATION_TYPE_CHOICES = [
+        (IRRADIATION_GHI, "GHI (горизонтальная)"),
+        (IRRADIATION_POA, "POA (в плоскости панелей)"),
+    ]
+
     org = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="stations")
     name = models.CharField(max_length=200)
     station_kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_SOLAR, db_index=True)
     mount_type = models.CharField(max_length=32, choices=MOUNT_TYPE_CHOICES, default=MOUNT_FIXED)
+    irradiation_type = models.CharField(
+        max_length=8,
+        choices=IRRADIATION_TYPE_CHOICES,
+        default=IRRADIATION_GHI,
+        help_text="Тип старой колонки irradiation, если в истории нет отдельных GHI/POA.",
+    )
 
     # Старое поле оставляем для совместимости с текущим кодом
     capacity_mw = models.FloatField(default=1.0)

@@ -60,3 +60,49 @@ class OrgDatabaseMirrorTests(TestCase):
         cur.execute("SELECT id FROM solar_solarrecord WHERE id = ?", (record_id,))
         self.assertIsNone(cur.fetchone())
         conn.close()
+
+class IrradiationSplitTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username="irr-owner", password="pass12345")
+        self.org = Organization.objects.create(name="Irr Org", owner=self.owner)
+        self.station = Station.objects.create(org=self.org, name="Irr Station", capacity_mw=1.5)
+
+    def test_record_effective_ghi_and_poa_preserve_legacy_type(self):
+        ghi_record = SolarRecord.objects.create(
+            station=self.station,
+            timestamp="2026-01-01T10:00:00+05:00",
+            irradiation=111.0,
+            irradiation_ghi=222.0,
+            irradiation_poa=333.0,
+        )
+        self.assertEqual(ghi_record.effective_ghi(), 222.0)
+        self.assertEqual(ghi_record.effective_poa(), 333.0)
+
+        self.station.irradiation_type = Station.IRRADIATION_POA
+        self.station.save(update_fields=["irradiation_type"])
+        poa_record = SolarRecord.objects.create(
+            station=self.station,
+            timestamp="2026-01-01T11:00:00+05:00",
+            irradiation=444.0,
+        )
+        self.assertIsNone(poa_record.effective_ghi())
+        self.assertEqual(poa_record.effective_poa(), 444.0)
+
+    def test_org_database_mirrors_split_irradiation_columns(self):
+        record = SolarRecord.objects.create(
+            station=self.station,
+            timestamp="2026-01-01T12:00:00+05:00",
+            irradiation=100.0,
+            irradiation_ghi=101.0,
+            irradiation_poa=102.0,
+            power_kw=10.0,
+        )
+
+        conn = sqlite3.connect(self.org.data_db_path)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT irradiation, irradiation_ghi, irradiation_poa FROM solar_solarrecord WHERE id = ?",
+            (record.id,),
+        )
+        self.assertEqual(cur.fetchone(), (100.0, 101.0, 102.0))
+        conn.close()

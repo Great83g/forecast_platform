@@ -17,7 +17,9 @@
 Функция-обработчик должна быть callable и возвращать `pandas.DataFrame`
 с колонками:
 - `ds`
-- `irradiation`
+- `irradiation` (legacy, для обратной совместимости)
+- `irradiation_ghi` (опционально, GHI)
+- `irradiation_poa` (опционально, POA)
 - `air_temp`
 - `pv_temp`
 - `power_kw`
@@ -43,7 +45,7 @@ def build_history_dataframe(station):
 Готовый скрипт для станции 1.2 МВт (загрузка из стандартного файла портала):
 - `ses_1_2mw` (файл `dashboard/services/history_scripts/ses_1_2mw.py`)
 - Использование в поле `Скрипт автоистории`: `ses_1_2mw`
-- Скрипт читает `.csv`/`.xlsx` из папки автоимпорта и ожидает колонки: `ds, Irradiation, Air_Temp, PV_Temp, Power_KW` (допускается `timestamp` вместо `ds`).
+- Скрипт читает `.csv`/`.xlsx` из папки автоимпорта и ожидает колонки: `ds, Irradiation/Irradiation_GHI/Irradiation_POA, Air_Temp, PV_Temp, Power_KW` (допускается `timestamp` вместо `ds`).
 
 
 Готовый скрипт для станции СЭС Балхаш (станция 50):
