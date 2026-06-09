@@ -44,6 +44,13 @@ class StationForm(forms.ModelForm):
             "capacity_dc_kw",
             "capacity_ac_kw",
             "mount_type",
+            "tracker_axis_tilt",
+            "tracker_axis_azimuth",
+            "tracker_max_angle",
+            "tracker_gcr",
+            "tracker_backtrack",
+            "tracker_poa_model",
+            "tracker_albedo",
             "irradiation_type",
             "pr_default",
             "tilt_deg",
@@ -77,6 +84,13 @@ class StationForm(forms.ModelForm):
         self.fields["capacity_dc_kw"].label = "DC мощность (кВт)"
         self.fields["capacity_ac_kw"].label = "AC мощность (кВт)"
         self.fields["mount_type"].label = "Тип конструкции"
+        self.fields["tracker_axis_tilt"].label = "Tracker axis_tilt"
+        self.fields["tracker_axis_azimuth"].label = "Tracker axis_azimuth"
+        self.fields["tracker_max_angle"].label = "Tracker max_angle"
+        self.fields["tracker_gcr"].label = "Tracker GCR"
+        self.fields["tracker_backtrack"].label = "Tracker backtrack"
+        self.fields["tracker_poa_model"].label = "Tracker pvlib model"
+        self.fields["tracker_albedo"].label = "Tracker albedo"
         self.fields["irradiation_type"].label = "Тип старой irradiation"
         self.fields["pr_default"].label = "PR (0–1)"
         self.fields["tilt_deg"].label = "Наклон (°)"
@@ -122,6 +136,13 @@ class StationForm(forms.ModelForm):
         self.fields["forecast_shift_hours"].help_text = (
             "Применяется только к сохраняемому прогнозу. Например -1 сдвигает прогноз на час назад."
         )
+        self.fields["tracker_axis_tilt"].help_text = "Для одноосевого трекера: обычно 0."
+        self.fields["tracker_axis_azimuth"].help_text = "Для одноосевого трекера: обычно 0 для оси север-юг."
+        self.fields["tracker_max_angle"].help_text = "Для одноосевого трекера: по умолчанию 30°."
+        self.fields["tracker_gcr"].help_text = "Для одноосевого трекера: по умолчанию 0.40."
+        self.fields["tracker_backtrack"].help_text = "Для одноосевого трекера: включать backtracking в pvlib."
+        self.fields["tracker_poa_model"].help_text = "Модель sky diffuse pvlib для GHI→POA, по умолчанию perez."
+        self.fields["tracker_albedo"].help_text = "Albedo для pvlib, по умолчанию 0.20."
         self.fields["irradiation_type"].help_text = (
             "Используется только для старой колонки irradiation, когда нет отдельных irradiation_ghi/irradiation_poa."
         )
@@ -139,6 +160,13 @@ class StationForm(forms.ModelForm):
             self.fields["azimuth_deg"].initial = 180.0
             self.fields["losses_total_pct"].initial = 10.0
             self.fields["mount_type"].initial = Station.MOUNT_FIXED
+            self.fields["tracker_axis_tilt"].initial = 0.0
+            self.fields["tracker_axis_azimuth"].initial = 0.0
+            self.fields["tracker_max_angle"].initial = 30.0
+            self.fields["tracker_gcr"].initial = 0.40
+            self.fields["tracker_backtrack"].initial = True
+            self.fields["tracker_poa_model"].initial = "perez"
+            self.fields["tracker_albedo"].initial = 0.20
             self.fields["irradiation_type"].initial = Station.IRRADIATION_GHI
             self.fields["timezone"].initial = "Asia/Almaty"
             self.fields["data_shift_hours"].initial = 0

@@ -644,6 +644,20 @@ def _add_tracker_model_features(feat: pd.DataFrame, st: Station, capacity_mw: fl
     if not _is_single_axis_tracker(st) or out.empty:
         return out
 
+    try:
+        from .tracker_pvlib_training import add_tracker_prediction_features
+
+        pvlib_out = add_tracker_prediction_features(out, st, capacity_mw)
+        pvlib_out["tracker_calibrated_expected_mw"] = pvlib_out["tracker_pvlib_baseline_mw"]
+        pvlib_out["tracker_calibrated_expected_log"] = pvlib_out["tracker_pvlib_baseline_log"]
+        return pvlib_out
+    except Exception as exc:
+        logger.exception(
+            "[TRACKER_PVLIB] station %s failed to compute pvlib features; falling back to legacy tracker features: %s",
+            st.pk,
+            exc,
+        )
+
     factor = _single_axis_tracker_profile_factor(out)
     ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
     irradiation = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
@@ -1703,6 +1717,16 @@ def run_forecast_for_station(
             "target_dates": sorted(str(d) for d in (target_dates or [])),
         }
 
+    tracker_predict_result = None
+    if _is_single_axis_tracker(st):
+        try:
+            from .tracker_pvlib_predict import run_tracker_pvlib_predict
+
+            tracker_predict_result = run_tracker_pvlib_predict(feat, st, capacity_mw, use_models=use_models)
+            feat = tracker_predict_result.feat.reset_index(drop=True)
+        except Exception as exc:
+            logger.exception("[TRACKER_PREDICT] station %s pvlib tracker predict failed; legacy path will be used: %s", st.pk, exc)
+
     # ---- load models ----
     paths = _model_paths_for_station(st)
     np_path = paths["np"] if paths["np"].exists() else paths["legacy_np"]
@@ -1768,6 +1792,25 @@ def run_forecast_for_station(
                     xgb_meta = json.loads(xgb_meta_path.read_text(encoding="utf-8"))
                 except Exception:
                     xgb_meta = {}
+
+    tracker_pvlib_pipeline = tracker_predict_result is not None or (
+        _is_single_axis_tracker(st)
+        and (
+            str((xgb_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+            or str((np_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+        )
+    )
+    if tracker_pvlib_pipeline and tracker_predict_result is None:
+        try:
+            from .tracker_pvlib_training import add_tracker_prediction_features
+
+            tracker_meta = xgb_meta if xgb_meta.get("baseline_curve") else np_meta
+            feat = add_tracker_prediction_features(feat, st, capacity_mw, tracker_meta)
+            feat["tracker_calibrated_expected_mw"] = feat["tracker_pvlib_baseline_mw"]
+            feat["tracker_calibrated_expected_log"] = feat["tracker_pvlib_baseline_log"]
+        except Exception as exc:
+            tracker_pvlib_pipeline = False
+            logger.exception("[TRACKER_PVLIB] station %s failed to apply trained pvlib meta: %s", st.pk, exc)
 
     fallback_station = Station.objects.filter(pk=1).first()
     if fallback_station:
@@ -1954,6 +1997,23 @@ def run_forecast_for_station(
 
     y_final = np.clip(y_final * _forecast_global_bias(), 0, capacity_mw)
 
+    if tracker_predict_result is not None:
+        # Dedicated tracker predict: Visual Crossing GHI -> pvlib POA -> PVLIB_POA_ENSEMBLE -> MWh.
+        y_np = np.asarray(tracker_predict_result.y_np_mwh, dtype=float)
+        y_xgb = np.asarray(tracker_predict_result.y_xgb_mwh, dtype=float)
+        y_heur = pd.to_numeric(feat.get("tracker_pvlib_baseline_mw"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        y_final = np.asarray(tracker_predict_result.y_final_mwh, dtype=float)
+        np_ok = tracker_predict_result.np_ok
+        xgb_ok = tracker_predict_result.xgb_ok
+        np_error = tracker_predict_result.errors.get("np")
+        xgb_error = tracker_predict_result.errors.get("xgb")
+        feat["Forecast_NP_MWh"] = y_np
+        feat["Forecast_XGB_MWh"] = y_xgb
+        feat["Forecast_Ensemble_Base_MWh"] = tracker_predict_result.y_ensemble_base_mwh
+        feat["Hist_Analog_MWh"] = tracker_predict_result.hist_analog_mwh
+        feat["Forecast_MWh"] = y_final
+        feat["forecast_method"] = tracker_predict_result.method
+
     auto_winter_factor = feat.get("auto_winter_factor")
     if auto_winter_factor is None:
         auto_winter_factor = np.ones(len(feat), dtype=float)
@@ -1990,19 +2050,29 @@ def run_forecast_for_station(
     y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
 
     if _is_single_axis_tracker(st):
-        y_final, tracker_caps = _apply_single_axis_tracker_postprocessing(y_final, feat, st, capacity_mw)
-        tracker_postprocessing_applied = True
-        logger.info(
-            "[FORECAST] station %s single-axis tracker post-processing applied: %s",
-            st.pk,
-            tracker_caps,
-        )
+        if tracker_pvlib_pipeline:
+            ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
+            hist_cap_mw = _historical_tracker_output_cap_mw(st, ac_cap_mw)
+            safe_cap_mw = float(np.clip(hist_cap_mw if hist_cap_mw is not None else ac_cap_mw, 0.0, ac_cap_mw))
+            y_final = np.clip(y_final, 0.0, safe_cap_mw)
+            tracker_caps = {"ac_cap_mw": float(ac_cap_mw), "safe_cap_mw": safe_cap_mw, "pvlib_pipeline": 1.0}
+            tracker_postprocessing_applied = True
+            logger.info("[FORECAST] station %s tracker pvlib cap applied: %s", st.pk, tracker_caps)
+        else:
+            y_final, tracker_caps = _apply_single_axis_tracker_postprocessing(y_final, feat, st, capacity_mw)
+            tracker_postprocessing_applied = True
+            logger.info(
+                "[FORECAST] station %s single-axis tracker post-processing applied: %s",
+                st.pk,
+                tracker_caps,
+            )
     else:
         y_final, early_morning_caps = _apply_early_morning_history_cap(y_final, feat, st, capacity_mw)
         if early_morning_caps:
             logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
 
-    y_final = _apply_tracker_midday_expected_floor(y_final, feat, st, capacity_mw)
+    if not tracker_pvlib_pipeline:
+        y_final = _apply_tracker_midday_expected_floor(y_final, feat, st, capacity_mw)
 
     guardrail_df = pd.DataFrame(
         {
@@ -2045,6 +2115,10 @@ def run_forecast_for_station(
         len(feat),
     )
 
+    def _row_float(row, name: str):
+        value = row.get(name)
+        return float(value) if value is not None and not pd.isna(value) else None
+
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
         pred_np_kw = None
@@ -2084,6 +2158,25 @@ def run_forecast_for_station(
                 winter_factor_applied=float(row.get("winter_factor_applied") or 1.0)
                 if not pd.isna(row.get("winter_factor_applied"))
                 else None,
+                poa_pvlib_fc=_row_float(row, "POA_pvlib"),
+                dni_erbs_fc=_row_float(row, "DNI_erbs"),
+                dhi_erbs_fc=_row_float(row, "DHI_erbs"),
+                tracker_tilt_fc=(
+                    _row_float(row, "tracker_tilt")
+                    if _row_float(row, "tracker_tilt") is not None
+                    else _row_float(row, "tracker_surface_tilt")
+                ),
+                tracker_azimuth_fc=(
+                    _row_float(row, "tracker_azimuth")
+                    if _row_float(row, "tracker_azimuth") is not None
+                    else _row_float(row, "tracker_surface_azimuth")
+                ),
+                forecast_np_mwh=_row_float(row, "Forecast_NP_MWh"),
+                forecast_xgb_mwh=_row_float(row, "Forecast_XGB_MWh"),
+                forecast_ensemble_base_mwh=_row_float(row, "Forecast_Ensemble_Base_MWh"),
+                hist_analog_mwh=_row_float(row, "Hist_Analog_MWh"),
+                forecast_mwh=_row_float(row, "Forecast_MWh"),
+                forecast_method=str(row.get("forecast_method") or ""),
             )
         )
 
