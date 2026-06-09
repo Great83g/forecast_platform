@@ -644,6 +644,20 @@ def _add_tracker_model_features(feat: pd.DataFrame, st: Station, capacity_mw: fl
     if not _is_single_axis_tracker(st) or out.empty:
         return out
 
+    try:
+        from .tracker_pvlib_training import add_tracker_prediction_features
+
+        pvlib_out = add_tracker_prediction_features(out, st, capacity_mw)
+        pvlib_out["tracker_calibrated_expected_mw"] = pvlib_out["tracker_pvlib_baseline_mw"]
+        pvlib_out["tracker_calibrated_expected_log"] = pvlib_out["tracker_pvlib_baseline_log"]
+        return pvlib_out
+    except Exception as exc:
+        logger.exception(
+            "[TRACKER_PVLIB] station %s failed to compute pvlib features; falling back to legacy tracker features: %s",
+            st.pk,
+            exc,
+        )
+
     factor = _single_axis_tracker_profile_factor(out)
     ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
     irradiation = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
@@ -1769,6 +1783,22 @@ def run_forecast_for_station(
                 except Exception:
                     xgb_meta = {}
 
+    tracker_pvlib_pipeline = _is_single_axis_tracker(st) and (
+        str((xgb_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+        or str((np_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+    )
+    if tracker_pvlib_pipeline:
+        try:
+            from .tracker_pvlib_training import add_tracker_prediction_features
+
+            tracker_meta = xgb_meta if xgb_meta.get("baseline_curve") else np_meta
+            feat = add_tracker_prediction_features(feat, st, capacity_mw, tracker_meta)
+            feat["tracker_calibrated_expected_mw"] = feat["tracker_pvlib_baseline_mw"]
+            feat["tracker_calibrated_expected_log"] = feat["tracker_pvlib_baseline_log"]
+        except Exception as exc:
+            tracker_pvlib_pipeline = False
+            logger.exception("[TRACKER_PVLIB] station %s failed to apply trained pvlib meta: %s", st.pk, exc)
+
     fallback_station = Station.objects.filter(pk=1).first()
     if fallback_station:
         fallback_paths = _model_paths_for_station(fallback_station)
@@ -1990,19 +2020,29 @@ def run_forecast_for_station(
     y_final = np.clip(y_final * winter_factor, 0, capacity_mw)
 
     if _is_single_axis_tracker(st):
-        y_final, tracker_caps = _apply_single_axis_tracker_postprocessing(y_final, feat, st, capacity_mw)
-        tracker_postprocessing_applied = True
-        logger.info(
-            "[FORECAST] station %s single-axis tracker post-processing applied: %s",
-            st.pk,
-            tracker_caps,
-        )
+        if tracker_pvlib_pipeline:
+            ac_cap_mw = _station_ac_nameplate_mw(st, capacity_mw)
+            hist_cap_mw = _historical_tracker_output_cap_mw(st, ac_cap_mw)
+            safe_cap_mw = float(np.clip(hist_cap_mw if hist_cap_mw is not None else ac_cap_mw, 0.0, ac_cap_mw))
+            y_final = np.clip(y_final, 0.0, safe_cap_mw)
+            tracker_caps = {"ac_cap_mw": float(ac_cap_mw), "safe_cap_mw": safe_cap_mw, "pvlib_pipeline": 1.0}
+            tracker_postprocessing_applied = True
+            logger.info("[FORECAST] station %s tracker pvlib cap applied: %s", st.pk, tracker_caps)
+        else:
+            y_final, tracker_caps = _apply_single_axis_tracker_postprocessing(y_final, feat, st, capacity_mw)
+            tracker_postprocessing_applied = True
+            logger.info(
+                "[FORECAST] station %s single-axis tracker post-processing applied: %s",
+                st.pk,
+                tracker_caps,
+            )
     else:
         y_final, early_morning_caps = _apply_early_morning_history_cap(y_final, feat, st, capacity_mw)
         if early_morning_caps:
             logger.info("[FORECAST] station %s early-morning history caps applied: %s", st.pk, early_morning_caps)
 
-    y_final = _apply_tracker_midday_expected_floor(y_final, feat, st, capacity_mw)
+    if not tracker_pvlib_pipeline:
+        y_final = _apply_tracker_midday_expected_floor(y_final, feat, st, capacity_mw)
 
     guardrail_df = pd.DataFrame(
         {
