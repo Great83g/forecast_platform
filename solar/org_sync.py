@@ -83,6 +83,17 @@ def _ensure_schema(conn: sqlite3.Connection):
             auto_winter_factor REAL,
             manual_snow_factor REAL,
             winter_factor_applied REAL,
+            poa_pvlib_fc REAL,
+            dni_erbs_fc REAL,
+            dhi_erbs_fc REAL,
+            tracker_tilt_fc REAL,
+            tracker_azimuth_fc REAL,
+            forecast_np_mwh REAL,
+            forecast_xgb_mwh REAL,
+            forecast_ensemble_base_mwh REAL,
+            hist_analog_mwh REAL,
+            forecast_mwh REAL,
+            forecast_method TEXT,
             created_at TEXT,
             FOREIGN KEY(station_id) REFERENCES stations_station(id)
         )
@@ -92,6 +103,24 @@ def _ensure_schema(conn: sqlite3.Connection):
         existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(solar_solarrecord)").fetchall()}
         if col not in existing_cols:
             conn.execute(f"ALTER TABLE solar_solarrecord ADD COLUMN {col} REAL")
+
+    forecast_extra_cols = {
+        "poa_pvlib_fc": "REAL",
+        "dni_erbs_fc": "REAL",
+        "dhi_erbs_fc": "REAL",
+        "tracker_tilt_fc": "REAL",
+        "tracker_azimuth_fc": "REAL",
+        "forecast_np_mwh": "REAL",
+        "forecast_xgb_mwh": "REAL",
+        "forecast_ensemble_base_mwh": "REAL",
+        "hist_analog_mwh": "REAL",
+        "forecast_mwh": "REAL",
+        "forecast_method": "TEXT",
+    }
+    existing_forecast_cols = {row[1] for row in conn.execute("PRAGMA table_info(solar_solarforecast)").fetchall()}
+    for col, sql_type in forecast_extra_cols.items():
+        if col not in existing_forecast_cols:
+            conn.execute(f"ALTER TABLE solar_solarforecast ADD COLUMN {col} {sql_type}")
 
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_solarrecord_station_time ON solar_solarrecord(station_id, timestamp)"
@@ -215,8 +244,10 @@ def sync_solar_forecast(forecast: SolarForecast):
                 irradiation_fc, air_temp_fc, wind_speed_fc, cloudcover_fc, humidity_fc, precip_fc,
                 snowfall_fc, snowdepth_fc, weather_code_fc,
                 auto_snow_flag, auto_fog_flag, auto_winter_factor, manual_snow_factor, winter_factor_applied,
+                poa_pvlib_fc, dni_erbs_fc, dhi_erbs_fc, tracker_tilt_fc, tracker_azimuth_fc,
+                forecast_np_mwh, forecast_xgb_mwh, forecast_ensemble_base_mwh, hist_analog_mwh, forecast_mwh, forecast_method,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 station_id=excluded.station_id,
                 timestamp=excluded.timestamp,
@@ -239,6 +270,17 @@ def sync_solar_forecast(forecast: SolarForecast):
                 auto_winter_factor=excluded.auto_winter_factor,
                 manual_snow_factor=excluded.manual_snow_factor,
                 winter_factor_applied=excluded.winter_factor_applied,
+                poa_pvlib_fc=excluded.poa_pvlib_fc,
+                dni_erbs_fc=excluded.dni_erbs_fc,
+                dhi_erbs_fc=excluded.dhi_erbs_fc,
+                tracker_tilt_fc=excluded.tracker_tilt_fc,
+                tracker_azimuth_fc=excluded.tracker_azimuth_fc,
+                forecast_np_mwh=excluded.forecast_np_mwh,
+                forecast_xgb_mwh=excluded.forecast_xgb_mwh,
+                forecast_ensemble_base_mwh=excluded.forecast_ensemble_base_mwh,
+                hist_analog_mwh=excluded.hist_analog_mwh,
+                forecast_mwh=excluded.forecast_mwh,
+                forecast_method=excluded.forecast_method,
                 created_at=excluded.created_at
             """,
             (
@@ -264,6 +306,17 @@ def sync_solar_forecast(forecast: SolarForecast):
                 forecast.auto_winter_factor,
                 forecast.manual_snow_factor,
                 forecast.winter_factor_applied,
+                forecast.poa_pvlib_fc,
+                forecast.dni_erbs_fc,
+                forecast.dhi_erbs_fc,
+                forecast.tracker_tilt_fc,
+                forecast.tracker_azimuth_fc,
+                forecast.forecast_np_mwh,
+                forecast.forecast_xgb_mwh,
+                forecast.forecast_ensemble_base_mwh,
+                forecast.hist_analog_mwh,
+                forecast.forecast_mwh,
+                forecast.forecast_method,
                 _dt(forecast.created_at),
             ),
         )
