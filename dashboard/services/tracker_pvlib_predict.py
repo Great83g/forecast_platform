@@ -239,6 +239,30 @@ def postprocess(
     high_poa_daylight = strong_daylight & (poa >= 500.0)
     final[high_poa_daylight] = np.maximum(final[high_poa_daylight], high_poa_floor[high_poa_daylight])
 
+    # Trackers have strong shoulders: for Shu-like single-axis plants 06-07 and
+    # 17-18 can already produce a large share of AC power.  Do not let the
+    # generic ML/fallback curve flatten those shoulders when GHI/POA says the
+    # sun is available.  Ratios are conservative minimums and still clipped by
+    # station AC capacity below.
+    ghi = pd.to_numeric(
+        feat.get("Irradiation_GHI", feat.get("Irradiation", pd.Series(0.0, index=feat.index))),
+        errors="coerce",
+    ).fillna(0.0).to_numpy(dtype=float)
+    shoulder_ratio_by_hour = {6: 0.16, 7: 0.45, 8: 0.62, 17: 0.68, 18: 0.40, 19: 0.04}
+    shoulder_min_ghi_by_hour = {6: 45.0, 7: 90.0, 8: 160.0, 17: 220.0, 18: 100.0, 19: 35.0}
+    shoulder_min_poa_by_hour = {6: 20.0, 7: 45.0, 8: 90.0, 17: 100.0, 18: 45.0, 19: 15.0}
+    for hour, ratio in shoulder_ratio_by_hour.items():
+        mask = (
+            (hours == hour)
+            & (sun_elev > -2.0)
+            & (
+                (ghi >= shoulder_min_ghi_by_hour[hour])
+                | (poa >= shoulder_min_poa_by_hour[hour])
+                | (baseline >= capacity_mw * ratio * 0.45)
+            )
+        )
+        final[mask] = np.maximum(final[mask], capacity_mw * ratio)
+
     # Extra morning recovery 08-11: do not let ML suppress clear tracker mornings too much.
     morning = np.isin(hours, [8, 9, 10, 11]) & (poa >= 120.0)
     final[morning] = np.maximum(final[morning], baseline[morning] * 0.92)

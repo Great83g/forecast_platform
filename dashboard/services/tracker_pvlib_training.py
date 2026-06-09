@@ -306,8 +306,25 @@ def _write_backtest_excel(df: pd.DataFrame, model_dir: Path) -> Path | None:
     if not available:
         return None
     path = model_dir / "tracker_pvlib_backtest.xlsx"
-    with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        df[available].to_excel(writer, index=False, sheet_name="backtest")
+    export_df = df[available].copy()
+    if "ds" in export_df.columns:
+        ds = pd.to_datetime(export_df["ds"], errors="coerce")
+        try:
+            if getattr(ds.dt, "tz", None) is not None:
+                ds = ds.dt.tz_localize(None)
+        except (AttributeError, TypeError):
+            pass
+        export_df["ds"] = ds
+    try:
+        with pd.ExcelWriter(path, engine="openpyxl") as writer:
+            export_df.to_excel(writer, index=False, sheet_name="backtest")
+    except Exception as exc:
+        # Backtest export must not make the whole training command fail after
+        # models were already fitted/saved.  A previous run crashed here on
+        # tz-aware datetimes, leaving the UI looking like XGBoost was not
+        # retrained even though training had reached the end.
+        print(f"[TRACKER_PVLIB_TRAIN] backtest Excel export skipped: {exc}")
+        return None
     return path
 
 
