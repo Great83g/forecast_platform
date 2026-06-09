@@ -227,9 +227,27 @@ def postprocess(
     poa = pd.to_numeric(feat.get("POA_pvlib"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
     sun_elev = pd.to_numeric(feat.get("sun_elev_deg"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
 
-    # morning recovery 08-11: do not let ML suppress clear tracker mornings too much.
+    # Daytime physical recovery: a bad/out-of-domain ML artifact must not collapse
+    # a clear tracker day to near-zero while pvlib POA is high.  The screenshot
+    # failure mode was exactly that: good GHI/POA at 12:00+, but ML output went
+    # almost to zero.  Keep the learned model, but enforce a conservative floor
+    # from the pvlib baseline for strong daylight hours.
+    strong_daylight = (hours >= 8) & (hours <= 16) & (poa >= 180.0)
+    final[strong_daylight] = np.maximum(final[strong_daylight], baseline[strong_daylight] * 0.68)
+
+    # Extra morning recovery 08-11: do not let ML suppress clear tracker mornings too much.
     morning = np.isin(hours, [8, 9, 10, 11]) & (poa >= 120.0)
-    final[morning] = np.maximum(final[morning], baseline[morning] * 0.75)
+    final[morning] = np.maximum(final[morning], baseline[morning] * 0.78)
+
+    # If a model is globally broken for the day (many high-POA hours below the
+    # physical curve), distrust it and use the pvlib baseline blended with analog.
+    high_poa = (hours >= 8) & (hours <= 16) & (poa >= 300.0) & (baseline > 0.0)
+    if np.count_nonzero(high_poa) >= 3:
+        collapse_ratio = np.count_nonzero(final[high_poa] < baseline[high_poa] * 0.35) / np.count_nonzero(high_poa)
+        if collapse_ratio >= 0.30:
+            guarded = baseline.copy()
+            guarded[has_hist] = 0.85 * guarded[has_hist] + 0.15 * hist[has_hist]
+            final[high_poa] = np.maximum(final[high_poa], guarded[high_poa] * 0.90)
 
     # adaptive evening fix: suppress late-day spikes when POA is falling/low.
     evening = (hours >= 17) & (hours <= 20)
