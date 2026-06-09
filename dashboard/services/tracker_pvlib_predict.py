@@ -233,11 +233,15 @@ def postprocess(
     # almost to zero.  Keep the learned model, but enforce a conservative floor
     # from the pvlib baseline for strong daylight hours.
     strong_daylight = (hours >= 8) & (hours <= 16) & (poa >= 180.0)
-    final[strong_daylight] = np.maximum(final[strong_daylight], baseline[strong_daylight] * 0.68)
+    daylight_floor = baseline * 0.90
+    high_poa_floor = baseline * 0.96
+    final[strong_daylight] = np.maximum(final[strong_daylight], daylight_floor[strong_daylight])
+    high_poa_daylight = strong_daylight & (poa >= 500.0)
+    final[high_poa_daylight] = np.maximum(final[high_poa_daylight], high_poa_floor[high_poa_daylight])
 
     # Extra morning recovery 08-11: do not let ML suppress clear tracker mornings too much.
     morning = np.isin(hours, [8, 9, 10, 11]) & (poa >= 120.0)
-    final[morning] = np.maximum(final[morning], baseline[morning] * 0.78)
+    final[morning] = np.maximum(final[morning], baseline[morning] * 0.92)
 
     # If a model is globally broken for the day (many high-POA hours below the
     # physical curve), distrust it and use the pvlib baseline blended with analog.
@@ -247,7 +251,7 @@ def postprocess(
         if collapse_ratio >= 0.30:
             guarded = baseline.copy()
             guarded[has_hist] = 0.85 * guarded[has_hist] + 0.15 * hist[has_hist]
-            final[high_poa] = np.maximum(final[high_poa], guarded[high_poa] * 0.90)
+            final[high_poa] = np.maximum(final[high_poa], guarded[high_poa] * 0.98)
 
     # adaptive evening fix: suppress late-day spikes when POA is falling/low.
     evening = (hours >= 17) & (hours <= 20)
