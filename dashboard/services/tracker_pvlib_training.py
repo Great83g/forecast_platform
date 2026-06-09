@@ -359,10 +359,20 @@ def train_tracker_pvlib_models_for_station(station: Station) -> Tuple[int, Path 
     xgb_meta: dict[str, Any] = {}
 
     train_df = df.copy().replace([np.inf, -np.inf], np.nan)
+    xgb_fill_map: dict[str, float] = {}
     for col in TRACKER_XGB_FEATURES:
         if col not in train_df.columns:
             train_df[col] = np.nan
-    train_df = train_df.dropna(subset=["y"] + TRACKER_XGB_FEATURES)
+        train_df[col] = pd.to_numeric(train_df[col], errors="coerce")
+        med = train_df[col].median(skipna=True)
+        if pd.isna(med):
+            # Wind speed and optional tracker geometry can be absent from history;
+            # XGBoost must still train.  Previously we dropped rows with any NaN
+            # feature, so stations without wind_speed produced an old XGB file.
+            med = 0.0
+        xgb_fill_map[col] = float(med)
+        train_df[col] = train_df[col].fillna(xgb_fill_map[col])
+    train_df = train_df.dropna(subset=["y"])
     train_df = train_df[(train_df["POA_pvlib"] > 20.0) | (train_df["y"] > 0.02)]
 
     if not train_df.empty:
@@ -394,6 +404,7 @@ def train_tracker_pvlib_models_for_station(station: Station) -> Tuple[int, Path 
             "pvlib": tracker_config_from_station(station).as_meta(),
             "train_rows_total": int(n_rows),
             "train_rows_used": int(len(train_df)),
+            "feature_fill_map": xgb_fill_map,
             "xgb_version": getattr(xgb, "__version__", "unknown"),
         }
         (model_dir / "xgb_model.meta.json").write_text(json.dumps(xgb_meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -469,5 +480,10 @@ def train_tracker_pvlib_models_for_station(station: Station) -> Tuple[int, Path 
     }
     (model_dir / "ensemble.meta.json").write_text(json.dumps(ensemble_meta, ensure_ascii=False, indent=2), encoding="utf-8")
     _write_backtest_excel(df, model_dir)
+    if xgb_path is None:
+        print(
+            f"[TRACKER_PVLIB_TRAIN] station {station.pk}: XGB skipped, "
+            f"rows_after_filter={len(train_df)} total_rows={n_rows}"
+        )
 
     return n_rows, np_path, xgb_path

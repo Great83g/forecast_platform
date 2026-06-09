@@ -125,12 +125,14 @@ def _predict_np(model: Any, feat: pd.DataFrame, reg_cols: list[str], fill_map: d
     return pd.to_numeric(aligned, errors="coerce").to_numpy(dtype=float)
 
 
-def _predict_xgb(model: Any, model_kind: str, feat: pd.DataFrame, feature_cols: list[str]) -> np.ndarray:
+def _predict_xgb(model: Any, model_kind: str, feat: pd.DataFrame, feature_cols: list[str], fill_map: dict[str, Any] | None = None) -> np.ndarray:
     X = feat.copy()
+    fill_map = fill_map or {}
     for col in feature_cols:
         if col not in X.columns:
-            X[col] = 0.0
-    X = X[feature_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
+            X[col] = fill_map.get(col, 0.0)
+        X[col] = pd.to_numeric(X[col], errors="coerce").fillna(float(fill_map.get(col, 0.0)))
+    X = X[feature_cols]
     if model_kind == "booster":
         import xgboost as xgb
 
@@ -325,7 +327,7 @@ def run_tracker_pvlib_predict(feat: pd.DataFrame, station: Station, capacity_mw:
             try:
                 xgb_meta = _read_json(paths["xgb_meta"]) or meta
                 cols = xgb_meta.get("X_cols") or meta.get("X_cols") or TRACKER_XGB_FEATURES
-                y_xgb = np.clip(_predict_xgb(xgb_model, xgb_kind, feat, cols), 0.0, capacity_mw)
+                y_xgb = np.clip(_predict_xgb(xgb_model, xgb_kind, feat, cols, xgb_meta.get("feature_fill_map") or {}), 0.0, capacity_mw)
                 xgb_ok = True
             except Exception as exc:
                 errors["xgb"] = str(exc)
