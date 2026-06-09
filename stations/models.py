@@ -177,6 +177,35 @@ class Station(models.Model):
     name = models.CharField(max_length=200)
     station_kind = models.CharField(max_length=16, choices=KIND_CHOICES, default=KIND_SOLAR, db_index=True)
     mount_type = models.CharField(max_length=32, choices=MOUNT_TYPE_CHOICES, default=MOUNT_FIXED)
+    tracker_axis_tilt = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(90.0)],
+        help_text="Наклон оси одноосевого трекера, градусы.",
+    )
+    tracker_axis_azimuth = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(360.0)],
+        help_text="Азимут оси одноосевого трекера, градусы.",
+    )
+    tracker_max_angle = models.FloatField(
+        default=30.0,
+        validators=[MinValueValidator(0.0), MaxValueValidator(90.0)],
+        help_text="Максимальный угол поворота одноосевого трекера.",
+    )
+    tracker_gcr = models.FloatField(
+        default=0.40,
+        validators=[MinValueValidator(0.01), MaxValueValidator(1.00)],
+        help_text="Ground coverage ratio для backtracking одноосевого трекера.",
+    )
+    tracker_backtrack = models.BooleanField(
+        default=True,
+        help_text="Использовать backtracking при расчёте POA через pvlib.",
+    )
+    tracker_poa_model = models.CharField(
+        max_length=32,
+        default="perez",
+        help_text="Модель sky diffuse для pvlib GHI→POA (по умолчанию perez).",
+    )
     irradiation_type = models.CharField(
         max_length=8,
         choices=IRRADIATION_TYPE_CHOICES,
