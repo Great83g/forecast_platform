@@ -31,5 +31,16 @@ class OrganizationInvitationAdmin(admin.ModelAdmin):
 
 @admin.register(Station)
 class StationAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "org", "capacity_mw")
+    list_display = (
+        "id",
+        "name",
+        "org",
+        "capacity_mw",
+        "mount_type",
+        "tracker_max_angle",
+        "tracker_gcr",
+        "tracker_backtrack",
+        "tracker_albedo",
+    )
+    list_filter = ("mount_type", "tracker_backtrack")
     search_fields = ("name", "org__name")

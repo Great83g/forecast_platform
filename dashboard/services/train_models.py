@@ -325,6 +325,11 @@ def train_models_for_station(station) -> Tuple[int, Path | None, Path | None]:
 
         station = Station.objects.get(pk=station)
 
+    if _is_single_axis_tracker(station):
+        from .tracker_pvlib_training import train_tracker_pvlib_models_for_station
+
+        return train_tracker_pvlib_models_for_station(station)
+
     df = get_history_dataframe(station)
     if df.empty:
         return 0, None, None
