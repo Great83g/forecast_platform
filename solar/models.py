@@ -115,6 +115,19 @@ class SolarForecast(models.Model):
     manual_snow_factor = models.FloatField(null=True, blank=True)
     winter_factor_applied = models.FloatField(null=True, blank=True)
 
+    # Диагностика PVLIB tracker predict pipeline (MW/MWh for one hourly row).
+    poa_pvlib_fc = models.FloatField(null=True, blank=True)
+    dni_erbs_fc = models.FloatField(null=True, blank=True)
+    dhi_erbs_fc = models.FloatField(null=True, blank=True)
+    tracker_tilt_fc = models.FloatField(null=True, blank=True)
+    tracker_azimuth_fc = models.FloatField(null=True, blank=True)
+    forecast_np_mwh = models.FloatField(null=True, blank=True)
+    forecast_xgb_mwh = models.FloatField(null=True, blank=True)
+    forecast_ensemble_base_mwh = models.FloatField(null=True, blank=True)
+    hist_analog_mwh = models.FloatField(null=True, blank=True)
+    forecast_mwh = models.FloatField(null=True, blank=True)
+    forecast_method = models.CharField(max_length=64, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

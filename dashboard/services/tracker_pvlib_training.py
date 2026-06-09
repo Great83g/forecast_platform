@@ -91,6 +91,7 @@ class TrackerPvlibConfig:
     gcr: float = 0.40
     backtrack: bool = True
     model: str = "perez"
+    albedo: float = 0.20
 
     def as_meta(self) -> dict[str, Any]:
         return {
@@ -103,6 +104,7 @@ class TrackerPvlibConfig:
             "gcr": self.gcr,
             "backtrack": self.backtrack,
             "model": self.model,
+            "albedo": self.albedo,
         }
 
 
@@ -135,6 +137,7 @@ def tracker_config_from_station(station: Station) -> TrackerPvlibConfig:
         gcr=as_float("tracker_gcr", 0.40),
         backtrack=bool(getattr(station, "tracker_backtrack", True)),
         model=str(getattr(station, "tracker_poa_model", None) or "perez"),
+        albedo=as_float("tracker_albedo", 0.20),
     )
 
 
@@ -200,10 +203,13 @@ def add_pvlib_tracker_poa(
         dni_extra=dni_extra,
         airmass=airmass,
         model=cfg.model,
+        albedo=cfg.albedo,
     )
 
     poa = pd.to_numeric(total["poa_global"], errors="coerce").fillna(0.0).clip(lower=0.0)
     out[output_col] = poa.to_numpy(dtype=float)
+    out["DNI_erbs"] = dni.to_numpy(dtype=float)
+    out["DHI_erbs"] = dhi.to_numpy(dtype=float)
     out["tracker_theta"] = pd.to_numeric(tracking.get("tracker_theta"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
     out["tracker_aoi"] = pd.to_numeric(tracking.get("aoi"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
     out["tracker_surface_tilt"] = pd.to_numeric(tracking.get("surface_tilt"), errors="coerce").fillna(0.0).to_numpy(dtype=float)

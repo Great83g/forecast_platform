@@ -1717,6 +1717,16 @@ def run_forecast_for_station(
             "target_dates": sorted(str(d) for d in (target_dates or [])),
         }
 
+    tracker_predict_result = None
+    if _is_single_axis_tracker(st):
+        try:
+            from .tracker_pvlib_predict import run_tracker_pvlib_predict
+
+            tracker_predict_result = run_tracker_pvlib_predict(feat, st, capacity_mw, use_models=use_models)
+            feat = tracker_predict_result.feat.reset_index(drop=True)
+        except Exception as exc:
+            logger.exception("[TRACKER_PREDICT] station %s pvlib tracker predict failed; legacy path will be used: %s", st.pk, exc)
+
     # ---- load models ----
     paths = _model_paths_for_station(st)
     np_path = paths["np"] if paths["np"].exists() else paths["legacy_np"]
@@ -1783,11 +1793,14 @@ def run_forecast_for_station(
                 except Exception:
                     xgb_meta = {}
 
-    tracker_pvlib_pipeline = _is_single_axis_tracker(st) and (
-        str((xgb_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
-        or str((np_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+    tracker_pvlib_pipeline = tracker_predict_result is not None or (
+        _is_single_axis_tracker(st)
+        and (
+            str((xgb_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+            or str((np_meta or {}).get("pipeline", "")) == "tracker_pvlib_v1"
+        )
     )
-    if tracker_pvlib_pipeline:
+    if tracker_pvlib_pipeline and tracker_predict_result is None:
         try:
             from .tracker_pvlib_training import add_tracker_prediction_features
 
@@ -1984,6 +1997,23 @@ def run_forecast_for_station(
 
     y_final = np.clip(y_final * _forecast_global_bias(), 0, capacity_mw)
 
+    if tracker_predict_result is not None:
+        # Dedicated tracker predict: Visual Crossing GHI -> pvlib POA -> PVLIB_POA_ENSEMBLE -> MWh.
+        y_np = np.asarray(tracker_predict_result.y_np_mwh, dtype=float)
+        y_xgb = np.asarray(tracker_predict_result.y_xgb_mwh, dtype=float)
+        y_heur = pd.to_numeric(feat.get("tracker_pvlib_baseline_mw"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        y_final = np.asarray(tracker_predict_result.y_final_mwh, dtype=float)
+        np_ok = tracker_predict_result.np_ok
+        xgb_ok = tracker_predict_result.xgb_ok
+        np_error = tracker_predict_result.errors.get("np")
+        xgb_error = tracker_predict_result.errors.get("xgb")
+        feat["Forecast_NP_MWh"] = y_np
+        feat["Forecast_XGB_MWh"] = y_xgb
+        feat["Forecast_Ensemble_Base_MWh"] = tracker_predict_result.y_ensemble_base_mwh
+        feat["Hist_Analog_MWh"] = tracker_predict_result.hist_analog_mwh
+        feat["Forecast_MWh"] = y_final
+        feat["forecast_method"] = tracker_predict_result.method
+
     auto_winter_factor = feat.get("auto_winter_factor")
     if auto_winter_factor is None:
         auto_winter_factor = np.ones(len(feat), dtype=float)
@@ -2085,6 +2115,10 @@ def run_forecast_for_station(
         len(feat),
     )
 
+    def _row_float(row, name: str):
+        value = row.get(name)
+        return float(value) if value is not None and not pd.isna(value) else None
+
     objs: List[SolarForecast] = []
     for i, row in feat.iterrows():
         pred_np_kw = None
@@ -2124,6 +2158,25 @@ def run_forecast_for_station(
                 winter_factor_applied=float(row.get("winter_factor_applied") or 1.0)
                 if not pd.isna(row.get("winter_factor_applied"))
                 else None,
+                poa_pvlib_fc=_row_float(row, "POA_pvlib"),
+                dni_erbs_fc=_row_float(row, "DNI_erbs"),
+                dhi_erbs_fc=_row_float(row, "DHI_erbs"),
+                tracker_tilt_fc=(
+                    _row_float(row, "tracker_tilt")
+                    if _row_float(row, "tracker_tilt") is not None
+                    else _row_float(row, "tracker_surface_tilt")
+                ),
+                tracker_azimuth_fc=(
+                    _row_float(row, "tracker_azimuth")
+                    if _row_float(row, "tracker_azimuth") is not None
+                    else _row_float(row, "tracker_surface_azimuth")
+                ),
+                forecast_np_mwh=_row_float(row, "Forecast_NP_MWh"),
+                forecast_xgb_mwh=_row_float(row, "Forecast_XGB_MWh"),
+                forecast_ensemble_base_mwh=_row_float(row, "Forecast_Ensemble_Base_MWh"),
+                hist_analog_mwh=_row_float(row, "Hist_Analog_MWh"),
+                forecast_mwh=_row_float(row, "Forecast_MWh"),
+                forecast_method=str(row.get("forecast_method") or ""),
             )
         )
 

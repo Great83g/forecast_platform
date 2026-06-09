@@ -50,6 +50,7 @@ class StationForm(forms.ModelForm):
             "tracker_gcr",
             "tracker_backtrack",
             "tracker_poa_model",
+            "tracker_albedo",
             "irradiation_type",
             "pr_default",
             "tilt_deg",
@@ -89,6 +90,7 @@ class StationForm(forms.ModelForm):
         self.fields["tracker_gcr"].label = "Tracker GCR"
         self.fields["tracker_backtrack"].label = "Tracker backtrack"
         self.fields["tracker_poa_model"].label = "Tracker pvlib model"
+        self.fields["tracker_albedo"].label = "Tracker albedo"
         self.fields["irradiation_type"].label = "Тип старой irradiation"
         self.fields["pr_default"].label = "PR (0–1)"
         self.fields["tilt_deg"].label = "Наклон (°)"
@@ -140,6 +142,7 @@ class StationForm(forms.ModelForm):
         self.fields["tracker_gcr"].help_text = "Для одноосевого трекера: по умолчанию 0.40."
         self.fields["tracker_backtrack"].help_text = "Для одноосевого трекера: включать backtracking в pvlib."
         self.fields["tracker_poa_model"].help_text = "Модель sky diffuse pvlib для GHI→POA, по умолчанию perez."
+        self.fields["tracker_albedo"].help_text = "Albedo для pvlib, по умолчанию 0.20."
         self.fields["irradiation_type"].help_text = (
             "Используется только для старой колонки irradiation, когда нет отдельных irradiation_ghi/irradiation_poa."
         )
@@ -163,6 +166,7 @@ class StationForm(forms.ModelForm):
             self.fields["tracker_gcr"].initial = 0.40
             self.fields["tracker_backtrack"].initial = True
             self.fields["tracker_poa_model"].initial = "perez"
+            self.fields["tracker_albedo"].initial = 0.20
             self.fields["irradiation_type"].initial = Station.IRRADIATION_GHI
             self.fields["timezone"].initial = "Asia/Almaty"
             self.fields["data_shift_hours"].initial = 0

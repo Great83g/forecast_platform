@@ -206,6 +206,11 @@ class Station(models.Model):
         default="perez",
         help_text="Модель sky diffuse для pvlib GHI→POA (по умолчанию perez).",
     )
+    tracker_albedo = models.FloatField(
+        default=0.20,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text="Albedo для pvlib GHI→POA одноосевого трекера.",
+    )
     irradiation_type = models.CharField(
         max_length=8,
         choices=IRRADIATION_TYPE_CHOICES,

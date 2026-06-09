@@ -40,6 +40,7 @@ class StationAdmin(admin.ModelAdmin):
         "tracker_max_angle",
         "tracker_gcr",
         "tracker_backtrack",
+        "tracker_albedo",
     )
     list_filter = ("mount_type", "tracker_backtrack")
     search_fields = ("name", "org__name")
