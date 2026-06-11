@@ -5,7 +5,6 @@ from pathlib import Path
 import pandas as pd
 
 MIN_POWER_KW = 0.0001
-SHARE_MERGE_SHIFT_HOURS = 1
 
 
 
@@ -56,25 +55,15 @@ def _read_csv_flexible(file_path: Path) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def _shift_ds_hours(df: pd.DataFrame, hours: int) -> pd.DataFrame:
-    if df.empty or "ds" not in df.columns or not hours:
-        return df
-
-    out = df.copy()
-    out["ds"] = pd.to_datetime(out["ds"], errors="coerce") + pd.Timedelta(hours=hours)
-    out = out.dropna(subset=["ds"]).copy()
-    out["ds"] = out["ds"].dt.floor("h")
-    return out
-
-
 def build_history_dataframe(station) -> pd.DataFrame:
     folder = Path(getattr(station, "auto_history_folder", "") or "")
     if not folder.exists():
         return _empty_df()
 
-    # Для SES 1.2 корректируем только поток D222152 (CET -> local +1h):
-    # пары meteo(D222152*.csv.gz) + отчёт станции (*.xlsx).
-    # используем проверенную merge-логику общего обработчика.
+    # Для SES 1.2 пары meteo(D222152*.csv.gz) + отчёт станции (*.xlsx)
+    # уже содержат локальные часы в обоих файлах. Не двигаем Plant Report
+    # дополнительно: строка 08:00 из отчёта должна попасть в историю на 08:00.
+    # Используем проверенную merge-логику общего обработчика.
     meteo_files = [p for p in sorted(folder.glob("D222152*.csv.gz")) if p.is_file()]
     report_files = [p for p in sorted(folder.glob("*.xlsx")) if p.is_file() and not p.name.startswith("~$")]
     if meteo_files and report_files:
@@ -83,7 +72,6 @@ def build_history_dataframe(station) -> pd.DataFrame:
 
             merged = collect_share_history_dataframe(folder)
             if not merged.empty:
-                merged = _shift_ds_hours(merged, SHARE_MERGE_SHIFT_HOURS)
                 return merged[["ds", "irradiation", "air_temp", "pv_temp", "power_kw"]].reset_index(drop=True)
         except Exception:
             pass
