@@ -2480,7 +2480,7 @@ class Ses50BalkhashHistoryScriptTests(TestCase):
 
 class Ses12MwHistoryScriptTests(TestCase):
     @patch("dashboard.services.history_autofill.collect_share_history_dataframe")
-    def test_build_history_dataframe_uses_share_merge_for_d222_and_report_files(self, collect_mock):
+    def test_build_history_dataframe_keeps_share_merge_hours_for_d222_and_report_files(self, collect_mock):
         from dashboard.services.history_scripts.ses_1_2mw import build_history_dataframe
 
         collect_mock.return_value = pd.DataFrame(
@@ -2504,7 +2504,7 @@ class Ses12MwHistoryScriptTests(TestCase):
             out = build_history_dataframe(station)
 
         self.assertEqual(len(out), 1)
-        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 07:00:00")
+        self.assertEqual(str(out.iloc[0]["ds"]), "2026-03-12 06:00:00")
         self.assertAlmostEqual(float(out.iloc[0]["power_kw"]), 77.7)
         collect_mock.assert_called_once()
 

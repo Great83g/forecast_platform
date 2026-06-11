@@ -45,7 +45,26 @@ def build_history_dataframe(station):
 Готовый скрипт для станции 1.2 МВт (загрузка из стандартного файла портала):
 - `ses_1_2mw` (файл `dashboard/services/history_scripts/ses_1_2mw.py`)
 - Использование в поле `Скрипт автоистории`: `ses_1_2mw`
-- Скрипт читает `.csv`/`.xlsx` из папки автоимпорта и ожидает колонки: `ds, Irradiation/Irradiation_GHI/Irradiation_POA, Air_Temp, PV_Temp, Power_KW` (допускается `timestamp` вместо `ds`).
+- Для пары `D222152*.csv.gz` + `Plant Report_SPP JezSolar 1.2 MW_*.xlsx` скрипт сохраняет часы как в исходных файлах без дополнительного `+1ч`: строка отчёта `08:00` записывается в историю на `08:00`.
+- Скрипт также читает стандартные `.csv`/`.xlsx` из папки автоимпорта и ожидает колонки: `ds, Irradiation/Irradiation_GHI/Irradiation_POA, Air_Temp, PV_Temp, Power_KW` (допускается `timestamp` вместо `ds`).
+- Код для поля «Скрипт автоистории» на сервере: `ses_1_2mw`
+- После деплоя исправления можно принудительно пересобрать день из файлов на сервере:
+
+```bash
+python manage.py reimport_station_history <station_id> --from-date 2026-06-10 --to-date 2026-06-10 --clear-window
+```
+
+- Готовый bash-скрипт для применения на Ubuntu-сервере:
+
+```bash
+bash deploy/apply_ses_1_2_history_fix.sh
+```
+
+Если автоопределение станции не подходит, укажите id вручную:
+
+```bash
+STATION_ID=<station_id> HISTORY_DATE=2026-06-10 bash deploy/apply_ses_1_2_history_fix.sh
+```
 
 
 Готовый скрипт для станции СЭС Балхаш (станция 50):
