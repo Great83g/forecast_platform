@@ -106,6 +106,10 @@
             Прогноз
           </a>
 
+          <a class="btn btn-outline-info btn-sm" href="{% url 'virtual_ess:station-settings' st.pk %}">
+            ESS / Балансировка
+          </a>
+
           <a class="btn btn-warning btn-sm" href="{% url 'dashboard:station-train' st.pk %}" data-i18n="page_train_models">
             Обучить модели
           </a>
