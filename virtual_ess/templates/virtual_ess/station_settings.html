@@ -1,0 +1,53 @@
+{% extends "dashboard/base.html" %}
+{% block page_title %}Настройка Virtual ESS — {{ station.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="m-0">ESS / Балансировка</h2>
+    <div class="text-muted">Станция: {{ station.name }}</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'virtual_ess:station-list' %}">Назад к станциям</a>
+</div>
+
+<form method="post" class="card shadow-sm mb-4">
+  {% csrf_token %}
+  <div class="card-body">
+    {% if balance_form.non_field_errors or ess_form.non_field_errors %}
+      <div class="alert alert-danger">
+        {{ balance_form.non_field_errors }}
+        {{ ess_form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <h5 class="mb-3">Параметры станции</h5>
+        {% include "virtual_ess/_form_field.html" with field=balance_form.enabled %}
+        {% include "virtual_ess/_form_field.html" with field=balance_form.station_capacity_mw %}
+        {% include "virtual_ess/_form_field.html" with field=balance_form.grid_limit_mw %}
+        {% include "virtual_ess/_form_field.html" with field=balance_form.balance_mode %}
+        {% include "virtual_ess/_form_field.html" with field=balance_form.data_source %}
+      </div>
+
+      <div class="col-lg-6">
+        <h5 class="mb-3">Виртуальная ESS</h5>
+        {% include "virtual_ess/_form_field.html" with field=ess_form.name %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.enabled %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.power_mw %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.capacity_mwh %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.pcs_power_mw %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.soc_initial_percent %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.soc_min_percent %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.soc_max_percent %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.charge_efficiency %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.discharge_efficiency %}
+        {% include "virtual_ess/_form_field.html" with field=ess_form.timestep_minutes %}
+      </div>
+    </div>
+  </div>
+  <div class="card-footer d-flex gap-2 justify-content-end">
+    <a class="btn btn-outline-secondary" href="{% url 'virtual_ess:station-list' %}">Назад к станциям</a>
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+  </div>
+</form>
+{% endblock %}
