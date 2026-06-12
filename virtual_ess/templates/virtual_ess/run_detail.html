@@ -1,0 +1,56 @@
+{% extends "dashboard/base.html" %}
+{% block page_title %}Результаты симуляции ESS — {{ station.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="m-0">Результаты симуляции Virtual ESS</h2>
+    <div class="text-muted">
+      Станция: {{ station.name }} | ESS: {{ run.ess_config.name|default_if_none:"—" }} | Период: {{ run.date_from }} — {{ run.date_to }}
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary" href="{% url 'virtual_ess:station-simulate' station.pk %}">Назад к симуляции</a>
+    <a class="btn btn-outline-secondary" href="{% url 'virtual_ess:station-list' %}">Назад к станциям</a>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+    <span><strong>Run ID:</strong> {{ run.id }}</span>
+    <span><strong>Тип:</strong> {{ run.get_simulation_type_display }}</span>
+    <span><strong>Статус:</strong> <span class="badge text-bg-secondary">{{ run.status }}</span></span>
+    <span><strong>Создано:</strong> {{ run.created_at }}</span>
+    {% if run.finished_at %}<span><strong>Завершено:</strong> {{ run.finished_at }}</span>{% endif %}
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">План / факт / отклонение</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead>
+        <tr>
+          <th>Время</th>
+          <th class="text-end">План, МВт</th>
+          <th class="text-end">Факт, МВт</th>
+          <th class="text-end">Отклонение, МВт</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for point in points %}
+          <tr>
+            <td>{{ point.timestamp }}</td>
+            <td class="text-end">{{ point.plan_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.fact_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.deviation_mw|default_if_none:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" class="text-muted">За выбранный период нет прогнозных или фактических данных.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

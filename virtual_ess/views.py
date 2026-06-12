@@ -10,6 +10,7 @@ from stations.models import Organization, OrganizationMember, Station
 
 from .forms import ESSSimulationRunForm, StationBalanceConfigForm, VirtualESSConfigForm
 from .models import ESSSimulationRun, StationBalanceConfig, VirtualESSConfig
+from .services import populate_simulation_points
 
 
 def _station_queryset_for_user(user):
@@ -20,6 +21,15 @@ def _station_queryset_for_user(user):
 
 def _get_station_or_404(user, station_id: int):
     return get_object_or_404(_station_queryset_for_user(user).select_related("org"), pk=station_id)
+
+
+def _get_run_or_404(user, run_id: int):
+    return get_object_or_404(
+        ESSSimulationRun.objects.select_related("station", "ess_config", "station__org").filter(
+            station__in=_station_queryset_for_user(user)
+        ),
+        pk=run_id,
+    )
 
 
 def _get_balance_config(station: Station) -> StationBalanceConfig:
@@ -104,8 +114,13 @@ def station_simulate(request, station_id: int):
             run.ess_config = ess_config
             run.status = ESSSimulationRun.STATUS_CREATED
             run.save()
-            messages.success(request, "Заготовка симуляции создана со статусом created. Расчет будет добавлен на следующих этапах.")
-            return redirect("virtual_ess:station-simulate", station_id=station.pk)
+            stats = populate_simulation_points(run)
+            messages.success(
+                request,
+                "Данные симуляции загружены: "
+                f"прогноз={stats['forecast_rows']}, факт={stats['actual_rows']}, точки={stats['points']}.",
+            )
+            return redirect("virtual_ess:run-detail", run_id=run.pk)
     else:
         form = ESSSimulationRunForm(initial=initial)
 
@@ -118,5 +133,20 @@ def station_simulate(request, station_id: int):
             "ess_config": ess_config,
             "form": form,
             "recent_runs": recent_runs,
+        },
+    )
+
+
+@login_required
+def run_detail(request, run_id: int):
+    run = _get_run_or_404(request.user, run_id)
+    points = run.points.order_by("timestamp", "id")
+    return render(
+        request,
+        "virtual_ess/run_detail.html",
+        {
+            "run": run,
+            "station": run.station,
+            "points": points,
         },
     )
