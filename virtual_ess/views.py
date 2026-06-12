@@ -137,11 +137,31 @@ def station_simulate(request, station_id: int):
     )
 
 
+def _point_float(point, field_name: str):
+    value = getattr(point, field_name)
+    return float(value) if value is not None else None
+
+
+def _build_run_chart_data(points) -> dict:
+    point_list = list(points)
+    return {
+        "labels": [timezone.localtime(point.timestamp).strftime("%d.%m %H:%M") for point in point_list],
+        "plan": [_point_float(point, "plan_mw") for point in point_list],
+        "fact": [_point_float(point, "fact_mw") for point in point_list],
+        "afterEss": [_point_float(point, "output_after_ess_mw") for point in point_list],
+        "discharge": [_point_float(point, "ess_discharge_mw") for point in point_list],
+        "charge": [_point_float(point, "ess_charge_mw") for point in point_list],
+        "unbalanced": [_point_float(point, "unbalanced_mw") for point in point_list],
+        "soc": [_point_float(point, "soc_percent") for point in point_list],
+    }
+
+
 @login_required
 def run_detail(request, run_id: int):
     run = _get_run_or_404(request.user, run_id)
-    points = run.points.order_by("timestamp", "id")
+    points = list(run.points.order_by("timestamp", "id"))
     summary = build_run_summary(run)
+    chart_data = _build_run_chart_data(points)
     return render(
         request,
         "virtual_ess/run_detail.html",
@@ -150,5 +170,6 @@ def run_detail(request, run_id: int):
             "station": run.station,
             "points": points,
             "summary": summary,
+            "chart_data": chart_data,
         },
     )
