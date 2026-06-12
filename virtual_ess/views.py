@@ -10,7 +10,7 @@ from stations.models import Organization, OrganizationMember, Station
 
 from .forms import ESSSimulationRunForm, StationBalanceConfigForm, VirtualESSConfigForm
 from .models import ESSSimulationRun, StationBalanceConfig, VirtualESSConfig
-from .services import populate_simulation_points
+from .services import build_run_summary, populate_simulation_points
 
 
 def _station_queryset_for_user(user):
@@ -141,6 +141,7 @@ def station_simulate(request, station_id: int):
 def run_detail(request, run_id: int):
     run = _get_run_or_404(request.user, run_id)
     points = run.points.order_by("timestamp", "id")
+    summary = build_run_summary(run)
     return render(
         request,
         "virtual_ess/run_detail.html",
@@ -148,5 +149,6 @@ def run_detail(request, run_id: int):
             "run": run,
             "station": run.station,
             "points": points,
+            "summary": summary,
         },
     )

@@ -24,8 +24,26 @@
   </div>
 </div>
 
+<div class="card shadow-sm mb-3">
+  <div class="card-header fw-semibold">Сводка Virtual ESS</div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4"><strong>Плановая энергия:</strong> {{ summary.plan_energy_mwh|floatformat:3 }} МВт·ч</div>
+      <div class="col-md-4"><strong>Фактическая энергия:</strong> {{ summary.fact_energy_mwh|floatformat:3 }} МВт·ч</div>
+      <div class="col-md-4"><strong>Энергия после ESS:</strong> {% if summary.after_ess_energy_mwh is not None %}{{ summary.after_ess_energy_mwh|floatformat:3 }} МВт·ч{% else %}—{% endif %}</div>
+      <div class="col-md-4"><strong>Абс. отклонение до ESS:</strong> {{ summary.abs_deviation_before_mwh|floatformat:3 }} МВт·ч</div>
+      <div class="col-md-4"><strong>Абс. отклонение после ESS:</strong> {% if summary.abs_deviation_after_mwh is not None %}{{ summary.abs_deviation_after_mwh|floatformat:3 }} МВт·ч{% else %}—{% endif %}</div>
+      <div class="col-md-4"><strong>Улучшение:</strong> {% if summary.improvement_percent is not None %}{{ summary.improvement_percent|floatformat:1 }}%{% else %}—{% endif %}</div>
+      <div class="col-md-4"><strong>Минимальный SOC:</strong> {% if summary.min_soc_percent is not None %}{{ summary.min_soc_percent|floatformat:2 }}%{% else %}—{% endif %}</div>
+      <div class="col-md-4"><strong>Максимальный SOC:</strong> {% if summary.max_soc_percent is not None %}{{ summary.max_soc_percent|floatformat:2 }}%{% else %}—{% endif %}</div>
+      <div class="col-md-4"><strong>Всего заряд:</strong> {{ summary.total_charge_mwh|floatformat:3 }} МВт·ч</div>
+      <div class="col-md-4"><strong>Всего разряд:</strong> {{ summary.total_discharge_mwh|floatformat:3 }} МВт·ч</div>
+    </div>
+  </div>
+</div>
+
 <div class="card shadow-sm">
-  <div class="card-header fw-semibold">План / факт / отклонение</div>
+  <div class="card-header fw-semibold">План / факт / ESS / отклонение</div>
   <div class="table-responsive">
     <table class="table table-sm table-striped align-middle mb-0">
       <thead>
@@ -34,6 +52,12 @@
           <th class="text-end">План, МВт</th>
           <th class="text-end">Факт, МВт</th>
           <th class="text-end">Отклонение, МВт</th>
+          <th class="text-end">ESS команда, МВт</th>
+          <th class="text-end">Заряд, МВт</th>
+          <th class="text-end">Разряд, МВт</th>
+          <th class="text-end">После ESS, МВт</th>
+          <th class="text-end">SOC, %</th>
+          <th class="text-end">Осталось отклонение, МВт</th>
         </tr>
       </thead>
       <tbody>
@@ -43,10 +67,16 @@
             <td class="text-end">{{ point.plan_mw|default_if_none:"—" }}</td>
             <td class="text-end">{{ point.fact_mw|default_if_none:"—" }}</td>
             <td class="text-end">{{ point.deviation_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.ess_command_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.ess_charge_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.ess_discharge_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.output_after_ess_mw|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.soc_percent|default_if_none:"—" }}</td>
+            <td class="text-end">{{ point.unbalanced_mw|default_if_none:"—" }}</td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="4" class="text-muted">За выбранный период нет прогнозных или фактических данных.</td>
+            <td colspan="10" class="text-muted">За выбранный период нет прогнозных или фактических данных.</td>
           </tr>
         {% endfor %}
       </tbody>

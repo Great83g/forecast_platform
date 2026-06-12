@@ -38,7 +38,7 @@
       {% csrf_token %}
       <div class="card-header fw-semibold">Запуск симуляции</div>
       <div class="card-body">
-        <p class="text-muted">Этап 2: кнопка создает ESSSimulationRun, загружает прогноз и факт за период, объединяет их по timestamp и сохраняет точки план/факт/отклонение. Расчет ESS, SOC и графики пока не выполняются.</p>
+        <p class="text-muted">Этап 3: кнопка создает ESSSimulationRun, загружает прогноз и факт, рассчитывает виртуальную ESS по ограничениям мощности/PCS/SOC/КПД и сохраняет точки результата. Графики пока не выполняются.</p>
         {% include "virtual_ess/_form_field.html" with field=form.date_from %}
         {% include "virtual_ess/_form_field.html" with field=form.date_to %}
         {% include "virtual_ess/_form_field.html" with field=form.simulation_type %}
