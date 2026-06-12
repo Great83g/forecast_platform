@@ -13,8 +13,6 @@ from .models import ESSSimulationRun, StationBalanceConfig, VirtualESSConfig
 
 
 def _station_queryset_for_user(user):
-    if user.is_superuser:
-        return Station.objects.all()
     org_ids = Organization.objects.filter(owner=user).values_list("id", flat=True)
     member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
     return Station.objects.filter(org_id__in=org_ids.union(member_org_ids)).distinct()
