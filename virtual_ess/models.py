@@ -154,7 +154,7 @@ class ESSSimulationPoint(models.Model):
         ordering = ["run", "timestamp", "id"]
         verbose_name = "ESS simulation point"
         verbose_name_plural = "ESS simulation points"
-        indexes = [models.Index(fields=["run", "timestamp"])]
+        indexes = [models.Index(fields=["run", "timestamp"], name="virtual_ess_run_id_9f84d2_idx")]
 
     def __str__(self):
         return f"{self.run_id} @ {self.timestamp}"

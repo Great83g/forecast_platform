@@ -30,6 +30,7 @@ urlpatterns = [
 
     # Virtual ESS / EMS Balance Simulator
     path("virtual-ess/", include(("virtual_ess.urls", "virtual_ess"), namespace="virtual_ess")),
+    path("virtual-ess", RedirectView.as_view(pattern_name="virtual_ess:station-list", permanent=False)),
 
     # API
     path("api/accounts/", include("accounts.urls")),
