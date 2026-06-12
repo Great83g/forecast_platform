@@ -17,15 +17,29 @@ class Command(BaseCommand):
             dest="train_all",
             help="Train models for all solar stations",
         )
+        parser.add_argument(
+            "--trackers-only",
+            action="store_true",
+            dest="trackers_only",
+            help="Train models only for solar stations configured as single-axis trackers",
+        )
 
     def handle(self, *args, **options):
         train_all = bool(options.get("train_all"))
+        trackers_only = bool(options.get("trackers_only"))
         station_id = options.get("station_id")
 
-        if train_all:
-            stations = Station.objects.filter(station_kind=Station.KIND_SOLAR).order_by("id")
+        if train_all and trackers_only:
+            raise CommandError("Use either --all or --trackers-only, not both")
+
+        if train_all or trackers_only:
+            stations = Station.objects.filter(station_kind=Station.KIND_SOLAR)
+            if trackers_only:
+                stations = stations.filter(mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER)
+            stations = stations.order_by("id")
             if not stations.exists():
-                raise CommandError("No solar stations found")
+                msg = "No single-axis tracker solar stations found" if trackers_only else "No solar stations found"
+                raise CommandError(msg)
             for station in stations:
                 self.stdout.write(self.style.NOTICE(f"[TRAIN] start station={station.pk}"))
                 n_rows, np_path, xgb_path = train_models_for_station(station)
@@ -37,7 +51,7 @@ class Command(BaseCommand):
             return
 
         if station_id is None:
-            raise CommandError("station_id is required unless --all is provided")
+            raise CommandError("station_id is required unless --all or --trackers-only is provided")
 
         station = Station.objects.filter(pk=station_id).first()
         if station is None:
