@@ -28,7 +28,7 @@ if [ -z "$STATION_ID" ]; then
   exit 1
 fi
 export STATION_ID
-python3 manage.py shell -c "import os; from stations.models import Station; st=Station.objects.get(pk=int(os.environ['STATION_ID'])); print({'id': st.pk, 'name': st.name, 'mount_type': st.mount_type, 'AC_kW': st.capacity_ac_kw, 'DC_kW': st.capacity_dc_kw})"
+python3 manage.py shell -c "import os; from stations.models import Station; st=Station.objects.get(pk=int(os.environ['STATION_ID'])); print({'id': st.pk, 'name': st.name, 'mount_type': st.mount_type, 'AC_kW': st.capacity_ac_kw, 'DC_kW': st.capacity_dc_kw, 'axis_tilt': st.tracker_axis_tilt, 'axis_azimuth': st.tracker_axis_azimuth, 'max_angle': st.tracker_max_angle, 'gcr': st.tracker_gcr, 'backtrack': st.tracker_backtrack, 'pvlib_model': st.tracker_poa_model, 'albedo': st.tracker_albedo})"
 
 echo "=== 2) Переобучить модель станции ==="
 python3 manage.py train_station_models "$STATION_ID"
