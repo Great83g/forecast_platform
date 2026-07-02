@@ -345,6 +345,23 @@ class ForecastEngineMorningFeatureTests(TestCase):
         self.assertEqual(int(out.iloc[1]["sunrise_hour_flag"]), 0)
         self.assertAlmostEqual(float(out.iloc[1]["solar_ramp_factor"]), 1.0)
 
+    @override_settings(FORECAST_MORNING_IRR_BOOST=2.0)
+    def test_compute_features_can_skip_legacy_morning_boost_for_tracker_pvlib(self):
+        df = pd.DataFrame(
+            [
+                {"ds": pd.Timestamp("2026-06-01 06:00:00"), "irradiation": 100.0, "air_temp": 15.0, "wind_speed": 1.0},
+                {"ds": pd.Timestamp("2026-06-01 09:00:00"), "irradiation": 200.0, "air_temp": 18.0, "wind_speed": 1.0},
+            ]
+        )
+
+        legacy = _compute_features(df, capacity_mw=10.0, lat_deg=47.86)
+        tracker = _compute_features(df, capacity_mw=10.0, lat_deg=47.86, apply_legacy_morning_boost=False)
+
+        self.assertAlmostEqual(float(legacy.iloc[0]["Irradiation"]), 200.0)
+        self.assertAlmostEqual(float(legacy.iloc[1]["Irradiation"]), 400.0)
+        self.assertAlmostEqual(float(tracker.iloc[0]["Irradiation"]), 100.0)
+        self.assertAlmostEqual(float(tracker.iloc[1]["Irradiation"]), 200.0)
+
     def test_early_morning_history_cap_only_limits_0700_and_0800(self):
         user = User.objects.create_user(username="morning-cap", password="pass")
         org = Organization.objects.create(name="Morning Cap Org", owner=user)
