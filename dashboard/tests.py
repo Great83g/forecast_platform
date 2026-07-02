@@ -51,6 +51,7 @@ from dashboard.services.train_models import add_tracker_training_features
 from dashboard.services.train_models import _capacity_mw_from_fields
 
 from dashboard.services.tracker_pvlib_predict import add_features as add_tracker_predict_features
+from dashboard.services.tracker_pvlib_predict import _apply_morning_shape_correction
 from dashboard.services.tracker_pvlib_training import tracker_config_from_station
 from dashboard.views import (
     _build_forecast_plan_map,
@@ -1057,7 +1058,34 @@ class SingleAxisTrackerStationConfigTests(TestCase):
         self.assertEqual(captured["poa_model"], self.station.tracker_poa_model)
         self.assertEqual(captured["albedo"], self.station.tracker_albedo)
         self.assertIn("POA_pvlib", out.columns)
+        self.assertIn("solar_elevation", out.columns)
+        self.assertIn("solar_zenith", out.columns)
+        self.assertIn("solar_azimuth", out.columns)
+        self.assertIn("aoi", out.columns)
+        self.assertIn("is_morning", out.columns)
+        self.assertIn("morning_ramp", out.columns)
         self.assertIn("tracker_pvlib_baseline_mw", out.columns)
+
+    def test_morning_shape_correction_lifts_morning_and_preserves_daily_energy(self):
+        feat = pd.DataFrame(
+            {
+                "ds": pd.date_range("2026-06-23 05:00:00", periods=12, freq="h"),
+                "POA_pvlib": [80.0, 420.0, 620.0, 700.0, 780.0, 860.0, 900.0, 910.0, 880.0, 760.0, 600.0, 300.0],
+                "Irradiation_GHI": [60.0, 310.0, 480.0, 560.0, 650.0, 790.0, 850.0, 870.0, 820.0, 700.0, 520.0, 240.0],
+                "solar_elevation": [1.0, 8.0, 16.0, 25.0, 34.0, 45.0, 55.0, 60.0, 56.0, 48.0, 35.0, 18.0],
+                "tracker_theta": [55.0, 60.0, 58.0, 48.0, 30.0, 12.0, 0.0, -10.0, -28.0, -45.0, -55.0, -60.0],
+            }
+        )
+        final = np.array([2.0, 17.0, 35.0, 52.0, 70.0, 82.0, 84.0, 84.0, 82.0, 74.0, 60.0, 25.0])
+        baseline = np.array([4.0, 32.0, 48.0, 58.0, 68.0, 76.0, 82.0, 83.0, 80.0, 70.0, 55.0, 24.0])
+        hist = np.array([8.0, 60.0, 66.0, 64.0, 70.0, 78.0, 84.0, 83.0, 80.0, 70.0, 55.0, 24.0])
+
+        corrected = _apply_morning_shape_correction(final, baseline, hist, feat, capacity_mw=85.0)
+
+        self.assertGreater(corrected[1], final[1])
+        self.assertGreaterEqual(corrected[1], 50.0)
+        self.assertLessEqual(corrected.sum(), final.sum() * 1.02)
+        self.assertTrue(np.allclose(corrected[5:12], corrected[5:12].clip(max=85.0)))
 
 
 class SingleAxisTrackerPostProcessingTests(TestCase):
