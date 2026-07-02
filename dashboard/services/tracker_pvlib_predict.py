@@ -365,7 +365,8 @@ def postprocess(
             guarded[has_hist] = 0.85 * guarded[has_hist] + 0.15 * hist[has_hist]
             final[high_poa] = np.maximum(final[high_poa], guarded[high_poa] * 0.98)
 
-    final = _apply_morning_shape_correction(final, baseline, hist, feat, capacity_mw)
+    if bool(getattr(settings, "TRACKER_PVLIB_MORNING_SHAPE_CORRECTION_ENABLED", False)):
+        final = _apply_morning_shape_correction(final, baseline, hist, feat, capacity_mw)
 
     # adaptive evening fix: suppress late-day spikes when POA is falling/low.
     evening = (hours >= 17) & (hours <= 20)

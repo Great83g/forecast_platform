@@ -100,6 +100,10 @@ class Command(BaseCommand):
                     "solar_azimuth": row.get("solar_azimuth"),
                     "aoi": row.get("aoi", row.get("tracker_aoi")),
                     "y_expected": row.get("tracker_pvlib_baseline_mw"),
+                    "np_pred": forecast.forecast_np_mwh,
+                    "xgb_pred": forecast.forecast_xgb_mwh,
+                    "blend_pred": forecast.forecast_ensemble_base_mwh,
+                    "postprocess_pred": forecast.forecast_mwh,
                     "y_pred_final": (forecast.pred_final / 1000.0) if forecast.pred_final is not None else None,
                     "y_fact": (rec.power_kw / 1000.0) if rec and rec.power_kw is not None else None,
                     "error_mw": (
