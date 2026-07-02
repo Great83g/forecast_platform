@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+import sys
 from types import SimpleNamespace
 
 from django.contrib.auth.models import User
@@ -48,6 +49,10 @@ from dashboard.services.model_storage import (
 from dashboard.services.train_models import _prepare_xgb_training_frame, _station_model_dir as train_station_model_dir
 from dashboard.services.train_models import add_tracker_training_features
 from dashboard.services.train_models import _capacity_mw_from_fields
+
+from dashboard.services.tracker_pvlib_predict import add_features as add_tracker_predict_features
+from dashboard.services.tracker_pvlib_predict import _apply_morning_shape_correction, _predict_np
+from dashboard.services.tracker_pvlib_training import tracker_config_from_station
 from dashboard.views import (
     _build_forecast_plan_map,
     _forecast_export_filters,
@@ -964,6 +969,151 @@ class StationMountTypeTests(TestCase):
         self.assertTrue(_is_single_axis_tracker(tracker_with_dash))
 
 
+class SingleAxisTrackerStationConfigTests(TestCase):
+    def setUp(self):
+        user = User.objects.create_user(username="tracker-station-config", password="pass")
+        org = Organization.objects.create(name="Tracker Config Org", owner=user)
+        self.station = Station.objects.create(
+            org=org,
+            name="Tracker 100 MW",
+            mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
+            latitude=43.598,
+            longitude=73.761,
+            timezone="Asia/Almaty",
+            tracker_axis_tilt=0.0,
+            tracker_axis_azimuth=0.0,
+            tracker_max_angle=60.0,
+            tracker_gcr=0.3105,
+            tracker_backtrack=True,
+            tracker_poa_model="perez",
+            tracker_albedo=0.20,
+            capacity_mw=84.0,
+            capacity_ac_kw=85000,
+            capacity_dc_kw=100000,
+        )
+
+    def test_tracker_config_uses_station_values_for_real_params(self):
+        cfg = tracker_config_from_station(self.station)
+
+        self.assertEqual(cfg.axis_tilt, 0.0)
+        self.assertEqual(cfg.axis_azimuth, 0.0)
+        self.assertEqual(cfg.max_angle, 60.0)
+        self.assertEqual(cfg.gcr, 0.3105)
+        self.assertIs(cfg.backtrack, True)
+        self.assertEqual(cfg.model, "perez")
+        self.assertEqual(cfg.albedo, 0.20)
+
+    def test_predict_pvlib_features_pass_station_tracker_values_to_singleaxis(self):
+        captured = {}
+
+        def fake_singleaxis(**kwargs):
+            captured.update(kwargs)
+            idx = kwargs["apparent_zenith"].index
+            return pd.DataFrame(
+                {
+                    "tracker_theta": np.zeros(len(idx)),
+                    "aoi": np.zeros(len(idx)),
+                    "surface_tilt": np.full(len(idx), 12.0),
+                    "surface_azimuth": np.full(len(idx), 180.0),
+                },
+                index=idx,
+            )
+
+        def fake_get_total_irradiance(**kwargs):
+            captured["poa_model"] = kwargs["model"]
+            captured["albedo"] = kwargs["albedo"]
+            idx = kwargs["ghi"].index
+            return pd.DataFrame({"poa_global": np.full(len(idx), 800.0)}, index=idx)
+
+        fake_pvlib = SimpleNamespace(
+            solarposition=SimpleNamespace(
+                get_solarposition=lambda times, latitude, longitude: pd.DataFrame(
+                    {"apparent_zenith": np.full(len(times), 30.0), "azimuth": np.full(len(times), 180.0)},
+                    index=times,
+                )
+            ),
+            irradiance=SimpleNamespace(
+                erbs=lambda ghi, zenith, times: pd.DataFrame(
+                    {"dni": np.full(len(times), 700.0), "dhi": np.full(len(times), 100.0)},
+                    index=times,
+                ),
+                get_extra_radiation=lambda times: pd.Series(np.full(len(times), 1367.0), index=times),
+                get_total_irradiance=fake_get_total_irradiance,
+            ),
+            atmosphere=SimpleNamespace(
+                get_relative_airmass=lambda zenith: pd.Series(np.ones(len(zenith)), index=zenith.index)
+            ),
+            tracking=SimpleNamespace(singleaxis=fake_singleaxis),
+        )
+        feat = pd.DataFrame({"ds": pd.to_datetime(["2026-06-01 12:00:00"]), "Irradiation": [900.0]})
+
+        with patch.dict(sys.modules, {"pvlib": fake_pvlib}):
+            out = add_tracker_predict_features(feat, self.station, capacity_mw=85.0)
+
+        self.assertEqual(captured["axis_tilt"], self.station.tracker_axis_tilt)
+        self.assertEqual(captured["axis_azimuth"], self.station.tracker_axis_azimuth)
+        self.assertEqual(captured["max_angle"], self.station.tracker_max_angle)
+        self.assertEqual(captured["gcr"], self.station.tracker_gcr)
+        self.assertEqual(captured["backtrack"], self.station.tracker_backtrack)
+        self.assertEqual(captured["poa_model"], self.station.tracker_poa_model)
+        self.assertEqual(captured["albedo"], self.station.tracker_albedo)
+        self.assertIn("POA_pvlib", out.columns)
+        self.assertIn("solar_elevation", out.columns)
+        self.assertIn("solar_zenith", out.columns)
+        self.assertIn("solar_azimuth", out.columns)
+        self.assertIn("aoi", out.columns)
+        self.assertIn("is_morning", out.columns)
+        self.assertIn("morning_ramp", out.columns)
+        self.assertIn("tracker_pvlib_baseline_mw", out.columns)
+
+    def test_morning_shape_correction_lifts_morning_and_preserves_daily_energy(self):
+        feat = pd.DataFrame(
+            {
+                "ds": pd.date_range("2026-06-23 05:00:00", periods=12, freq="h"),
+                "POA_pvlib": [80.0, 420.0, 620.0, 700.0, 780.0, 860.0, 900.0, 910.0, 880.0, 760.0, 600.0, 300.0],
+                "Irradiation_GHI": [60.0, 310.0, 480.0, 560.0, 650.0, 790.0, 850.0, 870.0, 820.0, 700.0, 520.0, 240.0],
+                "solar_elevation": [1.0, 8.0, 16.0, 25.0, 34.0, 45.0, 55.0, 60.0, 56.0, 48.0, 35.0, 18.0],
+                "tracker_theta": [55.0, 60.0, 58.0, 48.0, 30.0, 12.0, 0.0, -10.0, -28.0, -45.0, -55.0, -60.0],
+            }
+        )
+        final = np.array([2.0, 17.0, 35.0, 52.0, 70.0, 82.0, 84.0, 84.0, 82.0, 74.0, 60.0, 25.0])
+        baseline = np.array([4.0, 32.0, 48.0, 58.0, 68.0, 76.0, 82.0, 83.0, 80.0, 70.0, 55.0, 24.0])
+        hist = np.array([8.0, 60.0, 66.0, 64.0, 70.0, 78.0, 84.0, 83.0, 80.0, 70.0, 55.0, 24.0])
+
+        corrected = _apply_morning_shape_correction(final, baseline, hist, feat, capacity_mw=85.0)
+
+        self.assertGreater(corrected[1], final[1])
+        self.assertGreaterEqual(corrected[1], 50.0)
+        self.assertLessEqual(corrected.sum(), final.sum() * 1.02)
+        self.assertTrue(np.allclose(corrected[5:12], corrected[5:12].clip(max=85.0)))
+
+    def test_np_predict_drops_regressors_not_declared_by_model(self):
+        class FakeNPModel:
+            config_regressors = SimpleNamespace(regressors={"Irradiation_GHI": object(), "POA_pvlib": object()})
+
+            def __init__(self):
+                self.columns_seen = None
+
+            def predict(self, df):
+                self.columns_seen = list(df.columns)
+                return pd.DataFrame({"ds": df["ds"], "yhat1": [1.25] * len(df)})
+
+        model = FakeNPModel()
+        feat = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-06-23 06:00:00"]),
+                "Irradiation_GHI": [912.0],
+                "POA_pvlib": [958.0],
+                "Wind_Speed": [3.5],
+            }
+        )
+
+        out = _predict_np(model, feat, ["Irradiation_GHI", "POA_pvlib", "Wind_Speed"], {})
+
+        self.assertEqual(list(out), [1.25])
+        self.assertEqual(model.columns_seen, ["ds", "y", "Irradiation_GHI", "POA_pvlib"])
+
+
 class SingleAxisTrackerPostProcessingTests(TestCase):
     def setUp(self):
         user = User.objects.create_user(username="tracker", password="pass")
@@ -1032,7 +1182,7 @@ class TrackerMiddayFloorTests(TestCase):
         org = Organization.objects.create(name="Shu Org", owner=user)
         self.station = Station.objects.create(
             org=org,
-            name="Shu 100 MW",
+            name="Tracker 100 MW",
             mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
             capacity_mw=84.0,
             capacity_ac_kw=85000,
@@ -1093,7 +1243,7 @@ class ForecastModeDiagnosticsTests(TestCase):
         org = Organization.objects.create(name="Diag Org", owner=user)
         station = Station.objects.create(
             org=org,
-            name="Shu 100 MW",
+            name="Tracker 100 MW",
             mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER,
             capacity_mw=84.0,
             capacity_ac_kw=85000,
