@@ -200,6 +200,63 @@ def historical_analog_pvlib_poa(feat: pd.DataFrame, station: Station, capacity_m
     return np.asarray(out, dtype=float)
 
 
+
+def _apply_morning_shape_correction(
+    final: np.ndarray,
+    baseline: np.ndarray,
+    hist: np.ndarray,
+    feat: pd.DataFrame,
+    capacity_mw: float,
+) -> np.ndarray:
+    """Lift tracker mornings from station history/POA and redistribute excess.
+
+    This is intentionally limited to 05:00-09:00 and does not change the
+    physical PR curve.  If it adds daily energy, the excess is shaved from
+    10:00-16:00 hours where the forecast is already above the pvlib baseline.
+    """
+    out = np.asarray(final, dtype=float).copy()
+    before = out.copy()
+    hours = pd.to_datetime(feat["ds"]).dt.hour.astype(int).to_numpy()
+    dates = pd.to_datetime(feat["ds"]).dt.date.to_numpy()
+    poa = pd.to_numeric(feat.get("POA_pvlib"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    ghi = pd.to_numeric(
+        feat.get("Irradiation_GHI", feat.get("Irradiation", pd.Series(0.0, index=feat.index))),
+        errors="coerce",
+    ).fillna(0.0).to_numpy(dtype=float)
+    elev = pd.to_numeric(
+        feat.get("solar_elevation", feat.get("sun_elev_deg", pd.Series(0.0, index=feat.index))),
+        errors="coerce",
+    ).fillna(0.0).to_numpy(dtype=float)
+    theta = pd.to_numeric(feat.get("tracker_theta", pd.Series(0.0, index=feat.index)), errors="coerce").abs().fillna(0.0).to_numpy(dtype=float)
+
+    morning = (hours >= 5) & (hours <= 9) & (elev > -2.0) & ((poa >= 25.0) | (ghi >= 50.0) | (baseline > 0.0))
+    ramp = np.maximum.reduce([np.clip((elev + 2.0) / 28.0, 0.0, 1.0), np.clip(theta / 60.0, 0.0, 1.0), np.clip(poa / 500.0, 0.0, 1.0)])
+    hist_ok = np.isfinite(hist) & (hist > 0.0)
+    hist_target = np.where(hist_ok, hist * (0.72 + 0.18 * ramp), 0.0)
+    pvlib_target = baseline * (1.02 + 0.18 * ramp)
+    target = np.maximum(hist_target, pvlib_target)
+    # Without station history, stay close to the physical pvlib baseline.
+    target = np.where(hist_ok, target, np.minimum(target, baseline * 1.22))
+    out[morning] = np.maximum(out[morning], target[morning])
+
+    # Preserve daily energy shape: any added morning MWh is redistributed from
+    # 10:00-16:00 hours that are above a conservative pvlib floor.
+    for day in sorted(set(dates)):
+        day_mask = dates == day
+        added = float(np.nansum(out[day_mask] - before[day_mask]))
+        if added <= max(0.015 * float(np.nansum(before[day_mask])), 0.01):
+            continue
+        midday = day_mask & (hours >= 10) & (hours <= 16)
+        floor = baseline * 0.92
+        reducible = np.maximum(out - floor, 0.0)
+        reducible[~midday] = 0.0
+        total_reducible = float(np.nansum(reducible))
+        if total_reducible <= 0.0:
+            continue
+        shave = min(added, total_reducible)
+        out[midday] -= reducible[midday] / total_reducible * shave
+    return np.clip(np.nan_to_num(out, nan=0.0), 0.0, capacity_mw)
+
 def postprocess(
     feat: pd.DataFrame,
     station: Station,
@@ -278,6 +335,8 @@ def postprocess(
             guarded = baseline.copy()
             guarded[has_hist] = 0.85 * guarded[has_hist] + 0.15 * hist[has_hist]
             final[high_poa] = np.maximum(final[high_poa], guarded[high_poa] * 0.98)
+
+    final = _apply_morning_shape_correction(final, baseline, hist, feat, capacity_mw)
 
     # adaptive evening fix: suppress late-day spikes when POA is falling/low.
     evening = (hours >= 17) & (hours <= 20)
