@@ -24,8 +24,8 @@ python3 manage.py check
 echo "=== 5) Проверка миграций ==="
 python3 manage.py makemigrations --check --dry-run
 
-echo "=== 6) Показать станцию Shu 100 MW в БД ==="
-python3 manage.py shell -c "from stations.models import Station; qs=Station.objects.filter(name__icontains='Shu'); print(list(qs.values('id','name','mount_type','capacity_ac_kw','capacity_dc_kw')[:20]))"
+echo "=== 6) Показать single-axis tracker станции в БД ==="
+python3 manage.py shell -c "from stations.models import Station; qs=Station.objects.filter(station_kind=Station.KIND_SOLAR, mount_type=Station.MOUNT_SINGLE_AXIS_TRACKER).order_by('id'); print(list(qs.values('id','name','mount_type','capacity_ac_kw','capacity_dc_kw','tracker_axis_tilt','tracker_axis_azimuth','tracker_max_angle','tracker_gcr','tracker_backtrack','tracker_poa_model','tracker_albedo')[:100]))"
 
 echo "=== 7) Диагностика operational/postfact за 25-31 мая ==="
 python3 manage.py compare_solar_forecast_modes \
