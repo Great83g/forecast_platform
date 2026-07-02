@@ -51,7 +51,7 @@ from dashboard.services.train_models import add_tracker_training_features
 from dashboard.services.train_models import _capacity_mw_from_fields
 
 from dashboard.services.tracker_pvlib_predict import add_features as add_tracker_predict_features
-from dashboard.services.tracker_pvlib_predict import _apply_morning_shape_correction
+from dashboard.services.tracker_pvlib_predict import _apply_morning_shape_correction, _predict_np
 from dashboard.services.tracker_pvlib_training import tracker_config_from_station
 from dashboard.views import (
     _build_forecast_plan_map,
@@ -1086,6 +1086,32 @@ class SingleAxisTrackerStationConfigTests(TestCase):
         self.assertGreaterEqual(corrected[1], 50.0)
         self.assertLessEqual(corrected.sum(), final.sum() * 1.02)
         self.assertTrue(np.allclose(corrected[5:12], corrected[5:12].clip(max=85.0)))
+
+    def test_np_predict_drops_regressors_not_declared_by_model(self):
+        class FakeNPModel:
+            config_regressors = SimpleNamespace(regressors={"Irradiation_GHI": object(), "POA_pvlib": object()})
+
+            def __init__(self):
+                self.columns_seen = None
+
+            def predict(self, df):
+                self.columns_seen = list(df.columns)
+                return pd.DataFrame({"ds": df["ds"], "yhat1": [1.25] * len(df)})
+
+        model = FakeNPModel()
+        feat = pd.DataFrame(
+            {
+                "ds": pd.to_datetime(["2026-06-23 06:00:00"]),
+                "Irradiation_GHI": [912.0],
+                "POA_pvlib": [958.0],
+                "Wind_Speed": [3.5],
+            }
+        )
+
+        out = _predict_np(model, feat, ["Irradiation_GHI", "POA_pvlib", "Wind_Speed"], {})
+
+        self.assertEqual(list(out), [1.25])
+        self.assertEqual(model.columns_seen, ["ds", "y", "Irradiation_GHI", "POA_pvlib"])
 
 
 class SingleAxisTrackerPostProcessingTests(TestCase):

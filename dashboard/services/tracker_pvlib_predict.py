@@ -98,7 +98,33 @@ def _load_xgb(path: Path) -> tuple[Any | None, str]:
         return None, ""
 
 
+def _model_expected_np_regressors(model: Any) -> list[str] | None:
+    config_regs = getattr(model, "config_regressors", None)
+    if config_regs is None:
+        return None
+    regs = getattr(config_regs, "regressors", config_regs)
+    if isinstance(regs, dict):
+        return list(regs.keys())
+    if isinstance(regs, (list, tuple, set)):
+        return list(regs)
+    return None
+
+
 def _predict_np(model: Any, feat: pd.DataFrame, reg_cols: list[str], fill_map: dict[str, Any]) -> np.ndarray:
+    requested_regs = list(reg_cols or [])
+    expected_regs = _model_expected_np_regressors(model)
+    if expected_regs is not None:
+        dropped = [col for col in requested_regs if col not in expected_regs]
+        missing_from_request = [col for col in expected_regs if col not in requested_regs]
+        if dropped:
+            logger.warning("[TRACKER_PREDICT][NP] dropped extra regressors not in model config: %s", dropped)
+        if missing_from_request:
+            logger.warning("[TRACKER_PREDICT][NP] model regressors missing from metadata; will fill defaults: %s", missing_from_request)
+        reg_cols = expected_regs
+    else:
+        dropped = []
+        reg_cols = requested_regs
+
     dfp = pd.DataFrame({"ds": pd.to_datetime(feat["ds"]), "y": np.nan})
     for col in reg_cols:
         default = fill_map.get(col, 0.0) if isinstance(fill_map, dict) else 0.0
@@ -107,6 +133,9 @@ def _predict_np(model: Any, feat: pd.DataFrame, reg_cols: list[str], fill_map: d
         else:
             series = pd.Series(default, index=feat.index)
         dfp[col] = series.fillna(float(default)).to_numpy()
+    logger.info("[TRACKER_PREDICT][NP] expected regressors: %s", expected_regs if expected_regs is not None else reg_cols)
+    logger.info("[TRACKER_PREDICT][NP] predict dataframe columns: %s", list(dfp.columns))
+    logger.info("[TRACKER_PREDICT][NP] dropped extra columns: %s", dropped)
     fcst = model.predict(dfp)
     yhat_col = "yhat1" if "yhat1" in fcst.columns else next((c for c in fcst.columns if c.startswith("yhat")), None)
     if yhat_col is None:
