@@ -28,7 +28,7 @@ if [ -z "$STATION_ID" ]; then
   exit 1
 fi
 export STATION_ID
-python3 manage.py shell -c "import os; from stations.models import Station; st=Station.objects.get(pk=int(os.environ['STATION_ID'])); print({'id': st.pk, 'name': st.name, 'mount_type': st.mount_type, 'AC_kW': st.capacity_ac_kw, 'DC_kW': st.capacity_dc_kw})"
+python3 manage.py shell -c "import os; from stations.models import Station; st=Station.objects.get(pk=int(os.environ['STATION_ID'])); actual={'tracker_axis_tilt': st.tracker_axis_tilt, 'tracker_axis_azimuth': st.tracker_axis_azimuth, 'tracker_max_angle': st.tracker_max_angle, 'tracker_gcr': st.tracker_gcr, 'tracker_backtrack': st.tracker_backtrack, 'tracker_poa_model': st.tracker_poa_model, 'tracker_albedo': st.tracker_albedo}; print({'id': st.pk, 'name': st.name, 'mount_type': st.mount_type, 'AC_kW': st.capacity_ac_kw, 'DC_kW': st.capacity_dc_kw, **actual}); expected={'tracker_axis_tilt': 0.0, 'tracker_axis_azimuth': 0.0, 'tracker_max_angle': 60.0, 'tracker_gcr': 0.3105, 'tracker_backtrack': True, 'tracker_poa_model': 'perez', 'tracker_albedo': 0.2}; bad={k: (actual[k], v) for k, v in expected.items() if actual[k] != v}; print({'SHU_TRACKER_PARAM_MISMATCH': bad} if bad else {'SHU_TRACKER_PARAMS_OK': expected})"
 
 echo "=== 2) Переобучить модель станции ==="
 python3 manage.py train_station_models "$STATION_ID"
