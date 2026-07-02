@@ -1033,7 +1033,13 @@ def _add_sun_geometry(df: pd.DataFrame, lat_deg: float) -> pd.DataFrame:
     return df
 
 
-def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> pd.DataFrame:
+def _compute_features(
+    df: pd.DataFrame,
+    capacity_mw: float,
+    lat_deg: float,
+    *,
+    apply_legacy_morning_boost: bool = True,
+) -> pd.DataFrame:
     """
     Генерим фичи под ожидаемый набор XGB/NP (v16 residual).
     """
@@ -1056,11 +1062,14 @@ def _compute_features(df: pd.DataFrame, capacity_mw: float, lat_deg: float) -> p
     noise_floor = _forecast_irradiation_noise_floor_wm2()
     out.loc[out["Irradiation"] < noise_floor, "Irradiation"] = 0.0
 
-    # Мягкий прогнозный boost оставляем только для 06:00/09:00.
-    # 07:00/08:00 больше не усиливаем: именно эти часы склонны к завышению.
-    morning_boost = _forecast_morning_irradiation_boost()
-    morning_mask = out["hour"].isin([6, 9]) & (out["Irradiation"] > 0)
-    out.loc[morning_mask, "Irradiation"] = out.loc[morning_mask, "Irradiation"] * morning_boost
+    # Legacy fixed/GHI morning irradiation boost is intentionally skipped for
+    # pvlib single-axis tracker stations.  Tracker plants use GHI -> pvlib POA
+    # plus tracker geometry; boosting GHI before pvlib double-counts the morning
+    # shape correction and can over-lift 05:00-09:00 after retrain.
+    if apply_legacy_morning_boost:
+        morning_boost = _forecast_morning_irradiation_boost()
+        morning_mask = out["hour"].isin([6, 9]) & (out["Irradiation"] > 0)
+        out.loc[morning_mask, "Irradiation"] = out.loc[morning_mask, "Irradiation"] * morning_boost
 
     out["sunrise_hour_flag"] = out["hour"].between(6, 8).astype(int)
     ramp_map = {6: 0.35, 7: 0.65, 8: 0.90}
@@ -1687,7 +1696,12 @@ def run_forecast_for_station(
         base = _make_base_grid(days=effective_days, solar_hours=solar_hours)
     merged = _merge_weather_with_hourly_profile_fallback(base, weather_df)
     lat_deg = float(lat) if lat is not None else 47.86
-    feat = _compute_features(merged, capacity_mw, lat_deg)
+    feat = _compute_features(
+        merged,
+        capacity_mw,
+        lat_deg,
+        apply_legacy_morning_boost=not _is_single_axis_tracker(st),
+    )
     feat = _compute_winter_factors(feat)
 
     if target_dates:

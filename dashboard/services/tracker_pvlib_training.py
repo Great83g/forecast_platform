@@ -46,11 +46,17 @@ TRACKER_XGB_FEATURES = [
     "month_sin",
     "month_cos",
     "sun_elev_deg",
+    "solar_elevation",
+    "solar_zenith",
+    "solar_azimuth",
     "low_sun_flag",
     "tracker_theta",
     "tracker_aoi",
+    "aoi",
     "tracker_surface_tilt",
     "tracker_surface_azimuth",
+    "is_morning",
+    "morning_ramp",
     "tracker_pvlib_baseline_mw",
     "tracker_pvlib_baseline_log",
 ]
@@ -67,14 +73,20 @@ TRACKER_NP_REGRESSORS = [
     "month_cos",
     "is_clear",
     "sun_elev_deg",
+    "solar_elevation",
+    "solar_zenith",
+    "solar_azimuth",
     "low_sun_flag",
     "sunrise_hour_flag",
     "solar_ramp_factor",
     "irradiation_x_ramp",
     "tracker_theta",
     "tracker_aoi",
+    "aoi",
     "tracker_surface_tilt",
     "tracker_surface_azimuth",
+    "is_morning",
+    "morning_ramp",
     "tracker_pvlib_baseline_mw",
     "tracker_pvlib_baseline_log",
 ]
@@ -175,6 +187,7 @@ def add_pvlib_tracker_poa(
     solar_position = pvlib.solarposition.get_solarposition(times, cfg.latitude, cfg.longitude)
     zenith = solar_position["apparent_zenith"].clip(lower=0.0, upper=180.0)
     azimuth = solar_position["azimuth"]
+    solar_elevation = (90.0 - zenith).clip(lower=-90.0, upper=90.0)
 
     erbs = pvlib.irradiance.erbs(ghi, zenith, times)
     dni = pd.to_numeric(erbs["dni"], errors="coerce").fillna(0.0).clip(lower=0.0)
@@ -210,8 +223,12 @@ def add_pvlib_tracker_poa(
     out[output_col] = poa.to_numpy(dtype=float)
     out["DNI_erbs"] = dni.to_numpy(dtype=float)
     out["DHI_erbs"] = dhi.to_numpy(dtype=float)
+    out["solar_elevation"] = pd.to_numeric(solar_elevation, errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    out["solar_zenith"] = pd.to_numeric(zenith, errors="coerce").fillna(180.0).to_numpy(dtype=float)
+    out["solar_azimuth"] = pd.to_numeric(azimuth, errors="coerce").fillna(0.0).to_numpy(dtype=float)
     out["tracker_theta"] = pd.to_numeric(tracking.get("tracker_theta"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
     out["tracker_aoi"] = pd.to_numeric(tracking.get("aoi"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    out["aoi"] = out["tracker_aoi"]
     out["tracker_surface_tilt"] = pd.to_numeric(tracking.get("surface_tilt"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
     out["tracker_surface_azimuth"] = pd.to_numeric(tracking.get("surface_azimuth"), errors="coerce").fillna(0.0).to_numpy(dtype=float)
     return out
@@ -260,6 +277,24 @@ def apply_tracker_baseline_from_meta(df: pd.DataFrame, cap_mw: float, meta: dict
     return out
 
 
+
+def add_tracker_geometry_time_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add morning shape features shared by tracker train and predict."""
+    out = df.copy()
+    hours = pd.to_datetime(out["ds"], errors="coerce").dt.hour.fillna(0).astype(int)
+    solar_elev = pd.to_numeric(
+        out.get("solar_elevation", out.get("sun_elev_deg", pd.Series(0.0, index=out.index))),
+        errors="coerce",
+    ).fillna(0.0)
+    theta_abs = pd.to_numeric(out.get("tracker_theta", pd.Series(0.0, index=out.index)), errors="coerce").abs().fillna(0.0)
+    poa = pd.to_numeric(out.get("POA_pvlib", pd.Series(0.0, index=out.index)), errors="coerce").fillna(0.0)
+    out["is_morning"] = hours.between(5, 9).astype(int)
+    elev_ramp = np.clip((solar_elev + 2.0) / 28.0, 0.0, 1.0)
+    theta_ramp = np.clip(theta_abs / 60.0, 0.0, 1.0)
+    poa_ramp = np.clip(poa / 500.0, 0.0, 1.0)
+    out["morning_ramp"] = np.where(out["is_morning"].astype(bool), np.maximum.reduce([elev_ramp, theta_ramp, poa_ramp]), 0.0)
+    return out
+
 def add_tracker_prediction_features(
     df: pd.DataFrame,
     station: Station,
@@ -270,6 +305,7 @@ def add_tracker_prediction_features(
     out = df.copy()
     out["Irradiation_GHI"] = pd.to_numeric(out.get("Irradiation"), errors="coerce").fillna(0.0)
     out = add_pvlib_tracker_poa(out, station, ghi_col="Irradiation_GHI")
+    out = add_tracker_geometry_time_features(out)
     out = apply_tracker_baseline_from_meta(out, capacity_mw, meta)
     return out
 
@@ -337,6 +373,8 @@ def train_tracker_pvlib_models_for_station(station: Station) -> Tuple[int, Path 
         return 0, None, None
 
     cap_mw = station_capacity_mw(station, df)
+    cfg = tracker_config_from_station(station)
+    print(f"[TRACKER_PVLIB_TRAIN] station {station.pk} {station.name}: pvlib={cfg.as_meta()}")
     pr = float(getattr(station, "pr_default", PR_FOR_EXPECTED) or PR_FOR_EXPECTED)
     pr = float(np.clip(pr, 0.10, 1.00))
     lat = float(getattr(station, "latitude", 47.86) or 47.86)
@@ -346,6 +384,7 @@ def train_tracker_pvlib_models_for_station(station: Station) -> Tuple[int, Path 
     df = add_common_features(df, cap_mw, "ds")
     df = add_sun_geometry(df, "ds", lat)
     df = add_pvlib_tracker_poa(df, station, ghi_col="Irradiation_GHI")
+    df = add_tracker_geometry_time_features(df)
     df, baseline_meta = _add_tracker_baseline(df, cap_mw, pr)
 
     df["POA_pvlib_error"] = df["POA_pvlib"] - df["POA_real_diagnostic"]
