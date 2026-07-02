@@ -71,6 +71,11 @@
             Ветер
           </a>
         </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'virtual_ess:station-list' %}">
+            Virtual ESS
+          </a>
+        </li>
         {% if request.user.is_authenticated %}
           <li class="nav-item">
             <span class="nav-link">

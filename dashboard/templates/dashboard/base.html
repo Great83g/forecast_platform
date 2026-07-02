@@ -133,6 +133,9 @@
         <a class="btn btn-sm {% if request.path|slice:":18" == "/solar-calculator/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'solar_calculator:page' %}" title="Solar Calculator">
           🧮 <span>Калькулятор</span>
         </a>
+        <a class="btn btn-sm {% if request.path|slice:":13" == "/virtual-ess/" %}btn-light{% else %}btn-outline-light{% endif %}" href="{% url 'virtual_ess:station-list' %}" title="Virtual ESS">
+          🔋 <span>Virtual ESS</span>
+        </a>
       </div>
 
       {% if user.is_authenticated %}

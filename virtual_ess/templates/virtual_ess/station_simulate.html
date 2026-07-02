@@ -1,0 +1,84 @@
+{% extends "dashboard/base.html" %}
+{% block page_title %}Симуляция ESS — {{ station.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="m-0">Симуляция Virtual ESS</h2>
+    <div class="text-muted">Станция: {{ station.name }}</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{% url 'virtual_ess:station-list' %}">Назад к станциям</a>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-semibold">Выбранная ESS</div>
+      <div class="card-body">
+        {% if ess_config %}
+          <dl class="row mb-0">
+            <dt class="col-6">Название</dt><dd class="col-6">{{ ess_config.name }}</dd>
+            <dt class="col-6">Мощность</dt><dd class="col-6">{{ ess_config.power_mw }} МВт</dd>
+            <dt class="col-6">Емкость</dt><dd class="col-6">{{ ess_config.capacity_mwh }} МВт·ч</dd>
+            <dt class="col-6">PCS</dt><dd class="col-6">{{ ess_config.pcs_power_mw }} МВт</dd>
+            <dt class="col-6">SOC</dt><dd class="col-6">{{ ess_config.soc_initial_percent }}% ({{ ess_config.soc_min_percent }}–{{ ess_config.soc_max_percent }}%)</dd>
+            <dt class="col-6">КПД</dt><dd class="col-6">заряд {{ ess_config.charge_efficiency }}, разряд {{ ess_config.discharge_efficiency }}</dd>
+            <dt class="col-6">Шаг</dt><dd class="col-6">{{ ess_config.timestep_minutes }} минут</dd>
+          </dl>
+        {% else %}
+          <div class="alert alert-warning mb-0">
+            Для станции еще нет ESS config. Сначала откройте настройки и сохраните параметры виртуальной ESS.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <form method="post" class="card shadow-sm mb-3">
+      {% csrf_token %}
+      <div class="card-header fw-semibold">Запуск симуляции</div>
+      <div class="card-body">
+        <p class="text-muted">Этап 3: кнопка создает ESSSimulationRun, загружает прогноз и факт, рассчитывает виртуальную ESS по ограничениям мощности/PCS/SOC/КПД и сохраняет точки результата. Графики пока не выполняются.</p>
+        {% include "virtual_ess/_form_field.html" with field=form.date_from %}
+        {% include "virtual_ess/_form_field.html" with field=form.date_to %}
+        {% include "virtual_ess/_form_field.html" with field=form.simulation_type %}
+      </div>
+      <div class="card-footer text-end">
+        <button class="btn btn-success" type="submit" {% if not ess_config %}disabled{% endif %}>Запустить симуляцию</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-header fw-semibold">Последние запуски</div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>ESS</th>
+          <th>Тип</th>
+          <th>Период</th>
+          <th>Статус</th>
+          <th>Создано</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in recent_runs %}
+          <tr>
+            <td><a href="{% url 'virtual_ess:run-detail' run.id %}">{{ run.id }}</a></td>
+            <td>{{ run.ess_config.name|default:"—" }}</td>
+            <td>{{ run.get_simulation_type_display }}</td>
+            <td>{{ run.date_from }} — {{ run.date_to }}</td>
+            <td><span class="badge text-bg-secondary">{{ run.status }}</span></td>
+            <td>{{ run.created_at }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="text-muted">Запусков пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
