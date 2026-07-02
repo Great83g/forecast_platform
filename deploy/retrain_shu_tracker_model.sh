@@ -19,7 +19,7 @@ echo "=== 1) Найти станцию ==="
 # our output. Print a unique marker and parse only that line, otherwise the banner
 # gets captured into STATION_ID and breaks integer lookups.
 STATION_ID="$(
-  python3 manage.py shell -c "import os; from stations.models import Station; name=os.environ['STATION_NAME']; st=Station.objects.filter(name=name).first() or Station.objects.filter(name__icontains=name).first(); print(f'__STATION_ID__={st.pk if st else ""}')" \
+  python3 manage.py shell -c 'import os; from stations.models import Station; name=os.environ["STATION_NAME"]; st=Station.objects.filter(name=name).first() or Station.objects.filter(name__icontains=name).first(); print("__STATION_ID__=%s" % (st.pk if st else ""))' \
     | sed -n 's/^__STATION_ID__=//p' \
     | tail -n 1
 )"
