@@ -13,6 +13,8 @@
 set -euo pipefail
 
 cd ~/forecast_platform
+LOG_FILE="deploy_irradiation_$(date +%Y%m%d_%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "=== 0) Активировать venv ==="
 source venv/bin/activate
@@ -67,9 +69,47 @@ PY
 echo "=== 8) Рестарт backend-сервиса ==="
 sudo systemctl restart forecast_portal.service
 
-echo "=== 9) Статус backend-сервиса ==="
-sudo systemctl status forecast_portal.service --no-pager -l | tail -n 60
+echo "=== 9) Проверка, что backend-сервис активен ==="
+if sudo systemctl is-active --quiet forecast_portal.service; then
+  echo "OK: forecast_portal.service active"
+else
+  echo "ERROR: forecast_portal.service не активен. Последние логи:"
+  sudo journalctl -u forecast_portal.service -n 120 --no-pager
+  exit 1
+fi
+
+echo "=== 10) Последние строки статуса сервиса (информационно, без остановки скрипта) ==="
+sudo systemctl status forecast_portal.service --no-pager -l | tail -n 60 || true
+
+echo "=== ГОТОВО ==="
+echo "Лог деплоя сохранён в: $LOG_FILE"
 ```
+
+## Если в конце были красные строки
+
+Красный текст в конце не всегда означает проблему с миграциями. Например, `systemctl status` может печатать цветные строки из статуса или логов сервиса. В обновлённом сценарии выше:
+
+- весь вывод сохраняется в файл `deploy_irradiation_YYYYMMDD_HHMMSS.log`;
+- после рестарта сервис проверяется через `systemctl is-active --quiet`;
+- информационный вывод `systemctl status | tail` больше не останавливает скрипт, если сам сервис уже активен.
+
+Чтобы быстро проверить уже применённый сервер, выполните:
+
+```bash
+cd ~/forecast_platform
+source venv/bin/activate
+
+python manage.py showmigrations stations solar | tail -n 60
+python manage.py shell <<'PY'
+from solar.models import SolarRecord
+from stations.models import Station
+print([f.name for f in SolarRecord._meta.fields if "irradiation" in f.name])
+print("Station.irradiation_type:", any(f.name == "irradiation_type" for f in Station._meta.fields))
+PY
+sudo systemctl is-active forecast_portal.service
+```
+
+Ожидаемый результат: в `showmigrations` нужные миграции отмечены `[X]`, в shell видны `irradiation`, `irradiation_ghi`, `irradiation_poa`, а сервис печатает `active`.
 
 ## После деплоя
 
